@@ -409,7 +409,7 @@ internal fun AgentChatInputBar(
                             modifier = Modifier.weight(1f),
                             contentAlignment = Alignment.Center,
                         ) {
-                            AnimatedVisibility(
+                            androidx.compose.animation.AnimatedVisibility(
                                 visible = showMorphLoading,
                                 enter = fadeIn(tween(160)) + scaleIn(tween(180), initialScale = 0.82f),
                                 exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.82f),

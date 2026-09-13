@@ -51,6 +51,7 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.repository.ModelUsageModelUi
 import io.github.mangi.eta.data.repository.ModelUsageSnapshot
 import io.github.mangi.eta.data.repository.alignedToConversationTotals
+import io.github.mangi.eta.data.repository.scaledUsageTotal
 import io.github.mangi.eta.data.repository.UsageStatsRepository
 import io.github.mangi.eta.data.repository.UsageStatsSnapshot
 import io.github.mangi.eta.data.repository.formatStatCount
@@ -251,15 +252,11 @@ private fun ModelUsagePane(
             startBound.toMillis(endOfBound = false),
             endBound.toMillis(endOfBound = true),
         )
-        if (startBound.isSet || endBound.isSet) {
-            ranged
-        } else {
-            ranged.alignedToConversationTotals(
-                conversationInputTokens,
-                conversationOutputTokens,
-                conversationCachedTokens,
-            )
-        }
+        ranged.alignedToConversationTotals(
+            scaledUsageTotal(conversationInputTokens, ranged.totalInputTokens, usage.totalInputTokens),
+            scaledUsageTotal(conversationOutputTokens, ranged.totalOutputTokens, usage.totalOutputTokens),
+            scaledUsageTotal(conversationCachedTokens, ranged.totalInputTokens, usage.totalInputTokens),
+        )
     }
     Column(
         modifier = modifier,

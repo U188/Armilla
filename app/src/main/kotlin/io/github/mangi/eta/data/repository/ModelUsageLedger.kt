@@ -63,7 +63,7 @@ internal data class ModelUsageModelUi(
         val matched = events.filter { event ->
             (startMillis == null || event.atMillis >= startMillis) &&
                 (endMillis == null || event.atMillis <= endMillis)
-        }
+        }.collapsedByRound()
         if (matched.isEmpty()) return null
         val conversations = matched.mapNotNull { it.conversationId }.toSet()
         val days = matched.map { eventDay(it.atMillis) }.toSet()
@@ -313,4 +313,33 @@ internal fun distributeTotals(total: Long, weights: List<Long>): List<Long> {
     val raw = safe.map { total.coerceAtLeast(0L) * it / sum }
     val drift = total.coerceAtLeast(0L) - raw.sum()
     return raw.mapIndexed { index, value -> if (index == raw.lastIndex) value + drift else value }
+}
+
+internal fun List<ModelUsageEvent>.collapsedByRound(): List<ModelUsageEvent> {
+    if (isEmpty()) return this
+    val kept = ArrayList<ModelUsageEvent>(size)
+    val indexByKey = HashMap<String, Int>()
+    forEach { event ->
+        val round = event.round
+        val conversation = event.conversationId
+        if (round == null || conversation.isNullOrBlank()) {
+            kept += event
+        } else {
+            val key = "$conversation#$round"
+            val existing = indexByKey[key]
+            if (existing == null) {
+                indexByKey[key] = kept.size
+                kept += event
+            } else {
+                kept[existing] = event
+            }
+        }
+    }
+    return kept
+}
+
+internal fun scaledUsageTotal(conversationTotal: Long, filteredWeight: Long, wholeWeight: Long): Long {
+    if (conversationTotal <= 0L || filteredWeight <= 0L || wholeWeight <= 0L) return 0L
+    if (filteredWeight >= wholeWeight) return conversationTotal
+    return conversationTotal * filteredWeight / wholeWeight
 }

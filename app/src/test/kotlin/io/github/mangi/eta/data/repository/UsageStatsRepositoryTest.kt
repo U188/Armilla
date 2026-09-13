@@ -416,4 +416,56 @@ class UsageStatsRepositoryTest {
         assertEquals(listOf(3L, 3L, 4L), distributeTotals(10, listOf(1, 1, 1)))
         assertEquals(listOf(0L, 10L), distributeTotals(10, listOf(0, 0)))
     }
+
+    @Test
+    fun filteredModelUsageScalesConversationTotalsByEventShare() {
+        val zone = java.time.ZoneId.systemDefault()
+        val earlier = java.time.LocalDateTime.of(2026, 9, 12, 20, 0)
+            .atZone(zone).toInstant().toEpochMilli()
+        val later = java.time.LocalDateTime.of(2026, 9, 13, 12, 0)
+            .atZone(zone).toInstant().toEpochMilli()
+        val snapshot = decodeModelUsageSnapshot(
+            applyModelUsageDelta(
+                raw = applyModelUsageDelta(
+                    raw = null,
+                    delta = ModelUsageDelta(
+                        providerId = "fish",
+                        providerName = "魚",
+                        modelId = "grok-4.6",
+                        modelDisplayName = "grok-4.6",
+                        inputTokens = 20_000_000,
+                        outputTokens = 100_000,
+                        conversationId = "conv-1",
+                        atMillis = earlier,
+                    ),
+                ),
+                delta = ModelUsageDelta(
+                    providerId = "fish",
+                    providerName = "魚",
+                    modelId = "grok-4.6",
+                    modelDisplayName = "grok-4.6",
+                    inputTokens = 10_000_000,
+                    outputTokens = 50_000,
+                    conversationId = "conv-1",
+                    atMillis = later,
+                ),
+            ),
+        )
+        val start = java.time.LocalDateTime.of(2026, 9, 13, 0, 0)
+            .atZone(zone).toInstant().toEpochMilli()
+        val end = java.time.LocalDateTime.of(2026, 9, 13, 23, 59, 59, 999_000_000)
+            .atZone(zone).toInstant().toEpochMilli()
+        val ranged = snapshot.filtered(start, end)
+        val aligned = ranged.alignedToConversationTotals(
+            scaledUsageTotal(26_530_000, ranged.totalInputTokens, snapshot.totalInputTokens),
+            scaledUsageTotal(166_000, ranged.totalOutputTokens, snapshot.totalOutputTokens),
+            scaledUsageTotal(23_850_000, ranged.totalInputTokens, snapshot.totalInputTokens),
+        )
+        assertEquals(10_000_000L, ranged.totalInputTokens)
+        assertEquals(8_843_333L, aligned.totalInputTokens)
+        assertEquals(55_333L, aligned.totalOutputTokens)
+        assertEquals(7_950_000L, aligned.totalCachedTokens)
+        assertEquals(0L, scaledUsageTotal(26_530_000, 0, snapshot.totalInputTokens))
+        assertEquals(26_530_000L, scaledUsageTotal(26_530_000, snapshot.totalInputTokens, snapshot.totalInputTokens))
+    }
 }

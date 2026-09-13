@@ -20,6 +20,7 @@ class AppVersionTest {
         assertTrue(AppVersion.isNewer("5.2.10", "5.2.9"))
         assertFalse(AppVersion.isNewer("5.2.2", "5.2.2"))
         assertFalse(AppVersion.isNewer("5.2.1", "5.2.2"))
+        assertTrue(AppVersion.isNewer("5.2.2", ""))
         assertFalse(AppVersion.isNewer("", "5.2.2"))
     }
 }

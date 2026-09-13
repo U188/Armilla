@@ -20,7 +20,8 @@ internal object AppVersion {
     fun isNewer(remote: String, local: String): Boolean {
         val remoteParts = parts(remote)
         val localParts = parts(local)
-        if (remoteParts.isEmpty() || localParts.isEmpty()) return false
+        if (remoteParts.isEmpty()) return false
+        if (localParts.isEmpty()) return true
         val size = maxOf(remoteParts.size, localParts.size)
         for (index in 0 until size) {
             val remotePart = remoteParts.getOrElse(index) { 0 }

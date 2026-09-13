@@ -18,7 +18,7 @@ import okhttp3.Request
 internal object AppUpdateRepository {
     const val FILE_PROVIDER_AUTHORITY = "io.github.mangi.eta.fileprovider"
     const val LATEST_RELEASE_URL = "https://api.github.com/repos/y2485871697/Eta/releases/latest"
-    private const val AUTO_CHECK_INTERVAL_MS = 6L * 60L * 60L * 1000L
+    private const val AUTO_CHECK_INTERVAL_MS = 30_000L
     private const val MAX_APK_BYTES = 120L * 1024L * 1024L
 
     fun currentVersionName(context: Context): String =
@@ -41,9 +41,9 @@ internal object AppUpdateRepository {
                 val offer = fetchLatest()
                 SettingsDataStore.setUpdateLastCheckAt(System.currentTimeMillis())
                 if (offer == null) return@runCatching null
-                if (!AppVersion.isNewer(offer.versionName, current) &&
-                    !AppVersion.isNewer(offer.tagName, current)
-                ) {
+                val newer = AppVersion.isNewer(offer.versionName, current) ||
+                    AppVersion.isNewer(offer.tagName, current)
+                if (!newer) {
                     return@runCatching null
                 }
                 val dismissed = SettingsDataStore.updateDismissedVersion()

@@ -49,6 +49,7 @@ import io.github.mangi.eta.agent.device.BoundedRootCommandExecutor
 import io.github.mangi.eta.agent.device.DeviceLocationProvider
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.core.AndroidAgentLogger
+import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.model.AppUpdateOffer
 import io.github.mangi.eta.data.repository.AppUpdateRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
@@ -128,6 +129,8 @@ fun AgentAppRoot(
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
+    val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
     DisposableEffect(lifecycleOwner, focusManager, keyboard) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -141,6 +144,11 @@ fun AgentAppRoot(
                     agentState.refreshPermissionHealth()
                     agentState.refreshRuntimeResults()
                     agentState.refreshRequestOverhead()
+                    uiScope.launch {
+                        AppUpdateRepository.checkForUpdate(context, force = false)
+                            .getOrNull()
+                            ?.let { updateOffer = it }
+                    }
                 }
                 else -> Unit
             }
@@ -155,16 +163,19 @@ fun AgentAppRoot(
     var conversationMoveTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var messageDeleteTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
     var messageRegenerateTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
-    var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
-    val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
 
     LaunchedEffect(Unit) {
         RuntimeConfigRepository.ensureDefaults(EtaApp.serviceInstance)
     }
 
     LaunchedEffect(Unit) {
-        delay(1_200)
-        AppUpdateRepository.checkForUpdate(context, force = false)
+        delay(800)
+        AppUpdateRepository.checkForUpdate(context, force = true)
+            .onFailure { failure ->
+                AndroidAgentLogger.warn(
+                    "App update check failed: type=${failure.safeLogType()}",
+                )
+            }
             .getOrNull()
             ?.let { updateOffer = it }
     }

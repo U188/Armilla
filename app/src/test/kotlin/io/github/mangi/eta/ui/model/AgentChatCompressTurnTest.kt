@@ -148,6 +148,23 @@ class AgentChatCompressTurnTest {
     }
 
     @Test
+    fun appendSupplementStaysInSameTurnForKeepAndResume() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi("u1", "写5000字故事"),
+                AgentMessageUi("a1", "故事写到一半"),
+                UserMessageUi("user-run-1-supplement-0", "还有没"),
+            ),
+            input = "",
+            isStreaming = false,
+            thinkingEnabled = false,
+        )
+        assertTrue(state.hasPartialAssistantAfterLastUser())
+        assertTrue(state.hasStartedCurrentTurnOutput())
+        assertFalse(state.hasCurrentTurnTools())
+    }
+
+    @Test
     fun userOnlyTurnHasNoPartialAssistant() {
         val state = AgentChatUiState(
             messages = listOf(

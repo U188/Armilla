@@ -10,6 +10,11 @@ internal object AgentContextCompactor {
     internal const val SUMMARY_PREFIX = "[Conversation summary]"
     internal const val SUMMARY_PREFIX_ZH = "[\u5bf9\u8bdd\u6458\u8981]"
     internal const val STEERING_USER_PREFIX = "用户补充指令："
+    private const val STEERING_USER_SUFFIX =
+        "请基于当前任务上下文继续执行，不要从头重复已经完成或已经验证过的操作。"
+
+    fun steeringUserContent(supplement: String): String =
+        "$STEERING_USER_PREFIX$supplement\n\n$STEERING_USER_SUFFIX"
     private const val MAX_MESSAGES_PER_CHUNK = 256
 
     data class Config(

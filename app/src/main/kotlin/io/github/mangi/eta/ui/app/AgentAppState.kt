@@ -72,6 +72,7 @@ import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.hasRunningTools
 import io.github.mangi.eta.ui.model.hasCurrentTurnTools
 import io.github.mangi.eta.ui.model.hasStartedCurrentTurnOutput
+import io.github.mangi.eta.ui.model.isSteerSupplement
 import io.github.mangi.eta.ui.model.hasPartialAssistantAfterLastUser
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.model.MessageSearchRoleLabels
@@ -3836,11 +3837,11 @@ internal class AgentAppState(
 
     private fun stopGenerationThenCompress(conversationId: String? = selectedConversationId) {
         pendingManualCompress = pendingManualCompress?.copy(resumeAfter = true)
-        materializePendingSteer(conversationId)
         val runId = runIdForConversation(conversationId)
         if (runId != null) {
             snapshotPartialAssistantToHistory(runId)
         }
+        materializePendingSteer(conversationId)
         abortConversationRun(conversationId, startPendingCompress = true)
     }
 
@@ -3849,22 +3850,27 @@ internal class AgentAppState(
         val text = pendingSteerTextByConversation.remove(id)?.trim().orEmpty()
         if (text.isEmpty()) return
         val state = conversationsById[id] ?: return
+        val historyText = AgentContextCompactor.steeringUserContent(text)
         val lastUser = state.messages.lastOrNull { it is UserMessageUi } as? UserMessageUi
         val lastHistory = state.history.lastOrNull()
-        val messages = if (lastUser?.content == text) {
+        val alreadyShown = lastUser?.content == text
+        val messages = if (alreadyShown) {
             state.messages
         } else {
             state.messages + UserMessageUi(
-                id = "steer-$id-${System.currentTimeMillis()}",
+                id = "steer-$id-supplement-${System.currentTimeMillis()}",
                 content = text,
             )
         }
-        val history = if (lastHistory?.role == "user" && lastHistory.content == text) {
+        val alreadyInHistory = lastHistory?.role == "user" && (
+            lastHistory.content == text || lastHistory.content == historyText
+            )
+        val history = if (alreadyInHistory) {
             state.history
         } else {
             state.history + AgentModelClient.ConversationMessage(
                 role = "user",
-                content = text,
+                content = historyText,
             )
         }
         if (messages === state.messages && history === state.history) return
@@ -4012,8 +4018,9 @@ internal class AgentAppState(
             continuePartialTurnAfterCompress(conversationId)
             return
         }
-        val lastUser = homeState.messages.lastOrNull { it is UserMessageUi } as? UserMessageUi
-            ?: return
+        val lastUser = homeState.messages.lastOrNull { message ->
+            message is UserMessageUi && !message.isSteerSupplement()
+        } as? UserMessageUi ?: return
         regenerateMessage(lastUser.id, ignoreCompression = true)
     }
 
@@ -4142,7 +4149,7 @@ internal class AgentAppState(
 }
 
 private val RESUME_AFTER_COMPRESS_PROMPT =
-    "${AgentContextCompactor.STEERING_USER_PREFIX}请从上次中断的地方继续，不要重复已经写过的内容，也不要从头开始。\n\n请基于当前任务上下文继续执行，不要从头重复已经完成或已经验证过的操作。"
+    AgentContextCompactor.steeringUserContent("请从上次中断的地方继续，不要重复已经写过的内容，也不要从头开始。")
 
 private data class PendingManualCompress(
     val conversationId: String?,

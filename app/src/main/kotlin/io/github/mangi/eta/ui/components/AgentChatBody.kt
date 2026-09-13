@@ -95,6 +95,8 @@ import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.isResumeAfterCompress
+import io.github.mangi.eta.ui.model.isSteerSupplement
 import kotlin.math.exp
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
@@ -948,11 +950,6 @@ internal fun resolveFinalResultMessageIds(
     return ids
 }
 
-internal fun UserMessageUi.isSteerSupplement(): Boolean =
-    id.contains("-supplement-")
-
-internal fun UserMessageUi.isResumeAfterCompress(): Boolean =
-    id.contains("-supplement-resume")
 
 @Composable
 private fun AgentChatBottomBar(

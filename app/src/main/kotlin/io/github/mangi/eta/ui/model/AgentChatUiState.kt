@@ -242,25 +242,38 @@ data class MessageEditUiState(
     val hasLaterTurns: Boolean,
 )
 
+internal fun UserMessageUi.isSteerSupplement(): Boolean =
+    id.contains("-supplement-")
+
+internal fun UserMessageUi.isResumeAfterCompress(): Boolean =
+    id.contains("-supplement-resume")
+
 internal fun AgentChatUiState.hasRunningTools(): Boolean =
     messages.any { message ->
         message is ToolActivityMessageUi && message.status == ToolActivityStatusUi.Running
     }
 
-/** 当前用户消息之后是否已经出现工具。用于避免自动压缩打断工具循环。 */
-internal fun AgentChatUiState.hasCurrentTurnTools(): Boolean {
-    val lastUserIndex = messages.indexOfLast { it is UserMessageUi }
-    val currentTurn = if (lastUserIndex >= 0) {
+internal fun AgentChatUiState.lastRealUserIndex(): Int =
+    messages.indexOfLast { message ->
+        message is UserMessageUi && !message.isSteerSupplement()
+    }
+
+private fun AgentChatUiState.currentTurnMessages(): List<AgentChatMessageUi> {
+    val lastUserIndex = lastRealUserIndex()
+    return if (lastUserIndex >= 0) {
         messages.subList(lastUserIndex + 1, messages.size)
     } else {
         messages
     }
-    return currentTurn.any { it is ToolActivityMessageUi || it is ToolSummaryMessageUi }
 }
 
-/** 最后一条非空助手正文是否在最后一条用户消息之后，即当前轮已写出可续写的内容。 */
+/** 当前用户消息之后是否已经出现工具。用于避免自动压缩打断工具循环。 */
+internal fun AgentChatUiState.hasCurrentTurnTools(): Boolean =
+    currentTurnMessages().any { it is ToolActivityMessageUi || it is ToolSummaryMessageUi }
+
+/** 最后一条非空助手正文是否在本轮原问题之后，追加/续写不另开一轮。 */
 internal fun AgentChatUiState.hasPartialAssistantAfterLastUser(): Boolean {
-    val lastUserIndex = messages.indexOfLast { it is UserMessageUi }
+    val lastUserIndex = lastRealUserIndex()
     val lastAssistantIndex = messages.indexOfLast { message ->
         message is AgentMessageUi && message.content.isNotBlank()
     }
@@ -269,7 +282,7 @@ internal fun AgentChatUiState.hasPartialAssistantAfterLastUser(): Boolean {
 
 /** 当前用户消息之后是否已经开始思考、工具或正文。不看更早轮次。 */
 internal fun AgentChatUiState.hasStartedCurrentTurnOutput(): Boolean {
-    val lastUserIndex = messages.indexOfLast { it is UserMessageUi }
+    val lastUserIndex = lastRealUserIndex()
     val currentTurn = if (lastUserIndex >= 0) {
         messages.subList(lastUserIndex + 1, messages.size)
     } else {

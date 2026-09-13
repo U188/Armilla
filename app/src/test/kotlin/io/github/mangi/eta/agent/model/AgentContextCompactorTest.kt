@@ -165,7 +165,7 @@ class AgentContextCompactorTest {
             msg("assistant", "a1"),
             msg("user", "u2"),
             msg("assistant", "a2-partial"),
-            msg("user", "${AgentContextCompactor.STEERING_USER_PREFIX}再加上这个\n\n请基于当前任务上下文继续执行，不要从头重复已经完成或已经验证过的操作。"),
+            msg("user", AgentContextCompactor.steeringUserContent("再加上这个")),
             msg("assistant", "a2-continue"),
         )
         val start = AgentContextCompactor.recentKeepStartIndex(history, 1)
@@ -175,5 +175,19 @@ class AgentContextCompactorTest {
         assertTrue(kept.any { AgentContextCompactor.isSteeringUserMessage(it) })
         assertFalse(kept.any { it.content == "u1" })
         assertEquals(0, AgentContextCompactor.recentKeepStartIndex(history, 2))
+    }
+
+    @Test
+    fun rawAppendWithoutPrefixConsumesKeepRecentQuota() {
+        val history = listOf(
+            msg("user", "u1"),
+            msg("assistant", "a1"),
+            msg("user", "u2"),
+            msg("assistant", "a2-partial"),
+            msg("user", "还有没"),
+        )
+        val start = AgentContextCompactor.recentKeepStartIndex(history, 1)
+        assertEquals(history.indexOfLast { it.content == "还有没" }, start)
+        assertFalse(history.subList(start, history.size).any { it.content == "u2" })
     }
 }

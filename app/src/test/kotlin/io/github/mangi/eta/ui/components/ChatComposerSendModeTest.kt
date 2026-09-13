@@ -120,4 +120,46 @@ class ChatComposerSendModeTest {
             ),
         )
     }
+
+    @Test
+    fun compressingWhileStreamingBlocksSteer() {
+        assertEquals(
+            "stop",
+            resolveChatComposerSendMode(
+                isStreaming = true,
+                isPaused = false,
+                hasSteerContent = true,
+                canStartNewSend = true,
+                isCompressingContext = true,
+            ),
+        )
+    }
+
+    @Test
+    fun compressingWhilePausedBlocksSteerAndContinue() {
+        assertEquals(
+            "stop",
+            resolveChatComposerSendMode(
+                isStreaming = true,
+                isPaused = true,
+                hasSteerContent = true,
+                canStartNewSend = true,
+                isCompressingContext = true,
+            ),
+        )
+    }
+
+    @Test
+    fun compressingIdleHidesSend() {
+        assertEquals(
+            "idle",
+            resolveChatComposerSendMode(
+                isStreaming = false,
+                isPaused = false,
+                hasSteerContent = true,
+                canStartNewSend = true,
+                isCompressingContext = true,
+            ),
+        )
+    }
 }

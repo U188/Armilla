@@ -1,5 +1,7 @@
 package io.github.mangi.eta.ui.app
 
+import android.widget.Toast
+
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -58,6 +60,7 @@ internal fun TopBarOverflowMenu(
     onOpenBrowser: () -> Unit,
     onOpenWorkspace: () -> Unit,
     autoCompressEnabled: Boolean,
+    isStreaming: Boolean = false,
     isCompressingContext: Boolean = false,
     onToggleAutoCompress: (Boolean) -> Unit,
     onCompressConversation: (
@@ -193,6 +196,7 @@ internal fun TopBarOverflowMenu(
             DropdownMenuItem(
                 modifier = CompactMenuItemModifier,
                 contentPadding = CompactMenuItemPadding,
+                enabled = !isStreaming && !isCompressingContext,
                 text = { Text(stringResource(R.string.action_compress_conversation)) },
                 leadingIcon = {
                     Icon(
@@ -204,6 +208,14 @@ internal fun TopBarOverflowMenu(
                 onClick = {
                     TouchHaptics.click(view)
                     menuState.dismiss()
+                    if (isStreaming) {
+                        Toast.makeText(
+                            view.context,
+                            view.context.getString(R.string.compress_conversation_streaming),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@DropdownMenuItem
+                    }
                     showCompressDialog = true
                 },
             )

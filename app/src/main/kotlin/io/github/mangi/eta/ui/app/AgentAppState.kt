@@ -1291,7 +1291,7 @@ internal class AgentAppState(
             scope.launch(Dispatchers.IO) {
                 val staged = stageChatImages(conversationId, pendingImages)
                 withContext(Dispatchers.Main) {
-                    if (homeState.isStreaming) return@withContext
+                    if (homeState.isStreaming || rejectSendIfCompressing()) return@withContext
                     startPreparedSend(
                         prompt = prompt,
                         uiImages = pendingImages,
@@ -1328,6 +1328,7 @@ internal class AgentAppState(
         editBoundary: AgentConversationRevisionReducer.Boundary?,
         conversationId: String,
     ) {
+        if (rejectSendIfCompressing()) return
         val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
         val runId = "run-${UUID.randomUUID()}"
         val userMessage = UserMessageUi(
@@ -1572,7 +1573,7 @@ internal class AgentAppState(
                     )
                 }
                 withContext(Dispatchers.Main) {
-                    if (homeState.isStreaming) return@withContext
+                    if (homeState.isStreaming || rejectSendIfCompressing()) return@withContext
                     val runId = "run-${UUID.randomUUID()}"
                     launchConversationRun(
                         conversationId = conversationId,
@@ -2367,6 +2368,7 @@ internal class AgentAppState(
     fun continuePausedGeneration() {
         val runId = activeRunIdForSelectedConversation() ?: return
         if (!homeState.isPaused) return
+        if (rejectSendIfCompressing()) return
         scope.launch(Dispatchers.IO) {
             AgentRuntimeClient(appContext, AndroidAgentLogger).resumeRun(runId)
         }
@@ -2376,6 +2378,7 @@ internal class AgentAppState(
     fun steerCurrentRun(text: String) {
         val runId = activeRunIdForSelectedConversation() ?: return
         if (runId in imageGenerationRunIds) return
+        if (rejectSendIfCompressing()) return
         val prompt = text.trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
@@ -2406,6 +2409,9 @@ internal class AgentAppState(
                 stageChatImages(conversationId, pendingImages)
             } else {
                 emptyList()
+            }
+            if (withContext(Dispatchers.Main) { rejectSendIfCompressing() }) {
+                return@launch
             }
             val steerText = AgentFileReferencePromptCodec.format(
                 prompt,
@@ -3680,6 +3686,15 @@ internal class AgentAppState(
         onFinished: (Boolean) -> Unit,
     ) {
         persistCompressPreferences(providerId, modelId, targetTokens, keepRecent)
+        if (homeState.isStreaming || homeState.isPaused) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.compress_conversation_streaming),
+                Toast.LENGTH_SHORT,
+            ).show()
+            onFinished(false)
+            return
+        }
         if (compressionJob?.isActive == true || homeState.isCompressingContext) {
             onFinished(true)
             return
@@ -3706,9 +3721,7 @@ internal class AgentAppState(
         )
         setConversationCompressing(conversationId, true)
         onFinished(true)
-        if (!homeState.isStreaming) {
-            startPendingManualCompress()
-        }
+        startPendingManualCompress()
     }
 
     private fun onConversationRunSettled(conversationId: String) {
@@ -3721,8 +3734,7 @@ internal class AgentAppState(
     }
 
     private fun isCompressionBlockingSend(): Boolean =
-        compressionJob?.isActive == true ||
-            (!homeState.isStreaming && homeState.isCompressingContext)
+        compressionJob?.isActive == true || homeState.isCompressingContext
 
     private fun rejectSendIfCompressing(): Boolean {
         if (!isCompressionBlockingSend()) return false
@@ -3754,11 +3766,7 @@ internal class AgentAppState(
                     request.conversationId?.let { conversationsById[it] }
                         ?: homeState.takeIf { selectedConversationId == request.conversationId }
                 } ?: return@launch
-                if (snapshot.isStreaming) {
-                    withContext(Dispatchers.Main) {
-                        pendingManualCompress = request
-                        setConversationCompressing(request.conversationId, true)
-                    }
+                if (snapshot.isStreaming || snapshot.isPaused) {
                     return@launch
                 }
                 val originalHistory = snapshot.history
@@ -3856,6 +3864,7 @@ internal class AgentAppState(
     ) {
         if (conversationId != null) {
             val current = conversationsById[conversationId] ?: return
+            if (current.isStreaming || current.isPaused) return
             if (current.history != originalHistory) return
             updateConversation(
                 conversationId,
@@ -3870,7 +3879,12 @@ internal class AgentAppState(
                     ),
                 ),
             )
-        } else if (selectedConversationId == null && homeState.history == originalHistory) {
+        } else if (
+            selectedConversationId == null &&
+            !homeState.isStreaming &&
+            !homeState.isPaused &&
+            homeState.history == originalHistory
+        ) {
             homeState = homeState.copy(
                 history = compressedHistory,
                 livePromptTokens = null,

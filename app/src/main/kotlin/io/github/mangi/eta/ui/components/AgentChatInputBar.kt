@@ -189,7 +189,7 @@ internal fun AgentChatInputBar(
         )
     }
     val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, liveUsage)
-    val compressionSendBlocked = isCompressingContext && !isStreaming
+    val compressionSendBlocked = isCompressingContext
     val canSend = !contextSendBlocked && !compressionSendBlocked && (
         textFieldState.text.isNotBlank() ||
             pendingImages.isNotEmpty() ||
@@ -443,6 +443,7 @@ internal fun AgentChatInputBar(
                                 pendingImages.isNotEmpty() ||
                                 pendingFileReferences.isNotEmpty(),
                             canStartNewSend = canSend,
+                            isCompressingContext = isCompressingContext,
                         )
                         val sendInteraction = remember { MutableInteractionSource() }
                         Box(
@@ -799,7 +800,11 @@ internal fun resolveChatComposerSendMode(
     isPaused: Boolean,
     hasSteerContent: Boolean,
     canStartNewSend: Boolean,
+    isCompressingContext: Boolean = false,
 ): String = when {
+    // 压缩进行中禁止追加/续写，避免一边压缩一边输出。流式时仍可停止。
+    isCompressingContext && isStreaming -> "stop"
+    isCompressingContext -> "idle"
     (isStreaming || isPaused) && hasSteerContent -> "send"
     isPaused -> "continue"
     isStreaming -> "stop"

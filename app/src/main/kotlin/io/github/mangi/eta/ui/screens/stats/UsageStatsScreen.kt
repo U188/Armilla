@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.data.repository.ModelUsageModelUi
 import io.github.mangi.eta.data.repository.ModelUsageSnapshot
+import io.github.mangi.eta.data.repository.alignedToConversationTotals
 import io.github.mangi.eta.data.repository.UsageStatsRepository
 import io.github.mangi.eta.data.repository.UsageStatsSnapshot
 import io.github.mangi.eta.data.repository.formatStatCount

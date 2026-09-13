@@ -893,6 +893,9 @@ private fun AgentChatMessageUi.isWorkProcessMessage(): Boolean =
  * 一轮对话（两条用户消息之间）里最后一条 Agent 正文视为最终结果，其余为中间步骤。
  * 流式传输期间当前轮次尚未结束，最后一轮不标记，等传输结束后复制按钮才出现；
  * 之前已结束轮次的最终结果不受影响。
+ *
+ * 追加/steering 的用户消息不算新一轮：被打断的正文和继续输出同属一段，
+ * 操作栏只出现在整段结束后的最后一条。
  */
 internal fun resolveFinalResultMessageIds(
     messages: List<AgentChatMessageUi>,
@@ -902,7 +905,7 @@ internal fun resolveFinalResultMessageIds(
     var lastAgentMessageId: String? = null
     messages.forEach { message ->
         when (message) {
-            is UserMessageUi -> {
+            is UserMessageUi -> if (!message.isSteerSupplement()) {
                 lastAgentMessageId?.let(ids::add)
                 lastAgentMessageId = null
             }
@@ -918,6 +921,9 @@ internal fun resolveFinalResultMessageIds(
     }
     return ids
 }
+
+internal fun UserMessageUi.isSteerSupplement(): Boolean =
+    id.contains("-supplement-")
 
 @Composable
 private fun AgentChatBottomBar(

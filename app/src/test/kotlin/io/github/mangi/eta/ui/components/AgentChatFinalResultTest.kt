@@ -114,4 +114,41 @@ class AgentChatFinalResultTest {
         status = ToolActivityStatusUi.Success,
         argumentsSummary = "query",
     )
+
+    @Test
+    fun steerSupplementDoesNotCloseTurnWhileContinuing() {
+        val messages = listOf(
+            UserMessageUi(id = "user-1", content = "任务"),
+            AgentMessageUi(id = "agent-1", content = "我先做这一步。"),
+            UserMessageUi(id = "user-run-1-supplement-0", content = "再加上这个"),
+            AgentMessageUi(id = "agent-2", content = "继续输出中"),
+        )
+        assertEquals(
+            emptySet<String>(),
+            resolveFinalResultMessageIds(messages, isStreaming = true),
+        )
+        assertEquals(
+            setOf("agent-2"),
+            resolveFinalResultMessageIds(messages, isStreaming = false),
+        )
+    }
+
+    @Test
+    fun steerSupplementKeepsEarlierTurnFinalResult() {
+        val messages = listOf(
+            UserMessageUi(id = "user-1", content = "第一问"),
+            AgentMessageUi(id = "agent-1", content = "第一答"),
+            UserMessageUi(id = "user-2", content = "第二问"),
+            AgentMessageUi(id = "agent-2", content = "被打断"),
+            UserMessageUi(id = "user-run-2-supplement-0", content = "补充"),
+        )
+        assertEquals(
+            setOf("agent-1"),
+            resolveFinalResultMessageIds(messages, isStreaming = true),
+        )
+        assertEquals(
+            setOf("agent-1", "agent-2"),
+            resolveFinalResultMessageIds(messages, isStreaming = false),
+        )
+    }
 }

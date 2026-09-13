@@ -151,4 +151,34 @@ class AgentChatFinalResultTest {
             resolveFinalResultMessageIds(messages, isStreaming = false),
         )
     }
+
+    @Test
+    fun compressingTurnDoesNotMarkCurrentResult() {
+        val messages = listOf(
+            UserMessageUi(id = "user-1", content = "写故事"),
+            AgentMessageUi(id = "agent-1", content = "写到一半"),
+        )
+        assertEquals(
+            emptySet<String>(),
+            resolveFinalResultMessageIds(messages, isCompressingContext = true),
+        )
+        assertEquals(
+            setOf("agent-1"),
+            resolveFinalResultMessageIds(messages, isCompressingContext = false),
+        )
+    }
+
+    @Test
+    fun compressingKeepsFinalResultOfCompletedEarlierTurns() {
+        val messages = listOf(
+            UserMessageUi(id = "user-1", content = "第一问"),
+            AgentMessageUi(id = "agent-1", content = "第一答"),
+            UserMessageUi(id = "user-2", content = "写故事"),
+            AgentMessageUi(id = "agent-2", content = "写到一半"),
+        )
+        assertEquals(
+            setOf("agent-1"),
+            resolveFinalResultMessageIds(messages, isCompressingContext = true),
+        )
+    }
 }

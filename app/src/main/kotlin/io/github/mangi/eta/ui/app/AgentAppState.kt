@@ -3992,9 +3992,12 @@ internal class AgentAppState(
             } finally {
                 withContext(Dispatchers.Main) {
                     if (pendingManualCompress == null) {
-                        setConversationCompressing(request.conversationId, false)
                         if (resumeAfter) {
                             resumeLastTurnAfterCompress(request.conversationId)
+                        }
+                        val resumed = request.conversationId?.let { conversationsById[it]?.isStreaming } == true
+                        if (!resumed) {
+                            setConversationCompressing(request.conversationId, false)
                         }
                     }
                 }
@@ -4004,7 +4007,7 @@ internal class AgentAppState(
 
     private fun resumeLastTurnAfterCompress(conversationId: String?) {
         if (conversationId != selectedConversationId) return
-        if (homeState.isStreaming || homeState.isPaused || homeState.isCompressingContext) return
+        if (homeState.isStreaming || homeState.isPaused) return
         if (homeState.hasPartialAssistantAfterLastUser()) {
             continuePartialTurnAfterCompress(conversationId)
             return

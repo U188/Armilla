@@ -204,6 +204,20 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
                         update { current -> current.copy(morphLoadingIndicator = enabled) }
                     },
                 )
+                AnimatedVisibility(
+                    visible = appearance.morphLoadingIndicator,
+                    enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                    exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+                ) {
+                    SwitchPreference(
+                        title = stringResource(R.string.appearance_morph_loading_before_response),
+                        summary = stringResource(R.string.appearance_morph_loading_before_response_summary),
+                        checked = appearance.morphLoadingBeforeResponseOnly,
+                        onCheckedChange = { enabled ->
+                            update { current -> current.copy(morphLoadingBeforeResponseOnly = enabled) }
+                        },
+                    )
+                }
                 SwitchPreference(
                     title = stringResource(R.string.appearance_swipe_dismiss),
                     summary = stringResource(R.string.appearance_swipe_dismiss_summary),

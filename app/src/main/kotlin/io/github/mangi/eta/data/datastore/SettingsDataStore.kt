@@ -47,6 +47,8 @@ internal object SettingsDataStore {
     private val APPEARANCE_INTERFACE_SCALE = floatPreferencesKey("appearance_interface_scale")
     private val APPEARANCE_MORPH_LOADING_INDICATOR =
         booleanPreferencesKey("appearance_morph_loading_indicator")
+    private val APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE =
+        booleanPreferencesKey("appearance_morph_loading_before_response")
     private val APP_LAUNCH_COUNT = intPreferencesKey("app_launch_count")
     private val RETIRED_INPUT_TOKENS = longPreferencesKey("retired_input_tokens")
     private val RETIRED_OUTPUT_TOKENS = longPreferencesKey("retired_output_tokens")
@@ -359,6 +361,7 @@ internal object SettingsDataStore {
             predictiveBackEnabled = this[APPEARANCE_PREDICTIVE_BACK_ENABLED] ?: false,
             interfaceScale = this[APPEARANCE_INTERFACE_SCALE] ?: 1f,
             morphLoadingIndicator = this[APPEARANCE_MORPH_LOADING_INDICATOR] ?: true,
+            morphLoadingBeforeResponseOnly = this[APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE] ?: true,
         ).normalized(),
     )
 
@@ -374,6 +377,7 @@ internal object SettingsDataStore {
         this[APPEARANCE_PREDICTIVE_BACK_ENABLED] = settings.predictiveBackEnabled
         this[APPEARANCE_INTERFACE_SCALE] = settings.interfaceScale
         this[APPEARANCE_MORPH_LOADING_INDICATOR] = settings.morphLoadingIndicator
+        this[APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE] = settings.morphLoadingBeforeResponseOnly
     }
 }
 

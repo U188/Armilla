@@ -209,7 +209,9 @@
   <string name="appearance_interface_scale_dialog_summary">請輸入 80 至 110 之間的整數</string>
   <string name="appearance_interface_scale_input_label">百分比</string>
   <string name="appearance_morph_loading">圓形載入指示器</string>
-  <string name="appearance_morph_loading_summary">產生回覆時在訊息底部顯示變形動畫</string>
+  <string name="appearance_morph_loading_summary">送出訊息後顯示變形動畫</string>
+  <string name="appearance_morph_loading_before_response">僅訊息產生前</string>
+  <string name="appearance_morph_loading_before_response_summary">模型一開始輸出就隱藏；關掉後產生全程固定顯示在對話區中央</string>
   <string name="conversation_unnamed">新對話</string>
   <string name="conversation_search_hint">搜尋對話</string>
   <string name="drawer_greeting_morning">早上好👋</string>

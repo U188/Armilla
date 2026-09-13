@@ -195,7 +195,9 @@
   <string name="appearance_interface_scale_dialog_summary">Enter an integer from 80 to 110</string>
   <string name="appearance_interface_scale_input_label">Percentage</string>
   <string name="appearance_morph_loading">Morph loading indicator</string>
-  <string name="appearance_morph_loading_summary">Show a morphing circular indicator while generating a reply</string>
+  <string name="appearance_morph_loading_summary">Show a morphing circular indicator after sending a message</string>
+  <string name="appearance_morph_loading_before_response">Only before the first output</string>
+  <string name="appearance_morph_loading_before_response_summary">Hide after the first output; turn off to keep it centered during generation</string>
   <string name="conversation_unnamed">New conversation</string>
   <string name="conversation_search_hint">Search conversations</string>
   <string name="drawer_greeting_morning">Good morning👋</string>

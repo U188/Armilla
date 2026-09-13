@@ -496,9 +496,15 @@ internal fun AgentConversationMessages(
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
     val streamingMarkdownStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
-    val showMorphLoading = isStreaming &&
-        !isCompressingContext &&
-        LocalAppearanceSettings.current.morphLoadingIndicator
+    val appearance = LocalAppearanceSettings.current
+    val showMorphLoading = shouldShowMorphLoadingIndicator(
+        messages = visibleMessages,
+        isStreaming = isStreaming,
+        isPaused = isPaused,
+        isCompressingContext = isCompressingContext,
+        enabled = appearance.morphLoadingIndicator,
+        beforeResponseOnly = appearance.morphLoadingBeforeResponseOnly,
+    )
     val compressingItemCount = if (isCompressingContext) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
@@ -781,15 +787,26 @@ internal fun AgentConversationMessages(
             }
         }
 
-        // 生成中的指示器固定在对话区底部水平居中，不随流式内容一起移动。
-        // 回到最新按钮同时显示时，指示器整体上移一个按钮高度，避免两者重叠。
+        // 仅生成前：贴在对话区底部，发出后、模型未吐字时显示。
+        // 关掉该选项：固定在对话区正中水平居中，生成全程可显示，但不随输出滚动。
+        val pinLoadingToCenter = !appearance.morphLoadingBeforeResponseOnly
         AnimatedVisibility(
             visible = showMorphLoading,
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(
-                    bottom = bottomInset + ChatLoadingIndicatorBottomPadding +
-                        if (!keepBottomAnchored && !isAtBottom) ChatBackToBottomButtonSlot else 0.dp,
+                .align(if (pinLoadingToCenter) Alignment.Center else Alignment.BottomCenter)
+                .then(
+                    if (pinLoadingToCenter) {
+                        Modifier
+                    } else {
+                        Modifier.padding(
+                            bottom = bottomInset + ChatLoadingIndicatorBottomPadding +
+                                if (!keepBottomAnchored && !isAtBottom) {
+                                    ChatBackToBottomButtonSlot
+                                } else {
+                                    0.dp
+                                },
+                        )
+                    },
                 ),
             enter = fadeIn(tween(160)),
             exit = fadeOut(tween(120)),
@@ -1088,6 +1105,38 @@ private fun AgentChatBottomBar(
 
 private val ChatBottomFrostHeight = 24.dp
 private val ChatLoadingIndicatorBottomPadding = 12.dp
+
+internal fun shouldShowMorphLoadingIndicator(
+    messages: List<AgentChatMessageUi>,
+    isStreaming: Boolean,
+    isPaused: Boolean = false,
+    isCompressingContext: Boolean = false,
+    enabled: Boolean,
+    beforeResponseOnly: Boolean,
+): Boolean {
+    if (!enabled || !isStreaming || isPaused || isCompressingContext) return false
+    if (!beforeResponseOnly) return true
+    return isWaitingForFirstModelOutput(messages)
+}
+
+internal fun isWaitingForFirstModelOutput(messages: List<AgentChatMessageUi>): Boolean {
+    val lastUserIndex = messages.indexOfLast { message ->
+        message is UserMessageUi && !message.isSteerSupplement()
+    }
+    if (lastUserIndex < 0) return false
+    return messages.asSequence()
+        .drop(lastUserIndex + 1)
+        .none(::isModelOutputMessage)
+}
+
+private fun isModelOutputMessage(message: AgentChatMessageUi): Boolean = when (message) {
+    is ThinkingMessageUi -> true
+    is ToolActivityMessageUi -> true
+    is ToolSummaryMessageUi -> true
+    is AgentMessageUi -> message.content.isNotBlank()
+    else -> false
+}
+
 private val ChatBackToBottomButtonSlot = 52.dp
 
 private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"

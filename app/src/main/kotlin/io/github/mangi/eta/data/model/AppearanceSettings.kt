@@ -19,6 +19,7 @@ data class AppearanceSettings(
     val predictiveBackEnabled: Boolean = false,
     val interfaceScale: Float = DEFAULT_INTERFACE_SCALE,
     val morphLoadingIndicator: Boolean = true,
+    val morphLoadingBeforeResponseOnly: Boolean = true,
 ) {
     fun normalized(): AppearanceSettings = copy(
         monetEnabled = true,

@@ -2,13 +2,15 @@ package io.github.mangi.eta.ui.components
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,10 +18,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -29,6 +32,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -39,7 +43,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -49,6 +55,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.haptics.TouchHaptics
+import io.github.mangi.eta.ui.model.AgentChatMessageUi
+import io.github.mangi.eta.ui.model.AgentMessageUi
+import io.github.mangi.eta.ui.model.PendingImageUi
+import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.fullImageSourceAt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,18 +76,52 @@ private const val MAX_ZOOM = 5f
 internal val LocalOpenChatImagePreview = staticCompositionLocalOf<(String) -> Unit> { {} }
 
 @Composable
-internal fun ChatImagePreviewHost(content: @Composable () -> Unit) {
+internal fun ChatImagePreviewHost(
+    gallery: List<String> = emptyList(),
+    content: @Composable () -> Unit,
+) {
     var source by remember { mutableStateOf<String?>(null) }
     CompositionLocalProvider(LocalOpenChatImagePreview provides { source = it }) {
         content()
     }
     val current = source
     if (current != null) {
+        val sources = remember(current, gallery) { previewGalleryFor(current, gallery) }
         ChatImagePreviewDialog(
-            source = current,
+            sources = sources,
+            initialIndex = sources.indexOf(current).coerceAtLeast(0),
             onDismiss = { source = null },
         )
     }
+}
+
+internal fun previewGalleryFor(source: String, gallery: List<String>): List<String> {
+    val images = gallery.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    if (source.isBlank()) return images
+    return if (source in images) images else images + source
+}
+
+internal fun collectPreviewableChatImages(
+    messages: List<AgentChatMessageUi>,
+    pendingImages: List<PendingImageUi> = emptyList(),
+): List<String> {
+    val out = LinkedHashSet<String>()
+    messages.forEach { message ->
+        when (message) {
+            is UserMessageUi -> {
+                message.images.indices.forEach { index ->
+                    message.fullImageSourceAt(index).trim().takeIf { it.isNotEmpty() }?.let(out::add)
+                }
+            }
+            is AgentMessageUi -> collectMarkdownImageSources(message.content).forEach(out::add)
+            else -> Unit
+        }
+    }
+    pendingImages.forEach { image ->
+        val source = image.uri.trim().ifEmpty { image.dataUrl.trim() }
+        if (source.isNotEmpty()) out += source
+    }
+    return out.toList()
 }
 
 @Composable
@@ -170,24 +215,32 @@ private fun ChatRemoteClickableImage(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatImagePreviewDialog(
-    source: String,
+    sources: List<String>,
+    initialIndex: Int,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex.coerceIn(0, (sources.size - 1).coerceAtLeast(0)),
+        pageCount = { sources.size.coerceAtLeast(1) },
+    )
+    val source = sources.getOrNull(pagerState.currentPage).orEmpty()
     var loaded by remember(source) { mutableStateOf<LoadedChatImage?>(null) }
-    var failed by remember(source) { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-    var scale by remember(source) { mutableFloatStateOf(MIN_ZOOM) }
-    var offset by remember(source) { mutableStateOf(Offset.Zero) }
+    var scale by remember(pagerState.currentPage) { mutableFloatStateOf(MIN_ZOOM) }
+    var offset by remember(pagerState.currentPage) { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(source) {
-        val result = withContext(Dispatchers.IO) { ChatImageBytes.load(context, source) }
-        loaded = result
-        failed = result == null
+        if (source.isBlank()) {
+            loaded = null
+            return@LaunchedEffect
+        }
+        loaded = withContext(Dispatchers.IO) { ChatImageBytes.load(context, source) }
     }
 
     BackHandler(onBack = onDismiss)
@@ -203,108 +256,57 @@ private fun ChatImagePreviewDialog(
                 .fillMaxSize()
                 .background(Color.Black),
         ) {
-            val image = loaded
-            when {
-                image != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(source) {
-                                detectTransformGestures { _, pan, zoom, _ ->
-                                    val nextScale = (scale * zoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
-                                    scale = nextScale
-                                    offset = if (nextScale == MIN_ZOOM) {
-                                        Offset.Zero
-                                    } else {
-                                        offset + pan
-                                    }
-                                }
-                            },
-                    ) {
-                        Image(
-                            bitmap = image.bitmap,
-                            contentDescription = stringResource(R.string.chat_image_preview),
-                            contentScale = ContentScale.Fit,
-                            filterQuality = FilterQuality.High,
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .fillMaxSize()
-                                .graphicsLayer(
-                                    scaleX = scale,
-                                    scaleY = scale,
-                                    translationX = offset.x,
-                                    translationY = offset.y,
-                                ),
-                        )
-                    }
-                }
-                failed -> {
-                    Text(
-                        text = stringResource(R.string.chat_image_load_failed),
-                        color = Color.White,
-                        style = MiuixTheme.textStyles.body1,
-                        modifier = Modifier.align(Alignment.Center),
-                    )
-                }
-                else -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        size = 28.dp,
-                        strokeWidth = 2.5.dp,
-                    )
-                }
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(R.string.action_close),
-                        tint = Color.White,
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.chat_image_preview),
-                    color = Color.White,
-                    style = MiuixTheme.textStyles.title3,
-                )
-                IconButton(
-                    enabled = image != null && !saving,
-                    onClick = {
-                        val payload = loaded ?: return@IconButton
-                        TouchHaptics.click(view)
-                        saving = true
-                        scope.launch {
-                            val uri = withContext(Dispatchers.IO) {
-                                ChatImageGallery.save(context, payload.bytes, payload.mimeType)
-                            }
-                            saving = false
-                            Toast.makeText(
-                                context,
-                                context.getString(
-                                    if (uri != null) {
-                                        R.string.chat_image_saved
-                                    } else {
-                                        R.string.chat_image_save_failed
-                                    },
-                                ),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = scale <= MIN_ZOOM && sources.size > 1,
+            ) { page ->
+                ChatImagePreviewPage(
+                    source = sources.getOrNull(page).orEmpty(),
+                    active = page == pagerState.currentPage,
+                    scale = if (page == pagerState.currentPage) scale else MIN_ZOOM,
+                    offset = if (page == pagerState.currentPage) offset else Offset.Zero,
+                    onTransform = { nextScale, nextOffset ->
+                        scale = nextScale
+                        offset = nextOffset
                     },
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Download,
-                        contentDescription = stringResource(R.string.action_save),
-                        tint = Color.White,
-                    )
-                }
+                )
+            }
+            val image = loaded
+            IconButton(
+                enabled = image != null && !saving,
+                onClick = {
+                    val payload = loaded ?: return@IconButton
+                    TouchHaptics.click(view)
+                    saving = true
+                    scope.launch {
+                        val uri = withContext(Dispatchers.IO) {
+                            ChatImageGallery.save(context, payload.bytes, payload.mimeType)
+                        }
+                        saving = false
+                        Toast.makeText(
+                            context,
+                            context.getString(
+                                if (uri != null) {
+                                    R.string.chat_image_saved
+                                } else {
+                                    R.string.chat_image_save_failed
+                                },
+                            ),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Download,
+                    contentDescription = stringResource(R.string.action_save),
+                    tint = Color.White,
+                )
             }
             if (saving) {
                 CircularProgressIndicator(
@@ -317,5 +319,106 @@ private fun ChatImagePreviewDialog(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ChatImagePreviewPage(
+    source: String,
+    active: Boolean,
+    scale: Float,
+    offset: Offset,
+    onTransform: (Float, Offset) -> Unit,
+) {
+    val context = LocalContext.current
+    val currentScale = rememberUpdatedState(scale)
+    val currentOffset = rememberUpdatedState(offset)
+    val currentTransform = rememberUpdatedState(onTransform)
+    var loaded by remember(source) { mutableStateOf<LoadedChatImage?>(null) }
+    var failed by remember(source) { mutableStateOf(false) }
+    LaunchedEffect(source) {
+        if (source.isBlank()) {
+            loaded = null
+            failed = true
+            return@LaunchedEffect
+        }
+        val result = withContext(Dispatchers.IO) { ChatImageBytes.load(context, source) }
+        loaded = result
+        failed = result == null
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        val image = loaded
+        when {
+            image != null -> {
+                Image(
+                    bitmap = image.bitmap,
+                    contentDescription = stringResource(R.string.chat_image_preview),
+                    contentScale = ContentScale.Fit,
+                    filterQuality = FilterQuality.High,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxSize()
+                        .pointerInput(source, active) {
+                            if (!active) return@pointerInput
+                            detectPreviewGestures(
+                                scale = { currentScale.value },
+                                offset = { currentOffset.value },
+                                onTransform = { nextScale, nextOffset ->
+                                    currentTransform.value(nextScale, nextOffset)
+                                },
+                            )
+                        }
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y,
+                        ),
+                )
+            }
+            failed -> {
+                Text(
+                    text = stringResource(R.string.chat_image_load_failed),
+                    color = Color.White,
+                    style = MiuixTheme.textStyles.body1,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+            else -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    size = 28.dp,
+                    strokeWidth = 2.5.dp,
+                )
+            }
+        }
+    }
+}
+
+private suspend fun PointerInputScope.detectPreviewGestures(
+    scale: () -> Float,
+    offset: () -> Offset,
+    onTransform: (Float, Offset) -> Unit,
+) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        do {
+            val event = awaitPointerEvent()
+            val zoom = event.calculateZoom()
+            val pan = event.calculatePan()
+            val pointerCount = event.changes.count { it.pressed }
+            val currentScale = scale()
+            val zoomed = currentScale > MIN_ZOOM + 0.001f
+            if (pointerCount >= 2 || zoomed) {
+                event.changes.forEach { change ->
+                    if (change.positionChanged()) change.consume()
+                }
+                val nextScale = (currentScale * zoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                onTransform(
+                    nextScale,
+                    if (nextScale <= MIN_ZOOM) Offset.Zero else offset() + pan,
+                )
+            }
+        } while (event.changes.any { it.pressed })
     }
 }

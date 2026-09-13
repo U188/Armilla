@@ -1,6 +1,9 @@
 package io.github.mangi.eta.ui.components
 
 import android.app.Application
+import io.github.mangi.eta.ui.model.AgentMessageUi
+import io.github.mangi.eta.ui.model.PendingImageUi
+import io.github.mangi.eta.ui.model.UserMessageUi
 import android.util.Base64
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.parser.MarkdownParser
@@ -87,4 +90,59 @@ class ChatImageSupportTest {
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
         Base64.DEFAULT,
     )
+
+    @Test
+    fun collectsMarkdownImageSourcesInOrder() {
+        val source = """
+            see ![one](https://example.com/1.png)
+            and ![two](https://example.com/2.jpg)
+            skip ![bad](not-an-image)
+        """.trimIndent()
+        assertEquals(
+            listOf("https://example.com/1.png", "https://example.com/2.jpg"),
+            collectMarkdownImageSources(source),
+        )
+    }
+
+    @Test
+    fun previewGalleryKeepsConversationOrderAndAppendsUnknown() {
+        val gallery = listOf("https://a.png", "https://b.png")
+        assertEquals(gallery, previewGalleryFor("https://a.png", gallery))
+        assertEquals(
+            listOf("https://a.png", "https://b.png", "https://c.png"),
+            previewGalleryFor("https://c.png", gallery),
+        )
+    }
+
+    @Test
+    fun collectPreviewableChatImagesFromUserAgentAndPending() {
+        val messages = listOf(
+            UserMessageUi(
+                id = "u1",
+                content = "hi",
+                images = listOf("data:image/png;base64,aaa"),
+                imageSources = listOf("content://media/1"),
+            ),
+            AgentMessageUi(
+                id = "a1",
+                content = "![shot](https://cdn.example/out.png)",
+            ),
+        )
+        val pending = listOf(
+            PendingImageUi(
+                id = "p1",
+                uri = "content://media/pending",
+                dataUrl = "data:image/png;base64,bbb",
+                mimeType = "image/png",
+            ),
+        )
+        assertEquals(
+            listOf(
+                "content://media/1",
+                "https://cdn.example/out.png",
+                "content://media/pending",
+            ),
+            collectPreviewableChatImages(messages, pending),
+        )
+    }
 }

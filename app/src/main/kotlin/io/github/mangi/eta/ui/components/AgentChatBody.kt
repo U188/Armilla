@@ -232,7 +232,10 @@ internal fun AgentChatBody(
         if (messageEdit != null || billedContextTokens != null) 0
         else countUncommittedLiveTokens(visibleMessages)
     }
-    ChatImagePreviewHost {
+    val previewGallery = remember(visibleMessages, pendingImages) {
+        collectPreviewableChatImages(visibleMessages, pendingImages)
+    }
+    ChatImagePreviewHost(gallery = previewGallery) {
         AgentChatScaffold(
             visibleMessages = visibleMessages,
             hasMessages = visibleMessages.isNotEmpty(),

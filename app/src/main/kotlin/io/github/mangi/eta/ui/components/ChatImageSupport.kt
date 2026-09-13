@@ -23,6 +23,8 @@ import okhttp3.Request
 import org.intellij.markdown.IElementType
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
+import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
+import org.intellij.markdown.parser.MarkdownParser
 
 internal class LoadedChatImage(
     val bytes: ByteArray,
@@ -183,6 +185,15 @@ internal fun collectMarkdownImageNodes(node: ASTNode): List<ASTNode> {
     }
     walk(node)
     return out
+}
+
+
+internal fun collectMarkdownImageSources(content: String): List<String> {
+    if (content.isBlank()) return emptyList()
+    val root = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(content)
+    return collectMarkdownImageNodes(root)
+        .mapNotNull { markdownImageDestination(content, it) }
+        .filter(::isDirectChatImageSource)
 }
 
 internal fun resolveChatImageSource(

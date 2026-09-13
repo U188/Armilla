@@ -150,6 +150,7 @@ internal class AgentLocalTools(
         rootCommandExecutor.close()
         githubSkillSource?.close()
         inspectedGitHubSnapshots.clear()
+        ForegroundExclusiveGate.release(browserRunId)
     }
 
     fun terminalSessionEnvironment(sessionId: String): String? =
@@ -159,11 +160,15 @@ internal class AgentLocalTools(
         terminalController.sessionIdentity(sessionId)
 
     override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
-        return if (ForegroundExclusiveGate.shouldSerialize(toolCall.name)) {
-            ForegroundExclusiveGate.withLock { executeInternal(toolCall) }
-        } else {
-            executeInternal(toolCall)
+        if (!ForegroundExclusiveGate.shouldSerialize(toolCall.name)) {
+            return executeInternal(toolCall)
         }
+        if (!ForegroundExclusiveGate.acquire(browserRunId) { closed.get() }) {
+            return textResult(
+                errorResult("FOREGROUND_BUSY", "其他会话正在操作屏幕，当前任务已停止等待"),
+            )
+        }
+        return executeInternal(toolCall)
     }
 
     private fun executeInternal(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =

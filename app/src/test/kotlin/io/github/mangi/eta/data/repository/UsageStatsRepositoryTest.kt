@@ -322,8 +322,7 @@ class UsageStatsRepositoryTest {
     }
 
     @Test
-    fun billedCreditsStayProportionalWhenFilteringAllEvents() {
-        val conversion = TokenBalanceConversion(divisor = 500_000.0)
+    fun usageSnapshotDoesNotInventChargeFromTokenCount() {
         val snapshot = decodeModelUsageSnapshot(
             applyModelUsageDelta(
                 raw = null,
@@ -332,22 +331,17 @@ class UsageStatsRepositoryTest {
                     providerName = "魚",
                     modelId = "grok-4.6",
                     modelDisplayName = "grok-4.6",
-                    inputTokens = 5_250_000,
-                    outputTokens = 73_500,
+                    inputTokens = 24_150_000,
+                    outputTokens = 154_300,
                     conversationId = "conv-1",
                     atMillis = java.time.LocalDateTime.of(2026, 9, 13, 12, 0)
                         .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
                 ),
             ),
-        ).withBalanceConversions(mapOf("fish" to conversion))
+        )
         val model = snapshot.providers.single().models.single()
-        assertEquals(10.5, model.billedCredits!!, 0.0001)
-        val start = java.time.LocalDateTime.of(2026, 9, 7, 0, 0)
-            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val end = java.time.LocalDateTime.of(2026, 9, 13, 23, 59, 59, 999_000_000)
-            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val filtered = snapshot.filtered(start, end).providers.single().models.single()
-        assertEquals(5_250_000L, filtered.inputTokens)
-        assertEquals(10.5, filtered.billedCredits!!, 0.0001)
+        assertEquals(24_150_000L, model.inputTokens)
+        assertEquals(null, model.billedCredits)
+        assertEquals(null, snapshot.providers.single().billedCredits)
     }
 }

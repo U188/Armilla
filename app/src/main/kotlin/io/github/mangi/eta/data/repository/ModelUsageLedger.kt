@@ -54,7 +54,6 @@ internal data class ModelUsageModelUi(
     val activeDays: Int,
     val events: List<ModelUsageEvent> = emptyList(),
     val billedCredits: Double? = null,
-    val billedRate: Double? = null,
 ) {
     val dailyAverageTokens: Long
         get() = if (activeDays <= 0) 0L else inputTokens / activeDays
@@ -71,15 +70,13 @@ internal data class ModelUsageModelUi(
         val conversations = matched.mapNotNull { it.conversationId }.toSet()
         val days = matched.map { eventDay(it.atMillis) }.toSet()
         val filteredInput = matched.sumOf { it.inputTokens }
-        val rate = billedRate ?: billedCredits?.takeIf { inputTokens > 0 }?.div(inputTokens.toDouble())
         return copy(
             inputTokens = filteredInput,
             outputTokens = matched.sumOf { it.outputTokens },
             conversationCount = conversations.size,
             activeDays = days.size,
             events = matched,
-            billedCredits = rate?.times(filteredInput),
-            billedRate = rate,
+            billedCredits = null,
         )
     }
 }
@@ -250,19 +247,3 @@ private fun eventDay(atMillis: Long): LocalDate =
 private const val MAX_MODEL_EVENTS = 4000
 
 
-internal fun ModelUsageSnapshot.withBalanceConversions(
-    conversions: Map<String, TokenBalanceConversion>,
-): ModelUsageSnapshot = copy(
-    providers = providers.map { provider ->
-        val conversion = conversions[provider.id]
-        provider.copy(
-            models = provider.models.map { model ->
-                val rate = conversion?.takeIf { it.divisor != 0.0 }?.let { it.multiplier / it.divisor }
-                model.copy(
-                    billedCredits = conversion?.creditsForInputTokens(model.inputTokens),
-                    billedRate = rate,
-                )
-            },
-        )
-    },
-)

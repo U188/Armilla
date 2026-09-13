@@ -70,14 +70,7 @@ internal object UsageStatsRepository {
             lifetimeCachedTokens = tokenTotals.cached + retired.cachedTokens,
             conversationsPerDay = mergeHeatmap(perDay, retired.heatmap, startDate),
             launchCount = SettingsDataStore.launchCount(),
-            modelUsage = decodeModelUsageSnapshot(SettingsDataStore.modelUsageJson())
-                .withBalanceConversions(
-                    ProviderRepository.allProviders().associate { provider ->
-                        provider.id to tokenBalanceConversion(provider.balanceOption)
-                    }.mapNotNull { (id, conversion) ->
-                        conversion?.let { id to it }
-                    }.toMap(),
-                ),
+            modelUsage = decodeModelUsageSnapshot(SettingsDataStore.modelUsageJson()),
         )
     }
 

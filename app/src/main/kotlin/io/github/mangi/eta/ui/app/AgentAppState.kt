@@ -1237,12 +1237,7 @@ internal class AgentAppState(
         if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) {
             return
         }
-        if (compressionJob?.isActive == true) {
-            Toast.makeText(
-                appContext,
-                appContext.getString(R.string.compress_conversation_in_progress),
-                Toast.LENGTH_SHORT,
-            ).show()
+        if (rejectSendIfCompressing()) {
             return
         }
         val fileReferences = pendingFileReferences.map { it.reference }
@@ -1399,6 +1394,7 @@ internal class AgentAppState(
 
     fun beginMessageEdit(messageId: String) {
         if (homeState.messageEdit != null) return
+        if (rejectSendIfCompressing()) return
         abortActiveRunForRevision()
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
@@ -1478,6 +1474,7 @@ internal class AgentAppState(
 
     fun regenerateMessage(messageId: String) {
         if (homeState.messageEdit != null) return
+        if (rejectSendIfCompressing()) return
         abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
@@ -3533,6 +3530,20 @@ internal class AgentAppState(
         } else {
             scheduleAutoCompress(conversationId, allowRepeat = true)
         }
+    }
+
+    private fun isCompressionBlockingSend(): Boolean =
+        compressionJob?.isActive == true ||
+            (!homeState.isStreaming && homeState.isCompressingContext)
+
+    private fun rejectSendIfCompressing(): Boolean {
+        if (!isCompressionBlockingSend()) return false
+        Toast.makeText(
+            appContext,
+            appContext.getString(R.string.compress_conversation_in_progress),
+            Toast.LENGTH_SHORT,
+        ).show()
+        return true
     }
 
     private fun shouldKeepCompressingIndicator(conversationId: String?): Boolean {

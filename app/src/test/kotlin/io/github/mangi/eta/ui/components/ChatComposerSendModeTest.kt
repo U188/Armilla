@@ -107,4 +107,17 @@ class ChatComposerSendModeTest {
             ),
         )
     }
+
+    @Test
+    fun compressingReadyShowsIdle() {
+        assertEquals(
+            "idle",
+            resolveChatComposerSendMode(
+                isStreaming = false,
+                isPaused = false,
+                hasSteerContent = true,
+                canStartNewSend = false,
+            ),
+        )
+    }
 }

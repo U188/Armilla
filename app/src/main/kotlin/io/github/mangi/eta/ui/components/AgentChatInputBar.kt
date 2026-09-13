@@ -130,6 +130,7 @@ internal fun AgentChatInputBar(
     autoCompressEnabled: Boolean,
     showContextUsage: Boolean,
     isStreaming: Boolean,
+    isCompressingContext: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -187,7 +188,8 @@ internal fun AgentChatInputBar(
         )
     }
     val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, liveUsage)
-    val canSend = !contextSendBlocked && (
+    val compressionSendBlocked = isCompressingContext && !isStreaming
+    val canSend = !contextSendBlocked && !compressionSendBlocked && (
         textFieldState.text.isNotBlank() ||
             pendingImages.isNotEmpty() ||
             pendingFileReferences.isNotEmpty()
@@ -277,6 +279,19 @@ internal fun AgentChatInputBar(
                 text = stringResource(R.string.context_window_send_blocked),
                 style = MiuixTheme.textStyles.body2,
                 color = StatusError,
+                modifier = Modifier.padding(start = 8.dp, bottom = 6.dp),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = compressionSendBlocked,
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
+        ) {
+            Text(
+                text = stringResource(R.string.compress_conversation_in_progress),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(start = 8.dp, bottom = 6.dp),
             )
         }

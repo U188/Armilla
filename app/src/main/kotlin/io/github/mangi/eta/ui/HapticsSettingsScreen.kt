@@ -2,17 +2,29 @@ package io.github.mangi.eta.ui
 
 import android.content.SharedPreferences
 import android.widget.Toast
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -21,9 +33,20 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.components.PreferenceIcon
+import io.github.mangi.eta.ui.components.discreteSliderIndexForTap
+import io.github.mangi.eta.ui.haptics.HapticIntensity
 import io.github.mangi.eta.ui.haptics.TouchHaptics
+import kotlin.math.roundToInt
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Slider
+import top.yukonga.miuix.kmp.basic.SliderDefaults
+import top.yukonga.miuix.kmp.basic.Switch
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 internal fun HapticsSettingsScreen(onBack: () -> Unit) {
@@ -36,6 +59,8 @@ internal fun HapticsSettingsScreen(onBack: () -> Unit) {
     var messageGenerationEnabled by remember {
         mutableStateOf(Prefs.isEnabled(Prefs.Keys.HAPTIC_MESSAGE_GENERATION))
     }
+    var intensity by remember { mutableStateOf(TouchHaptics.currentIntensity()) }
+    var showIntensityDialog by remember { mutableStateOf(false) }
 
     DisposableEffect(prefs) {
         val target = prefs ?: return@DisposableEffect onDispose {}
@@ -52,6 +77,10 @@ internal fun HapticsSettingsScreen(onBack: () -> Unit) {
                         key,
                         Prefs.Keys.BOOLEAN_DEFAULTS.getValue(key),
                     )
+                }
+                Prefs.Keys.HAPTIC_INTENSITY -> {
+                    TouchHaptics.reloadIntensity()
+                    intensity = TouchHaptics.currentIntensity()
                 }
             }
         }
@@ -84,16 +113,26 @@ internal fun HapticsSettingsScreen(onBack: () -> Unit) {
     ) {
         item(key = "haptics_switches") {
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                SwitchPreference(
+                BasicComponent(
                     title = stringResource(R.string.haptics_touch_feedback),
-                    summary = stringResource(R.string.haptics_touch_feedback_summary),
-                    checked = touchEnabled,
-                    onCheckedChange = { value ->
-                        if (onToggle(Prefs.Keys.HAPTIC_TOUCH_FEEDBACK, value, touchEnabled)) {
-                            touchEnabled = value
-                        }
+                    summary = if (touchEnabled) {
+                        stringResource(intensity.labelRes)
+                    } else {
+                        stringResource(R.string.haptics_touch_feedback_summary)
                     },
+                    onClick = { showIntensityDialog = true },
+                    holdDownState = showIntensityDialog,
                     startAction = { PreferenceIcon(icon = Icons.Rounded.Vibration) },
+                    endActions = {
+                        Switch(
+                            checked = touchEnabled,
+                            onCheckedChange = { value ->
+                                if (onToggle(Prefs.Keys.HAPTIC_TOUCH_FEEDBACK, value, touchEnabled)) {
+                                    touchEnabled = value
+                                }
+                            },
+                        )
+                    },
                 )
                 SwitchPreference(
                     title = stringResource(R.string.haptics_message_generation),
@@ -113,6 +152,139 @@ internal fun HapticsSettingsScreen(onBack: () -> Unit) {
                         PreferenceIcon(icon = Icons.Rounded.GraphicEq, enabled = touchEnabled)
                     },
                     enabled = touchEnabled,
+                )
+            }
+        }
+    }
+
+    HapticIntensityPickerDialog(
+        show = showIntensityDialog,
+        intensity = intensity,
+        onDismiss = { showIntensityDialog = false },
+        onPreview = { next -> TouchHaptics.previewClick(view, next) },
+        onIntensityChange = { next ->
+            if (next == intensity) return@HapticIntensityPickerDialog
+            if (!TouchHaptics.setIntensity(next)) {
+                Toast.makeText(
+                    context.applicationContext,
+                    context.getString(R.string.settings_write_failed),
+                    Toast.LENGTH_SHORT,
+                ).show()
+                return@HapticIntensityPickerDialog
+            }
+            intensity = next
+        },
+    )
+}
+
+@Composable
+private fun HapticIntensityPickerDialog(
+    show: Boolean,
+    intensity: HapticIntensity,
+    onDismiss: () -> Unit,
+    onPreview: (HapticIntensity) -> Unit,
+    onIntensityChange: (HapticIntensity) -> Unit,
+) {
+    val options = HapticIntensity.entries
+    val selectedIndex = options.indexOf(intensity).coerceAtLeast(0)
+    var sliderValue by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    var lastHapticIndex by remember { mutableIntStateOf(selectedIndex) }
+    val latestIntensity by rememberUpdatedState(intensity)
+    val latestOnPreview by rememberUpdatedState(onPreview)
+    val latestOnIntensityChange by rememberUpdatedState(onIntensityChange)
+    LaunchedEffect(show) {
+        if (show) {
+            sliderValue = selectedIndex.toFloat()
+            lastHapticIndex = selectedIndex
+        }
+    }
+    val previewIndex = sliderValue.roundToInt().coerceIn(0, options.lastIndex)
+    val preview = options[previewIndex]
+    val maxIndex = (options.size - 1).toFloat().coerceAtLeast(0f)
+
+    WindowDialog(
+        show = show,
+        title = stringResource(R.string.haptics_intensity_title),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Vibration,
+                contentDescription = null,
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .size(32.dp),
+                tint = MiuixTheme.colorScheme.primary,
+            )
+            Text(
+                text = stringResource(preview.labelRes),
+                style = MiuixTheme.textStyles.title3,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 6.dp, bottom = 16.dp),
+            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Slider(
+                    value = sliderValue.coerceIn(0f, maxIndex),
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    valueRange = 0f..maxIndex,
+                    steps = (options.size - 2).coerceAtLeast(0),
+                    showKeyPoints = true,
+                    keyPoints = options.indices.map { it.toFloat() },
+                    magnetThreshold = 0.18f,
+                    hapticEffect = SliderDefaults.SliderHapticEffect.None,
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .pointerInput(options.size) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                down.consume()
+                                val width = size.width.toFloat().coerceAtLeast(1f)
+                                var current = discreteSliderIndexForTap(
+                                    down.position.x,
+                                    width,
+                                    options.size,
+                                )
+                                sliderValue = current.toFloat()
+                                lastHapticIndex = current
+                                latestOnPreview(options[current])
+                                if (options[current] != latestIntensity) {
+                                    latestOnIntensityChange(options[current])
+                                }
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: break
+                                    val index = discreteSliderIndexForTap(
+                                        change.position.x,
+                                        width,
+                                        options.size,
+                                    )
+                                    if (index != current) {
+                                        current = index
+                                        sliderValue = current.toFloat()
+                                        if (current != lastHapticIndex) {
+                                            lastHapticIndex = current
+                                            latestOnPreview(options[current])
+                                            if (options[current] != latestIntensity) {
+                                                latestOnIntensityChange(options[current])
+                                            }
+                                        }
+                                    }
+                                    change.consume()
+                                    if (!event.changes.any { it.pressed }) break
+                                }
+                                val coerced = current.coerceIn(0, options.lastIndex)
+                                sliderValue = coerced.toFloat()
+                                lastHapticIndex = coerced
+                                val next = options[coerced]
+                                if (next != latestIntensity) latestOnIntensityChange(next)
+                            }
+                        },
                 )
             }
         }

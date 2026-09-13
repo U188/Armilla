@@ -71,6 +71,11 @@
   <string name="haptics_touch_feedback_summary">點擊按鈕、開關和選單時震動</string>
   <string name="haptics_message_generation">訊息生成觸控回饋</string>
   <string name="haptics_message_generation_summary">模型輸出內容或出現工具步驟時提供輕觸回饋</string>
+  <string name="haptics_intensity_title">震動幅度</string>
+  <string name="haptics_intensity_default">預設</string>
+  <string name="haptics_intensity_low">低</string>
+  <string name="haptics_intensity_medium">中</string>
+  <string name="haptics_intensity_high">高</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">權限</string>
   <string name="route_system_enhancements">系統增強</string>

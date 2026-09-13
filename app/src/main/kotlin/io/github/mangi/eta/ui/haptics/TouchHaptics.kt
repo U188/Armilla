@@ -1,8 +1,13 @@
 package io.github.mangi.eta.ui.haptics
 
+import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.SystemClock
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.VibratorManager
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.runtime.Composable
@@ -36,18 +41,45 @@ internal class LiveToolHapticTracker(
 }
 
 /**
- * App 内触控反馈。走系统 [View.performHapticFeedback]，以便 HyperOS / 线性马达按系统主题渲染。
- * 总开关关闭时不再发振；同时也尊重系统「触控反馈」总开关。
+ * App 内触控反馈。默认档走系统 [View.performHapticFeedback]，以便 HyperOS / 线性马达按系统主题渲染。
+ * 低 / 中 / 高档用自定义振幅。总开关关闭时不再发振；同时也尊重系统「触控反馈」总开关。
  */
 internal object TouchHaptics {
     private val liveToolTracker = LiveToolHapticTracker()
     private const val GENERATION_TICK_INTERVAL_MS = 32L
     private var lastGenerationTickAt = 0L
 
+    @Volatile
+    private var cachedIntensity: HapticIntensity? = null
+
     fun isTouchEnabled(): Boolean = Prefs.isEnabled(Prefs.Keys.HAPTIC_TOUCH_FEEDBACK)
 
     fun isMessageGenerationEnabled(): Boolean =
         isTouchEnabled() && Prefs.isEnabled(Prefs.Keys.HAPTIC_MESSAGE_GENERATION)
+
+    fun currentIntensity(): HapticIntensity {
+        cachedIntensity?.let { return it }
+        val loaded = HapticIntensity.fromWire(
+            Prefs.getString(Prefs.Keys.HAPTIC_INTENSITY, HapticIntensity.DEFAULT.wireValue),
+        )
+        cachedIntensity = loaded
+        return loaded
+    }
+
+    fun setIntensity(value: HapticIntensity): Boolean {
+        val prefs = Prefs.localAgentPreferences() ?: return false
+        val ok = runCatching {
+            prefs.edit().putString(Prefs.Keys.HAPTIC_INTENSITY, value.wireValue).commit()
+        }.getOrDefault(false)
+        if (ok) cachedIntensity = value
+        return ok
+    }
+
+    fun reloadIntensity() {
+        cachedIntensity = HapticIntensity.fromWire(
+            Prefs.getString(Prefs.Keys.HAPTIC_INTENSITY, HapticIntensity.DEFAULT.wireValue),
+        )
+    }
 
     /**
      * 流式打字的轻触。间隔过短时马达会吞掉后续 tick，输出越快越像没在跟。
@@ -69,6 +101,15 @@ internal object TouchHaptics {
 
     fun click(view: View?) {
         perform(view, HapticFeedbackConstants.CONTEXT_CLICK)
+    }
+
+    fun previewClick(view: View?, intensity: HapticIntensity) {
+        perform(
+            view,
+            HapticFeedbackConstants.CONTEXT_CLICK,
+            intensity = intensity,
+            ignoreAppSwitch = true,
+        )
     }
 
     fun keyboardTap(view: View?) {
@@ -106,10 +147,73 @@ internal object TouchHaptics {
         perform(view, constant)
     }
 
-    private fun perform(view: View?, constant: Int) {
-        if (view == null || !isTouchEnabled()) return
-        view.performHapticFeedback(constant)
+    private fun perform(
+        view: View?,
+        constant: Int,
+        intensity: HapticIntensity = currentIntensity(),
+        ignoreAppSwitch: Boolean = false,
+    ) {
+        if (view == null) return
+        if (!ignoreAppSwitch && !isTouchEnabled()) return
+        if (intensity == HapticIntensity.DEFAULT) {
+            val flags = if (ignoreAppSwitch) {
+                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+            } else {
+                0
+            }
+            view.performHapticFeedback(constant, flags)
+            return
+        }
+        vibrateScaled(view, constant, intensity)
     }
+
+    private fun vibrateScaled(view: View, constant: Int, intensity: HapticIntensity) {
+        val context = view.context
+        if (!isSystemHapticEnabled(context)) return
+        val vibrator = context.getSystemService(VibratorManager::class.java)
+            ?.defaultVibrator
+            ?: return
+        if (!vibrator.hasVibrator()) return
+        val isTick = constant == HapticFeedbackConstants.CLOCK_TICK ||
+            constant == HapticFeedbackConstants.SEGMENT_FREQUENT_TICK
+        val primitiveId = if (isTick) {
+            VibrationEffect.Composition.PRIMITIVE_TICK
+        } else {
+            VibrationEffect.Composition.PRIMITIVE_CLICK
+        }
+        val scale = if (isTick) intensity.tickScale else intensity.clickScale
+        val amplitude = if (isTick) intensity.tickAmplitude else intensity.clickAmplitude
+        val durationMs = if (isTick) 10L else 16L
+        runCatching {
+            val supportsPrimitive = vibrator
+                .arePrimitivesSupported(primitiveId)
+                .firstOrNull() == true
+            val effect = if (supportsPrimitive) {
+                VibrationEffect.startComposition()
+                    .addPrimitive(primitiveId, scale)
+                    .compose()
+            } else {
+                VibrationEffect.createOneShot(durationMs, amplitude)
+            }
+            vibrator.cancel()
+            vibrator.vibrate(
+                effect,
+                VibrationAttributes.Builder()
+                    .setUsage(VibrationAttributes.USAGE_TOUCH)
+                    .build(),
+            )
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isSystemHapticEnabled(context: Context): Boolean =
+        runCatching {
+            Settings.System.getInt(
+                context.contentResolver,
+                Settings.System.HAPTIC_FEEDBACK_ENABLED,
+                1,
+            ) != 0
+        }.getOrDefault(true)
 }
 
 @Composable
@@ -124,10 +228,13 @@ internal fun ApplyTouchHapticFeedbackEnabled() {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == Prefs.Keys.HAPTIC_TOUCH_FEEDBACK) {
                 enabled = TouchHaptics.isTouchEnabled()
+            } else if (key == Prefs.Keys.HAPTIC_INTENSITY) {
+                TouchHaptics.reloadIntensity()
             }
         }
         target.registerOnSharedPreferenceChangeListener(listener)
         enabled = TouchHaptics.isTouchEnabled()
+        TouchHaptics.reloadIntensity()
         onDispose { target.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     DisposableEffect(view, enabled) {

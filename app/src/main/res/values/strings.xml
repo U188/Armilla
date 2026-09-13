@@ -57,6 +57,11 @@
   <string name="haptics_touch_feedback_summary">Vibrate when tapping buttons, switches and menus</string>
   <string name="haptics_message_generation">Message generation haptic</string>
   <string name="haptics_message_generation_summary">Light vibration while the model is writing or a tool step appears</string>
+  <string name="haptics_intensity_title">Haptic intensity</string>
+  <string name="haptics_intensity_default">Default</string>
+  <string name="haptics_intensity_low">Low</string>
+  <string name="haptics_intensity_medium">Medium</string>
+  <string name="haptics_intensity_high">High</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">Permissions</string>
   <string name="route_system_enhancements">System enhancements</string>

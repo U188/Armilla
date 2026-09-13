@@ -56,6 +56,7 @@ internal object Prefs {
         const val AGENT_MANUAL_COMPRESS_MODEL_ID = "agent_manual_compress_model_id"
         const val HAPTIC_TOUCH_FEEDBACK = "haptic_touch_feedback"
         const val HAPTIC_MESSAGE_GENERATION = "haptic_message_generation"
+        const val HAPTIC_INTENSITY = "haptic_intensity"
 
         /** 全部布尔开关及其默认值。 */
         val BOOLEAN_DEFAULTS: Map<String, Boolean> = mapOf(

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,8 +36,10 @@ import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Slider
+import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -58,6 +61,7 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
     }
     var showScaleDialog by remember { mutableStateOf(false) }
     var scaleInput by remember { mutableStateOf("") }
+    var morphLoadingExpanded by remember { mutableStateOf(false) }
     val blurSupported = isRuntimeShaderSupported()
 
     fun update(transform: (AppearanceSettings) -> AppearanceSettings) {
@@ -196,28 +200,45 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
                         },
                     )
                 }
-                SwitchPreference(
+                BasicComponent(
                     title = stringResource(R.string.appearance_morph_loading),
                     summary = stringResource(R.string.appearance_morph_loading_summary),
-                    checked = appearance.morphLoadingIndicator,
-                    onCheckedChange = { enabled ->
-                        update { current -> current.copy(morphLoadingIndicator = enabled) }
+                    onClick = {
+                        if (appearance.morphLoadingIndicator) {
+                            morphLoadingExpanded = !morphLoadingExpanded
+                        } else {
+                            update { current -> current.copy(morphLoadingIndicator = true) }
+                            morphLoadingExpanded = true
+                        }
+                    },
+                    holdDownState = appearance.morphLoadingIndicator && morphLoadingExpanded,
+                    endActions = {
+                        Switch(
+                            checked = appearance.morphLoadingIndicator,
+                            onCheckedChange = { enabled ->
+                                update { current -> current.copy(morphLoadingIndicator = enabled) }
+                                morphLoadingExpanded = enabled
+                            },
+                        )
+                    },
+                    bottomAction = if (appearance.morphLoadingIndicator && morphLoadingExpanded) {
+                        {
+                            SwitchPreference(
+                                title = stringResource(R.string.appearance_morph_loading_before_response),
+                                summary = stringResource(R.string.appearance_morph_loading_before_response_summary),
+                                checked = appearance.morphLoadingBeforeResponseOnly,
+                                onCheckedChange = { enabled ->
+                                    update { current ->
+                                        current.copy(morphLoadingBeforeResponseOnly = enabled)
+                                    }
+                                },
+                                insideMargin = PaddingValues(0.dp),
+                            )
+                        }
+                    } else {
+                        null
                     },
                 )
-                AnimatedVisibility(
-                    visible = appearance.morphLoadingIndicator,
-                    enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
-                    exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
-                ) {
-                    SwitchPreference(
-                        title = stringResource(R.string.appearance_morph_loading_before_response),
-                        summary = stringResource(R.string.appearance_morph_loading_before_response_summary),
-                        checked = appearance.morphLoadingBeforeResponseOnly,
-                        onCheckedChange = { enabled ->
-                            update { current -> current.copy(morphLoadingBeforeResponseOnly = enabled) }
-                        },
-                    )
-                }
                 SwitchPreference(
                     title = stringResource(R.string.appearance_swipe_dismiss),
                     summary = stringResource(R.string.appearance_swipe_dismiss_summary),

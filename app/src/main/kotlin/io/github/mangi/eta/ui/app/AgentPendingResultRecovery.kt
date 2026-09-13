@@ -112,6 +112,8 @@ internal object AgentPendingResultRecovery {
         supplements.sortedBy { it.index }.forEach { supplement ->
             val id = supplementMessageId(runId, supplement.index)
             if (updated.any { it.id == id }) return@forEach
+            val lastUser = updated.lastOrNull { it is UserMessageUi } as? UserMessageUi
+            if (lastUser?.content == supplement.text) return@forEach
             val userMessage = UserMessageUi(id = id, content = supplement.text)
             // 实时追加必须接到当前列表末尾：steering 在本 turn 结束后才注入，
             // 用户消息应出现在正在生成的回答下面。插到流式助手前面时，

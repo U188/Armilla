@@ -70,7 +70,6 @@ import io.github.mangi.eta.data.repository.UsageStatsRepository
 
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.hasRunningTools
-import io.github.mangi.eta.ui.model.hasStartedCurrentTurnOutput
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.model.MessageSearchRoleLabels
 import io.github.mangi.eta.ui.model.searchConversationMessages
@@ -150,6 +149,7 @@ internal class AgentAppState(
     private val imageGenerationRunIds = mutableSetOf<String>()
     private var compressionJob: Job? = null
     private var pendingManualCompress: PendingManualCompress? = null
+    private val pendingSteerTextByConversation = mutableMapOf<String, String>()
     private var pendingRetiredUsage = ConversationTokenUsageUi()
     private var pendingRetiredConversations = 0
     private var pendingRetiredMessages = 0
@@ -1534,8 +1534,12 @@ internal class AgentAppState(
     }
 
     fun regenerateMessage(messageId: String) {
+        regenerateMessage(messageId, ignoreCompression = false)
+    }
+
+    private fun regenerateMessage(messageId: String, ignoreCompression: Boolean) {
         if (homeState.messageEdit != null) return
-        if (rejectSendIfCompressing()) return
+        if (!ignoreCompression && rejectSendIfCompressing()) return
         abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
@@ -1555,7 +1559,7 @@ internal class AgentAppState(
             })) {
             return
         }
-        if (boundary.contextWasCompacted) showCompactedRevisionNotice()
+        if (!ignoreCompression && boundary.contextWasCompacted) showCompactedRevisionNotice()
         if (images.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
                 val extra = if (parsed.references.isEmpty()) {
@@ -1742,29 +1746,24 @@ internal class AgentAppState(
     ) {
         runConversationIds[runId] = conversationId
         runOverheadTokens[runId] = requestOverheadTokens
+        pendingSteerTextByConversation.remove(conversationId)
         val generateImage = selectedModelGeneratesImages()
         if (generateImage) {
             imageGenerationRunIds += runId
         }
 
-        val pendingManual = pendingManualCompress?.takeIf { pending ->
-            pending.conversationId == null || pending.conversationId == conversationId
-        }
-        val willCompress = !generateImage && (
-            pendingManual != null ||
-                shouldAutoCompress(
-                    history = history,
-                    contextWindow = compressionContextWindow(),
-                    estimatedTokens = liveContextUsage(
-                        history = history,
-                        currentInput = prompt,
-                        pendingImages = images,
-                        selectedModel = modelPickerState.selectedModel,
-                        billedContextTokens = billedPromptTokens(state),
-                        requestOverheadTokens = requestOverheadTokens,
-                        billedOverheadTokens = billedOverheadTokens,
-                    ).contextTokens,
-                )
+        val willCompress = !generateImage && shouldAutoCompress(
+            history = history,
+            contextWindow = compressionContextWindow(),
+            estimatedTokens = liveContextUsage(
+                history = history,
+                currentInput = prompt,
+                pendingImages = images,
+                selectedModel = modelPickerState.selectedModel,
+                billedContextTokens = billedPromptTokens(state),
+                requestOverheadTokens = requestOverheadTokens,
+                billedOverheadTokens = billedOverheadTokens,
+            ).contextTokens,
         )
         val runMessages = if (generateImage) {
             messages + AgentMessageUi(
@@ -1855,14 +1854,7 @@ internal class AgentAppState(
                     source = "user_attach",
                 )
             }
-            val manualCompress = withContext(Dispatchers.Main) {
-                takePendingManualCompress(conversationId)
-            }
-            val compressModelConfig = resolveCompressModelConfig(
-                fallback = config,
-                providerId = manualCompress?.providerId,
-                modelId = manualCompress?.modelId,
-            )
+            val compressModelConfig = resolveCompressModelConfig(config)
             val estimatedTokens = liveContextUsage(
                 history = history,
                 currentInput = prompt,
@@ -1872,7 +1864,7 @@ internal class AgentAppState(
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
             ).contextTokens
-            val shouldCompress = manualCompress != null || shouldAutoCompress(
+            val shouldCompress = shouldAutoCompress(
                 history,
                 compressionContextWindow(config.contextWindow),
                 estimatedTokens,
@@ -1886,8 +1878,6 @@ internal class AgentAppState(
                 val compressed = tryCompressHistory(
                     history = history,
                     compressModelConfig = compressModelConfig,
-                    targetTokens = manualCompress?.targetTokens,
-                    keepRecent = manualCompress?.keepRecent,
                 )
                 withContext(Dispatchers.Main) {
                     applyCompressedHistoryToConversation(
@@ -2316,6 +2306,7 @@ internal class AgentAppState(
         }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
+        conversationId?.let(pendingSteerTextByConversation::remove)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
@@ -2440,6 +2431,10 @@ internal class AgentAppState(
             return
         }
         val conversationId = selectedConversationId
+        val initialSteer = prompt.ifBlank { "请查看我补充的附件。" }
+        if (conversationId != null) {
+            pendingSteerTextByConversation[conversationId] = initialSteer
+        }
         updateCurrentConversation(
             homeState.copy(
                 pendingImages = emptyList(),
@@ -2452,14 +2447,17 @@ internal class AgentAppState(
             } else {
                 emptyList()
             }
-            if (withContext(Dispatchers.Main) { rejectSendIfCompressing() }) {
-                return@launch
-            }
             val steerText = AgentFileReferencePromptCodec.format(
                 prompt,
                 fileReferences + staged,
             ).ifBlank { "请查看我补充的附件。" }
-            AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, steerText)
+            withContext(Dispatchers.Main) {
+                if (conversationId != null) {
+                    pendingSteerTextByConversation[conversationId] = steerText
+                }
+                if (rejectSendIfCompressing()) return@withContext
+                AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, steerText)
+            }
         }
         if (homeState.isPaused) {
             continuePausedGeneration()
@@ -3198,6 +3196,7 @@ internal class AgentAppState(
         }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
+        conversationId?.let(pendingSteerTextByConversation::remove)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
@@ -3730,12 +3729,16 @@ internal class AgentAppState(
         onFinished: (Boolean) -> Unit,
     ) {
         persistCompressPreferences(providerId, modelId, targetTokens, keepRecent)
-        if (compressionJob?.isActive == true || homeState.isCompressingContext) {
+        val runInFlight = homeState.isStreaming || homeState.isPaused
+        if (compressionJob?.isActive == true) {
+            onFinished(true)
+            return
+        }
+        if (!runInFlight && homeState.isCompressingContext) {
             onFinished(true)
             return
         }
         val keepRecentMessages = keepRecent.coerceIn(0, 100)
-        val runInFlight = homeState.isStreaming || homeState.isPaused
         if (!runInFlight &&
             AgentContextCompactor.recentKeepStartIndex(homeState.history, keepRecentMessages) <= 0
         ) {
@@ -3754,6 +3757,7 @@ internal class AgentAppState(
             modelId = modelId,
             targetTokens = targetTokens,
             keepRecent = keepRecentMessages,
+            resumeAfter = runInFlight,
         )
         setConversationCompressing(conversationId, true)
         onFinished(true)
@@ -3761,26 +3765,47 @@ internal class AgentAppState(
             homeState.hasRunningTools() -> {
                 // 工具批次不打断，等跑完再停住并压缩。
             }
-            homeState.isStreaming && homeState.hasStartedCurrentTurnOutput() -> {
-                stopGenerationThenCompress(conversationId)
-            }
-            homeState.isPaused -> {
-                stopGenerationThenCompress(conversationId)
-            }
-            homeState.isStreaming -> {
-                // 刚发出、还在等首个 token：交给发送前压缩，先压再出。
-            }
+            runInFlight -> stopGenerationThenCompress(conversationId)
             else -> startPendingManualCompress()
         }
     }
 
 
     private fun stopGenerationThenCompress(conversationId: String? = selectedConversationId) {
+        pendingManualCompress = pendingManualCompress?.copy(resumeAfter = true)
+        materializePendingSteer(conversationId)
         val runId = runIdForConversation(conversationId)
         if (runId != null) {
             snapshotPartialAssistantToHistory(runId)
         }
         abortConversationRun(conversationId, startPendingCompress = true)
+    }
+
+    private fun materializePendingSteer(conversationId: String?) {
+        val id = conversationId ?: return
+        val text = pendingSteerTextByConversation.remove(id)?.trim().orEmpty()
+        if (text.isEmpty()) return
+        val state = conversationsById[id] ?: return
+        val lastUser = state.messages.lastOrNull { it is UserMessageUi } as? UserMessageUi
+        val lastHistory = state.history.lastOrNull()
+        val messages = if (lastUser?.content == text) {
+            state.messages
+        } else {
+            state.messages + UserMessageUi(
+                id = "steer-$id-${System.currentTimeMillis()}",
+                content = text,
+            )
+        }
+        val history = if (lastHistory?.role == "user" && lastHistory.content == text) {
+            state.history
+        } else {
+            state.history + AgentModelClient.ConversationMessage(
+                role = "user",
+                content = text,
+            )
+        }
+        if (messages === state.messages && history === state.history) return
+        updateConversation(id, state.copy(messages = messages, history = history))
     }
 
     private fun onToolBatchMaybeIdle(conversationId: String) {
@@ -3829,23 +3854,11 @@ internal class AgentAppState(
             pending.conversationId == conversationId
     }
 
-    private fun takePendingManualCompress(conversationId: String?): PendingManualCompress? {
-        val pending = pendingManualCompress ?: return null
-        if (
-            pending.conversationId != null &&
-            conversationId != null &&
-            pending.conversationId != conversationId
-        ) {
-            return null
-        }
-        pendingManualCompress = null
-        return pending
-    }
-
     private fun startPendingManualCompress() {
         val request = pendingManualCompress ?: return
         if (compressionJob?.isActive == true) return
         pendingManualCompress = null
+        val resumeAfter = request.resumeAfter
         val previous = compressionJob
         compressionJob = scope.launch(Dispatchers.IO) {
             previous?.join()
@@ -3916,10 +3929,21 @@ internal class AgentAppState(
                 withContext(Dispatchers.Main) {
                     if (pendingManualCompress == null) {
                         setConversationCompressing(request.conversationId, false)
+                        if (resumeAfter) {
+                            resumeLastTurnAfterCompress(request.conversationId)
+                        }
                     }
                 }
             }
         }
+    }
+
+    private fun resumeLastTurnAfterCompress(conversationId: String?) {
+        if (conversationId != selectedConversationId) return
+        if (homeState.isStreaming || homeState.isPaused || homeState.isCompressingContext) return
+        val lastUser = homeState.messages.lastOrNull { it is UserMessageUi } as? UserMessageUi
+            ?: return
+        regenerateMessage(lastUser.id, ignoreCompression = true)
     }
 
 
@@ -4003,6 +4027,7 @@ private data class PendingManualCompress(
     val modelId: String?,
     val targetTokens: Int,
     val keepRecent: Int,
+    val resumeAfter: Boolean = false,
 )
 
 internal data class MessageRevisionImpact(

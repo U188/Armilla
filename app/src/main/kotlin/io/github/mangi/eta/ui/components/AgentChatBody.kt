@@ -357,6 +357,16 @@ private fun AgentChatScaffold(
         drawContent()
     }
 
+    val appearance = LocalAppearanceSettings.current
+    val showMorphLoading = shouldShowMorphLoadingIndicator(
+        messages = visibleMessages,
+        isStreaming = isStreaming,
+        isPaused = isPaused,
+        isCompressingContext = isCompressingContext,
+        enabled = appearance.morphLoadingIndicator,
+        beforeResponseOnly = appearance.morphLoadingBeforeResponseOnly,
+    )
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = Color.Transparent,
@@ -381,6 +391,7 @@ private fun AgentChatScaffold(
                 isStreaming = isStreaming,
                 isPaused = isPaused,
                 isCompressingContext = isCompressingContext,
+                showMorphLoading = showMorphLoading,
                 reasoningEffort = reasoningEffort,
                 availableReasoningEfforts = availableReasoningEfforts,
                 pendingImages = pendingImages,
@@ -496,15 +507,6 @@ internal fun AgentConversationMessages(
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
     val streamingMarkdownStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
-    val appearance = LocalAppearanceSettings.current
-    val showMorphLoading = shouldShowMorphLoadingIndicator(
-        messages = visibleMessages,
-        isStreaming = isStreaming,
-        isPaused = isPaused,
-        isCompressingContext = isCompressingContext,
-        enabled = appearance.morphLoadingIndicator,
-        beforeResponseOnly = appearance.morphLoadingBeforeResponseOnly,
-    )
     val compressingItemCount = if (isCompressingContext) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
@@ -787,33 +789,6 @@ internal fun AgentConversationMessages(
             }
         }
 
-        // 仅生成前：贴在对话区底部，发出后、模型未吐字时显示。
-        // 关掉该选项：固定在对话区正中水平居中，生成全程可显示，但不随输出滚动。
-        val pinLoadingToCenter = !appearance.morphLoadingBeforeResponseOnly
-        AnimatedVisibility(
-            visible = showMorphLoading,
-            modifier = Modifier
-                .align(if (pinLoadingToCenter) Alignment.Center else Alignment.BottomCenter)
-                .then(
-                    if (pinLoadingToCenter) {
-                        Modifier
-                    } else {
-                        Modifier.padding(
-                            bottom = bottomInset + ChatLoadingIndicatorBottomPadding +
-                                if (!keepBottomAnchored && !isAtBottom) {
-                                    ChatBackToBottomButtonSlot
-                                } else {
-                                    0.dp
-                                },
-                        )
-                    },
-                ),
-            enter = fadeIn(tween(160)),
-            exit = fadeOut(tween(120)),
-        ) {
-            ContainedMorphLoadingIndicator()
-        }
-
         AnimatedVisibility(
             visible = !keepBottomAnchored && !isAtBottom,
             modifier = Modifier
@@ -983,6 +958,7 @@ private fun AgentChatBottomBar(
     isStreaming: Boolean,
     isPaused: Boolean = false,
     isCompressingContext: Boolean = false,
+    showMorphLoading: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -1076,6 +1052,7 @@ private fun AgentChatBottomBar(
                 isStreaming = isStreaming,
                 isPaused = isPaused,
                 isCompressingContext = isCompressingContext,
+                showMorphLoading = showMorphLoading,
                 reasoningEffort = reasoningEffort,
                 availableReasoningEfforts = availableReasoningEfforts,
                 pendingImages = pendingImages,
@@ -1104,8 +1081,6 @@ private fun AgentChatBottomBar(
 }
 
 private val ChatBottomFrostHeight = 24.dp
-private val ChatLoadingIndicatorBottomPadding = 12.dp
-
 internal fun shouldShowMorphLoadingIndicator(
     messages: List<AgentChatMessageUi>,
     isStreaming: Boolean,

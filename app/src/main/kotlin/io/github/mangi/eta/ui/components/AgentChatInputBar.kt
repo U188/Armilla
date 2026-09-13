@@ -131,6 +131,7 @@ internal fun AgentChatInputBar(
     showContextUsage: Boolean,
     isStreaming: Boolean,
     isCompressingContext: Boolean = false,
+    showMorphLoading: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -404,7 +405,18 @@ internal fun AgentChatInputBar(
                             )
                         }
 
-                        Spacer(modifier = Modifier.weight(1f))
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            AnimatedVisibility(
+                                visible = showMorphLoading,
+                                enter = fadeIn(tween(160)) + scaleIn(tween(180), initialScale = 0.82f),
+                                exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.82f),
+                            ) {
+                                ContainedMorphLoadingIndicator(indicatorSize = 24.dp)
+                            }
+                        }
 
                         if (shouldShowLiveContextUsage(showContextUsage, contextSendBlocked, liveUsage)) {
                             AgentContextUsageButton(

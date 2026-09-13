@@ -212,6 +212,9 @@
   <string name="appearance_morph_loading_summary">发出消息后显示变形动画</string>
   <string name="appearance_morph_loading_before_response">仅消息生成前</string>
   <string name="appearance_morph_loading_before_response_summary">模型一开始输出就隐藏；关掉后生成全程固定显示在输入栏中间</string>
+  <string name="appearance_morph_loading_during_generation">生成全程</string>
+  <string name="appearance_morph_loading_expand">展开显示时机</string>
+  <string name="appearance_morph_loading_collapse">收起显示时机</string>
   <string name="conversation_unnamed">新对话</string>
   <string name="conversation_search_hint">搜索对话</string>
   <string name="drawer_greeting_morning">早上好👋</string>

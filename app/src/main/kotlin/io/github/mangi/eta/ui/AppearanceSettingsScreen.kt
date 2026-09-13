@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +42,7 @@ import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.SliderDefaults
@@ -202,7 +207,14 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
                 }
                 BasicComponent(
                     title = stringResource(R.string.appearance_morph_loading),
-                    summary = stringResource(R.string.appearance_morph_loading_summary),
+                    summary = when {
+                        !appearance.morphLoadingIndicator ->
+                            stringResource(R.string.appearance_morph_loading_summary)
+                        appearance.morphLoadingBeforeResponseOnly ->
+                            stringResource(R.string.appearance_morph_loading_before_response)
+                        else ->
+                            stringResource(R.string.appearance_morph_loading_during_generation)
+                    },
                     onClick = {
                         if (appearance.morphLoadingIndicator) {
                             morphLoadingExpanded = !morphLoadingExpanded
@@ -213,6 +225,27 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
                     },
                     holdDownState = appearance.morphLoadingIndicator && morphLoadingExpanded,
                     endActions = {
+                        if (appearance.morphLoadingIndicator) {
+                            Icon(
+                                imageVector = if (morphLoadingExpanded) {
+                                    Icons.Rounded.ExpandMore
+                                } else {
+                                    Icons.Rounded.ChevronRight
+                                },
+                                contentDescription = stringResource(
+                                    if (morphLoadingExpanded) {
+                                        R.string.appearance_morph_loading_collapse
+                                    } else {
+                                        R.string.appearance_morph_loading_expand
+                                    },
+                                ),
+                                modifier = Modifier
+                                    .align(Alignment.CenterVertically)
+                                    .padding(end = 6.dp)
+                                    .size(16.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                            )
+                        }
                         Switch(
                             checked = appearance.morphLoadingIndicator,
                             onCheckedChange = { enabled ->

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Dashboard
@@ -735,6 +736,34 @@ internal fun SettingsScreen(
                                         ).show()
                                     },
                                 )
+                            }
+                        },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.about_telegram_channel),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.Campaign,
+                            )
+                        },
+                        endActions = {
+                            Text(
+                                text = "Telegram",
+                                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                            )
+                        },
+                        onClick = {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://t.me/+6JhB2iRjjDExYWM1"),
+                            )
+                            runCatching { context.startActivity(intent) }.onFailure {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.about_telegram_open_failed),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
                             }
                         },
                     )

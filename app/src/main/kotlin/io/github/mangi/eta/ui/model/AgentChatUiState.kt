@@ -241,3 +241,27 @@ data class MessageEditUiState(
     val previousFileReferences: List<PendingFileReferenceUi>,
     val hasLaterTurns: Boolean,
 )
+
+internal fun AgentChatUiState.hasRunningTools(): Boolean =
+    messages.any { message ->
+        message is ToolActivityMessageUi && message.status == ToolActivityStatusUi.Running
+    }
+
+/** 当前用户消息之后是否已经开始思考、工具或正文。不看更早轮次。 */
+internal fun AgentChatUiState.hasStartedCurrentTurnOutput(): Boolean {
+    val lastUserIndex = messages.indexOfLast { it is UserMessageUi }
+    val currentTurn = if (lastUserIndex >= 0) {
+        messages.subList(lastUserIndex + 1, messages.size)
+    } else {
+        messages
+    }
+    return currentTurn.any { message ->
+        when (message) {
+            is ThinkingMessageUi -> message.isStreaming || message.content.isNotBlank()
+            is AgentMessageUi -> message.isStreaming || message.content.isNotBlank()
+            is ToolActivityMessageUi, is ToolSummaryMessageUi -> true
+            else -> false
+        }
+    }
+}
+

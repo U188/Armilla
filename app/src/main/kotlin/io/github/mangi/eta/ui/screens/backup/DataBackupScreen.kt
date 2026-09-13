@@ -230,4 +230,4 @@ private fun BackupIcon(icon: ImageVector, loading: Boolean) {
 }
 
 private fun defaultBackupFileName(): String =
-    "代鱼-backup-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}.eta-backup.json"
+    "代鱼-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}-备份.JSON"

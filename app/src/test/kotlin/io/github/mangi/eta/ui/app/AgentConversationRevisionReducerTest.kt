@@ -139,4 +139,53 @@ class AgentConversationRevisionReducerTest {
         isStreaming = false,
         thinkingEnabled = false,
     )
+
+    @Test
+    fun branchPrefixKeepsTargetAssistantTurn() {
+        val state = conversationState()
+        val branched = AgentConversationRevisionReducer.branchPrefix(state, "assistant-2")!!
+        assertEquals(
+            listOf("user-1", "thinking-1", "tool-1", "assistant-1", "user-2", "assistant-2"),
+            branched.messages.map { it.id },
+        )
+        assertEquals(
+            listOf("user", "assistant", "tool", "assistant", "user", "assistant"),
+            branched.history.map { it.role },
+        )
+        assertEquals("第二答", branched.history.last().content)
+    }
+
+    @Test
+    fun branchPrefixFromUserKeepsPromptWithoutLaterReplies() {
+        val state = conversationState()
+        val branched = AgentConversationRevisionReducer.branchPrefix(state, "user-2")!!
+        assertEquals(
+            listOf("user-1", "thinking-1", "tool-1", "assistant-1", "user-2"),
+            branched.messages.map { it.id },
+        )
+        assertEquals(
+            listOf("user", "assistant", "tool", "assistant", "user"),
+            branched.history.map { it.role },
+        )
+        assertEquals("第二问", branched.history.last().content)
+    }
+
+    @Test
+    fun branchPrefixReconstructsHistoryWhenTurnWasCompactedAway() {
+        val full = conversationState()
+        val compacted = full.copy(
+            history = listOf(
+                AgentModelClient.ConversationMessage(role = "system", content = "已压缩"),
+                AgentModelClient.ConversationMessage(role = "user", content = "第二问"),
+                AgentModelClient.ConversationMessage(role = "assistant", content = "第二答"),
+                AgentModelClient.ConversationMessage(role = "user", content = "第三问"),
+                AgentModelClient.ConversationMessage(role = "assistant", content = "第三答"),
+            ),
+        )
+        val branched = AgentConversationRevisionReducer.branchPrefix(compacted, "assistant-1")!!
+        assertEquals(listOf("user-1", "thinking-1", "tool-1", "assistant-1"), branched.messages.map { it.id })
+        assertEquals(listOf("user", "assistant"), branched.history.map { it.role })
+        assertEquals("第一问", branched.history.first().content)
+        assertEquals("第一答", branched.history.last().content)
+    }
 }

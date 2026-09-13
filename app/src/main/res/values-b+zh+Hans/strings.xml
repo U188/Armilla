@@ -507,6 +507,8 @@
   <string name="work_expand">展开工作过程</string>
   <string name="copy_copied">已复制</string>
   <string name="copy_answer">复制回答</string>
+  <string name="ui_branch_conversation">分支</string>
+  <string name="conversation_branch_title">%1$s（分支）</string>
   <string name="copy_code">复制代码</string>
   <string name="copy_command">复制命令</string>
   <string name="shell_command">Shell 命令</string>

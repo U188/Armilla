@@ -3,6 +3,14 @@ package io.github.mangi.eta.ui.app
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentChatUiState
+import io.github.mangi.eta.ui.model.AgentMessageUi
+import io.github.mangi.eta.ui.model.ContextCompactedMessageUi
+import io.github.mangi.eta.ui.model.RunTraceMessageUi
+import io.github.mangi.eta.ui.model.SuggestionChipsMessageUi
+import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
+import io.github.mangi.eta.ui.model.ThinkingMessageUi
+import io.github.mangi.eta.ui.model.ToolActivityMessageUi
+import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 
 /** 以用户轮次为边界同步裁剪展示消息与模型上下文。 */
@@ -13,6 +21,11 @@ internal object AgentConversationRevisionReducer {
         val historyPrefix: List<AgentModelClient.ConversationMessage>,
         val laterTurnCount: Int,
         val contextWasCompacted: Boolean,
+    )
+
+    data class BranchPrefix(
+        val messages: List<AgentChatMessageUi>,
+        val history: List<AgentModelClient.ConversationMessage>,
     )
 
     fun boundary(state: AgentChatUiState, targetMessageId: String): Boundary? {
@@ -50,6 +63,35 @@ internal object AgentConversationRevisionReducer {
         )
     }
 
+    /**
+     * 从目标消息分出一条独立会话：保留该消息及之前的展示内容，
+     * 模型上下文截到同一轮结束（助手消息含本轮回复；用户消息只含该条提问）。
+     */
+    fun branchPrefix(state: AgentChatUiState, targetMessageId: String): BranchPrefix? {
+        val targetIndex = state.messages.indexOfFirst { it.id == targetMessageId }
+        if (targetIndex < 0) return null
+        val userMessageIndex = (targetIndex downTo 0).firstOrNull { index ->
+            state.messages[index] is UserMessageUi
+        } ?: return null
+        val userMessageIndices = state.messages.indices.filter { state.messages[it] is UserMessageUi }
+        val targetUserOrdinal = userMessageIndices.indexOf(userMessageIndex)
+        if (targetUserOrdinal < 0) return null
+
+        val historyUserIndices = state.history.indices.filter { state.history[it].role == "user" }
+        val retainedUserOrdinal = historyUserIndices.size - (userMessageIndices.size - targetUserOrdinal)
+        val historyUserIndex = historyUserIndices.getOrNull(retainedUserOrdinal)
+        val messages = state.messages.take(targetIndex + 1)
+        val history = if (historyUserIndex == null) {
+            reconstructHistory(messages)
+        } else if (state.messages[targetIndex] is UserMessageUi) {
+            state.history.take(historyUserIndex + 1)
+        } else {
+            val nextUser = historyUserIndices.getOrNull(retainedUserOrdinal + 1)
+            if (nextUser != null) state.history.take(nextUser) else state.history
+        }
+        return BranchPrefix(messages = messages, history = history)
+    }
+
     fun outboundHistory(state: AgentChatUiState): List<AgentModelClient.ConversationMessage> {
         val targetId = state.messageEdit?.targetMessageId ?: return state.history
         return boundary(state, targetId)?.historyPrefix ?: state.history
@@ -63,4 +105,53 @@ internal object AgentConversationRevisionReducer {
         val targetIndex = messages.indexOfFirst { it.id == targetMessageId }
         return if (targetIndex < 0) messages else messages.take(targetIndex + 1)
     }
+
+    private fun reconstructHistory(
+        messages: List<AgentChatMessageUi>,
+    ): List<AgentModelClient.ConversationMessage> = messages.mapNotNull { message ->
+        when (message) {
+            is UserMessageUi -> AgentModelClient.ConversationMessage(
+                role = "user",
+                content = message.content,
+            )
+            is AgentMessageUi -> message.content.takeIf { it.isNotBlank() }?.let { content ->
+                AgentModelClient.ConversationMessage(role = "assistant", content = content)
+            }
+            else -> null
+        }
+    }
 }
+
+internal fun AgentChatMessageUi.withId(id: String): AgentChatMessageUi = when (this) {
+    is UserMessageUi -> copy(id = id)
+    is AgentMessageUi -> copy(id = id)
+    is SystemNoticeMessageUi -> copy(id = id)
+    is ThinkingMessageUi -> copy(id = id)
+    is RunTraceMessageUi -> copy(id = id)
+    is ToolSummaryMessageUi -> copy(id = id)
+    is ContextCompactedMessageUi -> copy(id = id)
+    is ToolActivityMessageUi -> copy(id = id)
+    is SuggestionChipsMessageUi -> copy(id = id)
+}
+
+internal fun AgentChatMessageUi.rewritePaths(rewrite: (String) -> String): AgentChatMessageUi = when (this) {
+    is UserMessageUi -> copy(
+        content = rewrite(content),
+        imageSources = imageSources.map(rewrite),
+    )
+    is AgentMessageUi -> copy(content = rewrite(content))
+    is ThinkingMessageUi -> copy(content = rewrite(content))
+    is ToolActivityMessageUi -> copy(
+        argumentsSummary = rewrite(argumentsSummary),
+        command = command?.let(rewrite),
+        resultSummary = resultSummary?.let(rewrite),
+    )
+    else -> this
+}
+
+internal fun AgentModelClient.ConversationMessage.rewritePaths(
+    rewrite: (String) -> String,
+): AgentModelClient.ConversationMessage = copy(
+    content = rewrite(content),
+    contentJson = rewrite(contentJson),
+)

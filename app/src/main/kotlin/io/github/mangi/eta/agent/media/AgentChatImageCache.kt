@@ -34,6 +34,22 @@ internal class AgentChatImageCache(context: Context) {
         )
     }
 
+    fun copyConversation(fromId: String, toId: String) {
+        if (fromId == toId) return
+        val source = File(root, sanitize(fromId))
+        if (!source.isDirectory) return
+        val target = File(root, sanitize(toId))
+        if (target.exists()) target.deleteRecursively()
+        source.copyRecursively(target, overwrite = true)
+    }
+
+    fun rewriteCachedPath(value: String, fromId: String, toId: String): String {
+        if (value.isEmpty() || fromId == toId) return value
+        val fromDir = File(root, sanitize(fromId)).absolutePath
+        val toDir = File(root, sanitize(toId)).absolutePath
+        return value.replace(fromDir, toDir)
+    }
+
     fun deleteConversation(conversationId: String) {
         val directory = File(root, sanitize(conversationId))
         if (directory.exists()) directory.deleteRecursively()

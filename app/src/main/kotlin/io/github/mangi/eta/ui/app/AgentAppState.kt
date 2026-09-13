@@ -1472,6 +1472,53 @@ internal class AgentAppState(
         persistConversations()
     }
 
+    fun branchConversation(messageId: String) {
+        if (homeState.messageEdit != null) cancelMessageEdit()
+        val sourceId = selectedConversationId ?: return
+        val snapshot = conversationsById[sourceId] ?: homeState
+        val prefix = AgentConversationRevisionReducer.branchPrefix(snapshot, messageId) ?: return
+        if (prefix.messages.isEmpty()) return
+        val newId = newConversationId()
+        val rewrite = { value: String -> chatImageCache.rewriteCachedPath(value, sourceId, newId) }
+        val branched = snapshot.copy(
+            messages = freezeStreamingMessages(prefix.messages).map { message ->
+                message.withId("$newId:${message.id}").rewritePaths(rewrite)
+            },
+            history = prefix.history.map { it.rewritePaths(rewrite) },
+            input = "",
+            isStreaming = false,
+            isPaused = false,
+            isCompressingContext = false,
+            pendingImages = emptyList(),
+            pendingFileReferences = emptyList(),
+            appliedRuntimeRunIds = emptyList(),
+            messageEdit = null,
+            livePromptTokens = null,
+        ).withPreferredReasoningEffort()
+        val sourceTitle = conversationTitles[sourceId].orEmpty().ifBlank {
+            appContext.getString(R.string.conversation_unnamed)
+        }
+        conversationsById = conversationsById + (newId to branched)
+        conversationTitles = conversationTitles + (
+            newId to appContext.getString(R.string.conversation_branch_title, sourceTitle)
+        )
+        conversationUpdatedAt = conversationUpdatedAt + (newId to System.currentTimeMillis())
+        conversationFolderIds[sourceId]?.let { folderId ->
+            conversationFolderIds = conversationFolderIds + (newId to folderId)
+        }
+        fileAttachmentOwnerVersion += 1
+        selectedConversationId = newId
+        homeState = branched
+        billedOverheadConversationId = newId
+        billedOverheadTokens = null
+        conversationPaneState = conversationPaneState.copy(selectedConversationId = newId)
+        refreshConversationSummaries()
+        persistConversations()
+        scope.launch(Dispatchers.IO) {
+            chatImageCache.copyConversation(sourceId, newId)
+        }
+    }
+
     fun regenerateMessage(messageId: String) {
         if (homeState.messageEdit != null) return
         if (rejectSendIfCompressing()) return

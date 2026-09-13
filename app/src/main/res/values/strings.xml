@@ -513,6 +513,8 @@
   <string name="work_expand">Expand work details</string>
   <string name="copy_copied">Copied</string>
   <string name="copy_answer">Copy answer</string>
+  <string name="ui_branch_conversation">Branch</string>
+  <string name="conversation_branch_title">%1$s (branch)</string>
   <string name="copy_code">Copy code</string>
   <string name="copy_command">Copy command</string>
   <string name="shell_command">Shell command</string>

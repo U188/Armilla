@@ -61,6 +61,7 @@ internal fun AgentChatScreen(
             onCancelMessageEdit = { onAction(AgentChatAction.CancelMessageEdit) },
             onDeleteMessage = { id -> onAction(AgentChatAction.DeleteMessage(id)) },
             onRegenerateMessage = { id -> onAction(AgentChatAction.RegenerateMessage(id)) },
+            onBranchMessage = { id -> onAction(AgentChatAction.BranchMessage(id)) },
             onSuggestionClick = { prompt ->
                 onAction(AgentChatAction.SubmitMessage(prompt))
             },

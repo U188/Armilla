@@ -49,6 +49,7 @@ import io.github.mangi.eta.ui.haptics.HapticSelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.CallSplit
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -268,6 +269,7 @@ internal fun ChatMessageItem(
     onEditMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
     onRegenerateMessage: (String) -> Unit = {},
+    onBranchMessage: (String) -> Unit = {},
     isPaused: Boolean = false,
 ) {
     when (message) {
@@ -277,6 +279,7 @@ internal fun ChatMessageItem(
             isEditing = isEditing,
             onEdit = { onEditMessage(message.id) },
             onDelete = { onDeleteMessage(message.id) },
+            onBranch = { onBranchMessage(message.id) },
             modifier = modifier,
         )
         is AgentMessageUi -> AgentMessageBlock(
@@ -288,6 +291,7 @@ internal fun ChatMessageItem(
             isPaused = isPaused,
             onDelete = { onDeleteMessage(message.id) },
             onRegenerate = { onRegenerateMessage(message.id) },
+            onBranch = { onBranchMessage(message.id) },
             modifier = modifier,
         )
         is SystemNoticeMessageUi -> AgentMessageBlock(
@@ -319,6 +323,7 @@ internal fun ChatMessageItem(
             isPaused = isPaused,
             onDelete = { onDeleteMessage(message.id) },
             onRegenerate = { onRegenerateMessage(message.id) },
+            onBranch = { onBranchMessage(message.id) },
             modifier = modifier,
         )
         is ThinkingMessageUi -> ThinkingRow(
@@ -523,6 +528,7 @@ private fun UserMessageBubble(
     isEditing: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onBranch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     @Suppress("DEPRECATION")
@@ -664,6 +670,24 @@ private fun UserMessageBubble(
                     )
                 }
             }
+            TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = actionsEnabled) {
+                IconButton(
+                    onClick = {
+                        TouchHaptics.click(view)
+                        onBranch()
+                    },
+                    enabled = actionsEnabled,
+                    minWidth = 30.dp,
+                    minHeight = 30.dp,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.CallSplit,
+                        contentDescription = stringResource(R.string.ui_branch_conversation),
+                        modifier = Modifier.size(15.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f),
+                    )
+                }
+            }
             TooltipBox(text = stringResource(R.string.ui_delete_3755f5), enabled = actionsEnabled) {
                 IconButton(
                     onClick = {
@@ -697,6 +721,7 @@ private fun AgentMessageBlock(
     messageActionsEnabled: Boolean,
     onDelete: () -> Unit,
     onRegenerate: () -> Unit,
+    onBranch: () -> Unit = {},
     modifier: Modifier = Modifier,
     isPaused: Boolean = false,
 ) {
@@ -803,6 +828,24 @@ private fun AgentMessageBlock(
                     )
                 }
                 if (showMessageActions) {
+                    TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = messageActionsEnabled) {
+                        IconButton(
+                            onClick = {
+                                TouchHaptics.click(view)
+                                onBranch()
+                            },
+                            enabled = messageActionsEnabled,
+                            minWidth = 30.dp,
+                            minHeight = 30.dp,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CallSplit,
+                                contentDescription = stringResource(R.string.ui_branch_conversation),
+                                modifier = Modifier.size(15.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f),
+                            )
+                        }
+                    }
                     TooltipBox(text = stringResource(R.string.ui_regenerate_2e1905), enabled = messageActionsEnabled) {
                         IconButton(
                             onClick = {

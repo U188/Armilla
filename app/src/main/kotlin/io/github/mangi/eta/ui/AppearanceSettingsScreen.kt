@@ -197,6 +197,14 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
                     )
                 }
                 SwitchPreference(
+                    title = stringResource(R.string.appearance_morph_loading),
+                    summary = stringResource(R.string.appearance_morph_loading_summary),
+                    checked = appearance.morphLoadingIndicator,
+                    onCheckedChange = { enabled ->
+                        update { current -> current.copy(morphLoadingIndicator = enabled) }
+                    },
+                )
+                SwitchPreference(
                     title = stringResource(R.string.appearance_swipe_dismiss),
                     summary = stringResource(R.string.appearance_swipe_dismiss_summary),
                     checked = appearance.swipeDismissEnabled,

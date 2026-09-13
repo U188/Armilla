@@ -79,6 +79,7 @@ import io.github.mangi.eta.agent.browser.AgentBrowserSession
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
+import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.countUncommittedLiveTokens
@@ -495,8 +496,12 @@ internal fun AgentConversationMessages(
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
     val streamingMarkdownStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
+    val showMorphLoading = isStreaming &&
+        !isCompressingContext &&
+        LocalAppearanceSettings.current.morphLoadingIndicator
+    val loadingItemCount = if (showMorphLoading) 1 else 0
     val compressingItemCount = if (isCompressingContext) 1 else 0
-    val bottomItemIndex = timelineEntries.size + compressingItemCount
+    val bottomItemIndex = timelineEntries.size + loadingItemCount + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
     val isAtBottom by remember(scrollState) {
         derivedStateOf { !scrollState.canScrollForward }
@@ -755,6 +760,17 @@ internal fun AgentConversationMessages(
                             modifier = itemModifier,
                         )
                     }
+                }
+            }
+            if (showMorphLoading) {
+                item(key = ChatLoadingIndicatorKey) {
+                    MorphGeneratingIndicator(
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = tween(durationMillis = 180),
+                            placementSpec = null,
+                            fadeOutSpec = null,
+                        ),
+                    )
                 }
             }
             if (isCompressingContext) {
@@ -1070,6 +1086,19 @@ private val ChatBottomFrostHeight = 24.dp
 
 private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
 private const val ChatContextCompressingKey = "agent-chat-context-compressing"
+private const val ChatLoadingIndicatorKey = "agent-chat-loading-indicator"
+
+@Composable
+private fun MorphGeneratingIndicator(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        ContainedMorphLoadingIndicator()
+    }
+}
 
 @Composable
 private fun ContextCompressingIndicator(modifier: Modifier = Modifier) {

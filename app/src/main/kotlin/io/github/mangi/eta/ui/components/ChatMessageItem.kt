@@ -46,6 +46,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import io.github.mangi.eta.ui.haptics.HapticSelectionContainer
+import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Build
@@ -202,7 +203,9 @@ private fun decodeDataUrlBitmap(dataUrl: String): ImageBitmap? {
  */
 @Composable
 fun AITypingIndicator(modifier: Modifier = Modifier) {
-    ContainedMorphLoadingIndicator(modifier = modifier)
+    if (LocalAppearanceSettings.current.morphLoadingIndicator) {
+        ContainedMorphLoadingIndicator(modifier = modifier)
+    }
 }
 
 /**

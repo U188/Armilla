@@ -125,7 +125,7 @@ private fun storedCompressKeepRecent(): Int {
     return Prefs.getInt(
         Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
         AgentContextCompactor.DEFAULT_KEEP_RECENT,
-    ).coerceIn(0, 100)
+    ).let(AgentContextCompactor::coerceKeepRecent)
 }
 
 private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
@@ -174,6 +174,13 @@ internal fun CompressConversationDialog(
         targetTokens = storedCompressTargetTokens()
         keepRecent = storedCompressKeepRecent()
         keepRecentField = TextFieldValue(keepRecent.toString())
+        val storedKeep = Prefs.getInt(
+            Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
+            AgentContextCompactor.DEFAULT_KEEP_RECENT,
+        )
+        if (storedKeep != keepRecent) {
+            Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT, keepRecent)
+        }
         keepRecentFocused = false
         isLoadingModels = true
         customModelEnabled = Prefs.isCustomCompressModelEnabled(prefs)
@@ -300,7 +307,7 @@ internal fun CompressConversationDialog(
                         keepRecentField = TextFieldValue("")
                         return@OutlinedTextField
                     }
-                    val number = digits.toInt().coerceIn(0, 100)
+                    val number = AgentContextCompactor.coerceKeepRecent(digits.toInt())
                     val next = number.toString()
                     keepRecentField = TextFieldValue(next, TextRange(next.length))
                     if (number != keepRecent) {
@@ -358,7 +365,9 @@ internal fun CompressConversationDialog(
                     if (isCompressing) return@MiuixDialogActions
                     focusManager.clearFocus()
                     keyboard?.hide()
-                    val parsedKeepRecent = keepRecentField.text.toIntOrNull()?.coerceIn(0, 100) ?: keepRecent
+                    val parsedKeepRecent = keepRecentField.text.toIntOrNull()
+                        ?.let(AgentContextCompactor::coerceKeepRecent)
+                        ?: keepRecent
                     onConfirm(
                         selectedModel?.providerId.takeIf { customModelEnabled },
                         selectedModel?.id.takeIf { customModelEnabled },

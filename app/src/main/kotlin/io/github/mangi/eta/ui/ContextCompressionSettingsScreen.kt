@@ -47,7 +47,16 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     val prefs = remember(context) { Prefs.localAgentPreferences() }
     var enabled by remember { mutableStateOf(prefs?.getBoolean(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED, false) ?: false) }
     var targetTokens by remember { mutableIntStateOf(prefs?.getInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS) ?: AgentContextCompactor.DEFAULT_TARGET_TOKENS) }
-    var keepRecent by remember { mutableIntStateOf(prefs?.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT) ?: AgentContextCompactor.DEFAULT_KEEP_RECENT) }
+    var keepRecent by remember {
+        mutableIntStateOf(
+            AgentContextCompactor.coerceKeepRecent(
+                prefs?.getInt(
+                    Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+                    AgentContextCompactor.DEFAULT_KEEP_RECENT,
+                ) ?: AgentContextCompactor.DEFAULT_KEEP_RECENT,
+            )
+        )
+    }
     var keepRecentInput by remember { mutableStateOf(keepRecent.toString()) }
 
     val scope = rememberCoroutineScope()
@@ -60,6 +69,16 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
 
     LaunchedEffect(prefs) {
         prefs?.let { currentPrefs ->
+            val storedKeep = currentPrefs.getInt(
+                Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+                AgentContextCompactor.DEFAULT_KEEP_RECENT,
+            )
+            val coercedKeep = AgentContextCompactor.coerceKeepRecent(storedKeep)
+            if (storedKeep != coercedKeep) {
+                currentPrefs.edit().putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, coercedKeep).apply()
+                keepRecent = coercedKeep
+                keepRecentInput = coercedKeep.toString()
+            }
             isLoadingModels = true
             selectedCompressModel = withContext(Dispatchers.IO) { readCompressModelSelection(currentPrefs) }
             modelPickerState = withContext(Dispatchers.IO) { buildCompressModelPickerState(currentPrefs) }
@@ -74,8 +93,10 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                 Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED -> enabled = prefs?.getBoolean(key, false) ?: false
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS -> targetTokens = prefs?.getInt(key, AgentContextCompactor.DEFAULT_TARGET_TOKENS) ?: AgentContextCompactor.DEFAULT_TARGET_TOKENS
                 Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT -> {
-                    val stored = prefs?.getInt(key, AgentContextCompactor.DEFAULT_KEEP_RECENT)
-                        ?: AgentContextCompactor.DEFAULT_KEEP_RECENT
+                    val stored = AgentContextCompactor.coerceKeepRecent(
+                        prefs?.getInt(key, AgentContextCompactor.DEFAULT_KEEP_RECENT)
+                            ?: AgentContextCompactor.DEFAULT_KEEP_RECENT,
+                    )
                     keepRecent = stored
                     if (keepRecentInput.isNotEmpty() && keepRecentInput.toIntOrNull() != stored) {
                         keepRecentInput = stored.toString()
@@ -192,7 +213,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             keepRecentInput = digits
                             return@OutlinedTextField
                         }
-                        val number = parsed.coerceIn(0, 100)
+                        val number = AgentContextCompactor.coerceKeepRecent(parsed)
                         keepRecentInput = number.toString()
                         if (number != keepRecent) {
                             keepRecent = number

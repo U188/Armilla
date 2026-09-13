@@ -81,6 +81,23 @@ class AgentContextCompactorTest {
         )
     }
 
+    @Test
+    fun keepZeroIsCoercedToKeepOne() {
+        val history = (1..3).flatMap { turn(it) }
+        assertEquals(1, AgentContextCompactor.coerceKeepRecent(0))
+        assertEquals(
+            AgentContextCompactor.recentKeepStartIndex(history, 1),
+            AgentContextCompactor.recentKeepStartIndex(history, 0),
+        )
+    }
+
+    @Test
+    fun keepOnePreservesLastUserTurn() {
+        val history = (1..3).flatMap { turn(it) }
+        val start = AgentContextCompactor.recentKeepStartIndex(history, 1)
+        assertEquals(history.indexOfLast { it.role == "user" }, start)
+    }
+
     private fun turn(n: Int) = listOf(
         msg("user", "u$n"),
         msg("assistant", "", toolCallsJson = "[{\"id\":\"t$n\"}]"),

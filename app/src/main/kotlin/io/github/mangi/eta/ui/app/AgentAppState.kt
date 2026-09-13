@@ -1705,7 +1705,7 @@ internal class AgentAppState(
         )
         val config = AgentContextCompactor.Config(
             targetTokens = resolvedTargetTokens.coerceIn(500, 4000),
-            keepRecentMessages = resolvedKeepRecent.coerceAtLeast(0),
+            keepRecentMessages = AgentContextCompactor.coerceKeepRecent(resolvedKeepRecent),
             compressModelConfig = compressModelConfig,
         )
         return runCatching {
@@ -3752,7 +3752,7 @@ internal class AgentAppState(
             onFinished(true)
             return
         }
-        val keepRecentMessages = keepRecent.coerceIn(0, 100)
+        val keepRecentMessages = AgentContextCompactor.coerceKeepRecent(keepRecent)
         if (!runInFlight &&
             AgentContextCompactor.recentKeepStartIndex(homeState.history, keepRecentMessages) <= 0
         ) {
@@ -3827,7 +3827,7 @@ internal class AgentAppState(
             keepRecent = Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
                 AgentContextCompactor.DEFAULT_KEEP_RECENT,
-            ).coerceIn(0, 100),
+            ).let(AgentContextCompactor::coerceKeepRecent),
             resumeAfter = true,
         )
         setConversationCompressing(conversationId, true)
@@ -4080,7 +4080,10 @@ internal class AgentAppState(
             Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS,
             targetTokens.coerceIn(500, 4000),
         )
-        Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT, keepRecent.coerceIn(0, 100))
+        Prefs.putInt(
+            Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
+            AgentContextCompactor.coerceKeepRecent(keepRecent),
+        )
         if (!providerId.isNullOrBlank() && !modelId.isNullOrBlank()) {
             Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, providerId)
             Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_ID, modelId)

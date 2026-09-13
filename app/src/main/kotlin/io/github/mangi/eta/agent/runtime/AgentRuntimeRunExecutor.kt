@@ -368,10 +368,12 @@ internal class AgentRuntimeRunExecutor(
         return AgentLoop.CompactPolicy(
             enabled = true,
             contextWindow = contextWindow,
-            keepRecentMessages = Prefs.getInt(
-                Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
-                AgentContextCompactor.DEFAULT_KEEP_RECENT,
-            ).coerceAtLeast(0),
+            keepRecentMessages = AgentContextCompactor.coerceKeepRecent(
+                Prefs.getInt(
+                    Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+                    AgentContextCompactor.DEFAULT_KEEP_RECENT,
+                )
+            ),
             targetTokens = Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
                 AgentContextCompactor.DEFAULT_TARGET_TOKENS,

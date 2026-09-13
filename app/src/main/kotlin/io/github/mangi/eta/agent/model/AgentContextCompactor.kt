@@ -4,6 +4,8 @@ import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 
 internal object AgentContextCompactor {
     const val DEFAULT_KEEP_RECENT = 4
+    const val MIN_KEEP_RECENT = 1
+    const val MAX_KEEP_RECENT = 100
     const val DEFAULT_TARGET_TOKENS = 2000
     internal const val SUMMARY_PREFIX = "[Conversation summary]"
     internal const val SUMMARY_PREFIX_ZH = "[\u5bf9\u8bdd\u6458\u8981]"
@@ -15,6 +17,8 @@ internal object AgentContextCompactor {
         val keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         val compressModelConfig: AgentModelClient.ModelConfig? = null,
     )
+
+    fun coerceKeepRecent(value: Int): Int = value.coerceIn(MIN_KEEP_RECENT, MAX_KEEP_RECENT)
 
     fun shouldCompress(
         history: List<AgentModelClient.ConversationMessage>,
@@ -109,8 +113,7 @@ internal object AgentContextCompactor {
         history: List<AgentModelClient.ConversationMessage>,
         keepRecentMessages: Int,
     ): Int {
-        val keep = keepRecentMessages.coerceAtLeast(0)
-        if (keep == 0) return history.size
+        val keep = coerceKeepRecent(keepRecentMessages)
         var remaining = keep
         var start: Int? = null
         for (index in history.indices.reversed()) {

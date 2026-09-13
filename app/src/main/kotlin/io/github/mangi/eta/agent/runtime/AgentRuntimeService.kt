@@ -232,6 +232,15 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     val runId = AgentRuntimeWire.runIdFromBundle(msg.data ?: return)
                     requestResume(runId)
                 }
+
+                AgentRuntimeWire.MSG_COMPACT_RUN -> {
+                    val data = msg.data ?: return
+                    requestCompactRun(
+                        runId = AgentRuntimeWire.runIdFromBundle(data),
+                        keepRecent = AgentRuntimeWire.compactKeepRecentFromBundle(data),
+                        targetTokens = AgentRuntimeWire.compactTargetTokensFromBundle(data),
+                    )
+                }
             }
         }
     }
@@ -714,6 +723,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
 
     private fun requestResume() {
         requestResume(overlayRunId.orEmpty())
+    }
+
+    private fun requestCompactRun(runId: String, keepRecent: Int, targetTokens: Int) {
+        if (runId.isBlank()) return
+        sessions.get(runId)?.requestCompact(keepRecent, targetTokens)
     }
 
     private fun requestResume(runId: String) {

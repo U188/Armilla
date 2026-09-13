@@ -359,14 +359,10 @@ internal class AgentRuntimeRunExecutor(
     }
 
     private suspend fun compactPolicyFor(config: AgentModelClient.ModelConfig): AgentLoop.CompactPolicy {
-        if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) {
-            return AgentLoop.CompactPolicy.Disabled
-        }
-        val compressModelConfig = resolveCompressModelConfig(config)
-        if (compressModelConfig == null) return AgentLoop.CompactPolicy.Disabled
-        val contextWindow = config.contextWindow?.takeIf { it > 0 } ?: return AgentLoop.CompactPolicy.Disabled
+        val compressModelConfig = resolveCompressModelConfig(config) ?: config
+        val contextWindow = config.contextWindow?.takeIf { it > 0 } ?: 128_000
         return AgentLoop.CompactPolicy(
-            enabled = true,
+            enabled = Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED),
             contextWindow = contextWindow,
             keepRecentMessages = AgentContextCompactor.coerceKeepRecent(
                 Prefs.getInt(

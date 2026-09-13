@@ -142,7 +142,7 @@ internal class AgentLoop(
                         toolNames = toolCalls.map { it.name },
                     )
                 )
-            } else if (runController.hasPendingSteering) {
+            } else if (runController.hasPendingSteering || runController.hasPendingCompact) {
                 appendPendingSteeringMessage()
                 round += 1
                 continue
@@ -191,6 +191,13 @@ internal class AgentLoop(
                 continue
             }
 
+            // 压缩优先于自然结束：打断后仍留在同一 run，下一次请求前压缩。
+            if (runController.hasPendingCompact) {
+                appendCompactContinueIfNeeded()
+                round += 1
+                continue
+            }
+
             // 正文回合结束后再注入 steering：已写出的内容留在历史里，下一轮带上补充指令。
             if (appendPendingSteeringOrSeal()) {
                 round += 1
@@ -212,21 +219,33 @@ internal class AgentLoop(
     }
 
     /**
-     * 从第二轮开始，在下一次模型请求前压缩已完成的历史。
-     * 第一轮由 UI 在发送前压缩；工具批次会在上一轮跑完后才进入这里。
+     * 下一次模型请求前压缩。
+     * 自动压缩从第二轮开始按阈值判断；手动/强制压缩可在第一轮立刻执行。
+     * 工具批次跑完后才会回到这里，因此不会拆掉当前工具循环。
      */
     private fun maybeCompactBeforeRound(round: Int) {
-        if (round <= 1 || !compactPolicy.enabled) return
+        val forced = runController.hasPendingCompact
+        if (!forced && (round <= 1 || !compactPolicy.enabled)) return
         val compressConfig = compactPolicy.compressModelConfig ?: return
+        val override = if (forced) runController.takePendingCompact() else null
+        val keepRecent = AgentContextCompactor.coerceKeepRecent(
+            override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
+        )
+        val targetTokens = (override?.targetTokens ?: compactPolicy.targetTokens).coerceIn(500, 4000)
+        val policy = compactPolicy.copy(
+            keepRecentMessages = keepRecent,
+            targetTokens = targetTokens,
+        )
         val originalCount = messages.length()
-        // 只用接口账单做锚点，再加账单之后新进历史的增量。这样既不会把整包
-        // JSON 重估一遍提前压缩，也能在工具循环里跟上下一轮真实 prompt。
-        val estimated = projectedPromptTokens() ?: return
         val history = AgentConversationCodec.transcript(messages, systemCount.coerceIn(0, originalCount))
-        if (!AgentContextCompactor.shouldCompress(
+        val estimated = projectedPromptTokens()
+            ?: history.sumOf { AgentContextBudget.countMessage(it) }.takeIf { it > 0 }
+        if (
+            !forced &&
+            !AgentContextCompactor.shouldCompress(
                 history = history,
                 contextWindow = compactPolicy.contextWindow,
-                keepRecentMessages = compactPolicy.keepRecentMessages,
+                keepRecentMessages = keepRecent,
                 estimatedTokens = estimated,
             )
         ) {
@@ -235,7 +254,7 @@ internal class AgentLoop(
         onEvent(AgentEvent.ContextCompactionStarted(round = round))
         val compressed = runCatching {
             if (compactHistory != null) {
-                val rewritten = compactHistory.invoke(history, compactPolicy)
+                val rewritten = compactHistory.invoke(history, policy)
                 if (rewritten != history) {
                     AgentContextCompactor.rebuildConversation(
                         messages,
@@ -247,18 +266,37 @@ internal class AgentLoop(
                     null
                 }
             } else {
-                AgentContextCompactor.compactMessages(
-                    messages = messages,
-                    systemCount = systemCount,
-                    contextWindow = compactPolicy.contextWindow,
-                    config = AgentContextCompactor.Config(
-                        targetTokens = compactPolicy.targetTokens,
-                        keepRecentMessages = compactPolicy.keepRecentMessages,
-                        compressModelConfig = compressConfig,
-                    ),
-                    estimatedTokens = estimated,
-                    toolExecutor = toolExecutor,
+                val config = AgentContextCompactor.Config(
+                    targetTokens = targetTokens,
+                    keepRecentMessages = keepRecent,
+                    compressModelConfig = compressConfig,
                 )
+                if (forced) {
+                    val rewritten = AgentContextCompactor.compress(
+                        history = history,
+                        config = config,
+                        toolExecutor = toolExecutor,
+                    )
+                    if (rewritten != history) {
+                        AgentContextCompactor.rebuildConversation(
+                            messages,
+                            systemCount.coerceIn(0, messages.length()),
+                            rewritten,
+                        )
+                        rewritten
+                    } else {
+                        null
+                    }
+                } else {
+                    AgentContextCompactor.compactMessages(
+                        messages = messages,
+                        systemCount = systemCount,
+                        contextWindow = compactPolicy.contextWindow,
+                        config = config,
+                        estimatedTokens = estimated,
+                        toolExecutor = toolExecutor,
+                    )
+                }
             }
         }.getOrNull()
         if (compressed != null) {
@@ -313,6 +351,18 @@ internal class AgentLoop(
 
     private fun steeringPrompt(supplement: String): String =
         AgentContextCompactor.steeringUserContent(supplement)
+
+    private fun appendCompactContinueIfNeeded() {
+        val last = messages.optJSONObject(messages.length() - 1) ?: return
+        if (!last.optString("role").equals("assistant", ignoreCase = true)) return
+        messages.put(
+            AgentConversationCodec.userTextMessage(
+                AgentContextCompactor.steeringUserContent(
+                    "请从上次中断的地方继续，不要重复已经写过的内容，也不要从头开始。",
+                ),
+            ),
+        )
+    }
 
     private fun executeTool(
         round: Int,

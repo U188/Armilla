@@ -23,12 +23,19 @@ internal class AgentRunController {
     private var acceptingSteering = true
     @Volatile
     private var paused = false
+    private var pendingCompact: CompactRequest? = null
+
+    data class CompactRequest(
+        val keepRecentMessages: Int? = null,
+        val targetTokens: Int? = null,
+    )
 
     fun cancel() {
         lock.withLock {
             cancelled = true
             acceptingSteering = false
             steeringMessages.clear()
+            pendingCompact = null
             paused = false
             pauseCondition.signalAll()
         }
@@ -57,6 +64,34 @@ internal class AgentRunController {
     }
 
     /**
+     * 请求在下一次模型请求前压缩，并打断当前 SSE。
+     * 工具批次不会被取消。暂停中会唤醒循环，以便立刻压缩。
+     */
+    fun requestCompact(keepRecentMessages: Int? = null, targetTokens: Int? = null): Boolean {
+        lock.withLock {
+            if (cancelled) return false
+            pendingCompact = CompactRequest(
+                keepRecentMessages = keepRecentMessages,
+                targetTokens = targetTokens,
+            )
+            paused = false
+            pauseCondition.signalAll()
+        }
+        interruptCurrentRequest()
+        return true
+    }
+
+    val hasPendingCompact: Boolean
+        get() = lock.withLock { pendingCompact != null }
+
+    fun takePendingCompact(): CompactRequest? =
+        lock.withLock {
+            val request = pendingCompact
+            pendingCompact = null
+            request
+        }
+
+    /**
      * 只取消当前请求占用的资源（SSE），不把整个 run 标成 cancelled。
      * 暂停中不打断：用户明确停住了生成，恢复后再处理排队的 steering。
      */
@@ -77,6 +112,7 @@ internal class AgentRunController {
     fun pollSteeringOrSeal(): String? =
         lock.withLock {
             steeringMessages.pollFirst()?.let { return it }
+            if (pendingCompact != null) return null
             acceptingSteering = false
             null
         }

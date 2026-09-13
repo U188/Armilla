@@ -152,6 +152,16 @@ internal class AgentRuntimeClient(
         }
     }
 
+    fun compactRun(runId: String, keepRecent: Int, targetTokens: Int): Boolean {
+        if (runId.isBlank()) return false
+        return withRuntimeMessenger(false) { serviceMessenger ->
+            val msg = Message.obtain(null, AgentRuntimeWire.MSG_COMPACT_RUN)
+            msg.data = AgentRuntimeWire.compactBundle(runId, keepRecent, targetTokens)
+            serviceMessenger.send(msg)
+            true
+        }
+    }
+
     fun ackResult(runId: String): Boolean {
         if (runId.isBlank()) return false
         return withRuntimeMessenger(false) { serviceMessenger ->

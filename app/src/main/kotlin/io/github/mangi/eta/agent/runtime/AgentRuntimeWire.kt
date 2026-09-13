@@ -7,6 +7,7 @@ import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.model.AgentConversationCodec
+import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.data.model.CustomBody
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
@@ -82,6 +83,9 @@ internal object AgentRuntimeWire {
     /** client -> service：恢复当前 run。 */
     const val MSG_RESUME_RUN = 15
 
+    /** client -> service：在当前 run 内压缩，不另开 run。 */
+    const val MSG_COMPACT_RUN = 16
+
     private const val MODULE_PACKAGE = "io.github.mangi.eta"
     private const val SERVICE_CLASS = "io.github.mangi.eta.agent.runtime.AgentRuntimeService"
 
@@ -90,6 +94,8 @@ internal object AgentRuntimeWire {
     private const val KEY_RUN_IDS = "run_ids"
     private const val KEY_PROMPT = "prompt"
     private const val KEY_STEER_TEXT = "steer_text"
+    private const val KEY_COMPACT_KEEP_RECENT = "compact_keep_recent"
+    private const val KEY_COMPACT_TARGET_TOKENS = "compact_target_tokens"
     private const val KEY_MODEL_SESSION_ID = "model_session_id"
     private const val KEY_PROVIDER_ID = "provider_id"
     private const val KEY_PROVIDER_NAME = "provider_name"
@@ -558,6 +564,22 @@ internal object AgentRuntimeWire {
 
     fun steerTextFromBundle(bundle: Bundle): String =
         bundle.getString(KEY_STEER_TEXT).orEmpty()
+
+    fun compactBundle(
+        runId: String,
+        keepRecent: Int,
+        targetTokens: Int,
+    ): Bundle = Bundle().apply {
+        putString(KEY_RUN_ID, runId)
+        putInt(KEY_COMPACT_KEEP_RECENT, keepRecent)
+        putInt(KEY_COMPACT_TARGET_TOKENS, targetTokens)
+    }
+
+    fun compactKeepRecentFromBundle(bundle: Bundle): Int =
+        bundle.getInt(KEY_COMPACT_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT)
+
+    fun compactTargetTokensFromBundle(bundle: Bundle): Int =
+        bundle.getInt(KEY_COMPACT_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS)
 
     fun attachRunResponseBundle(runId: String, attached: Boolean): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)

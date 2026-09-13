@@ -206,3 +206,31 @@ class AgentRunControllerTest {
         assertFalse(worker.isAlive)
     }
 }
+
+    @Test
+    fun requestCompactCancelsOnlyInterruptibleResources() {
+        val controller = AgentRunController()
+        val durable = AtomicInteger(0)
+        val stream = AtomicInteger(0)
+        controller.register { durable.incrementAndGet() }
+        controller.register(interruptible = true) { stream.incrementAndGet() }
+
+        assertTrue(controller.requestCompact(keepRecentMessages = 2, targetTokens = 1000))
+
+        assertEquals(0, durable.get())
+        assertEquals(1, stream.get())
+        val request = controller.takePendingCompact()
+        assertEquals(2, request?.keepRecentMessages)
+        assertEquals(1000, request?.targetTokens)
+        assertFalse(controller.hasPendingCompact)
+    }
+
+    @Test
+    fun requestCompactDoesNotSealSteering() {
+        val controller = AgentRunController()
+        assertTrue(controller.requestCompact())
+        assertNull(controller.pollSteeringOrSeal())
+        assertTrue(controller.steer("还能追加"))
+        assertEquals("还能追加", controller.pollSteeringMessage())
+    }
+}

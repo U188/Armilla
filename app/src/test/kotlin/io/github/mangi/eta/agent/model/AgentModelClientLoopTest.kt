@@ -827,6 +827,71 @@ class AgentModelClientLoopTest {
     }
 
     @Test
+    fun forcedCompactRunsOnFirstRoundWithoutSplittingRun() {
+        val events = mutableListOf<AgentEvent>()
+        var compactCalls = 0
+        val controller = AgentRunController()
+        controller.requestCompact(keepRecentMessages = 1, targetTokens = 200)
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, _ -> assistant(content = "完成", finishReason = "stop", promptTokens = 20) },
+            )
+        )
+        val history = (1..4).flatMap { n ->
+            listOf(
+                AgentConversationCodec.userTextMessage("u$n"),
+                AgentConversationCodec.assistantHistoryMessage(
+                    assistant(content = "a$n", finishReason = "stop"),
+                    emptyList(),
+                ),
+            )
+        }
+        val messages = org.json.JSONArray()
+        history.forEach { messages.put(it) }
+        messages.put(AgentConversationCodec.userTextMessage("现在"))
+
+        val result = AgentLoop(
+            config = modelConfig(),
+            messages = messages,
+            tools = AgentToolCatalog.build(terminalTools = false, browserTools = false),
+            provider = provider,
+            toolExecutor = AgentModelClient.ToolExecutor {
+                AgentModelClient.ToolResult(org.json.JSONObject().put("ok", true).toString())
+            },
+            runController = controller,
+            traceFormatter = AgentTraceFormatter(),
+            onEvent = events::add,
+            compactPolicy = AgentLoop.CompactPolicy(
+                enabled = false,
+                contextWindow = 8,
+                keepRecentMessages = 2,
+                targetTokens = 2000,
+                compressModelConfig = modelConfig(),
+            ),
+            compactHistory = { source, policy ->
+                compactCalls += 1
+                assertEquals(1, policy.keepRecentMessages)
+                listOf(
+                    AgentModelClient.ConversationMessage(
+                        role = "system",
+                        content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
+                    ),
+                ) + source.takeLast(2)
+            },
+        ).run()
+
+        assertEquals("完成", result.content)
+        assertEquals(1, compactCalls)
+        assertEquals(1, provider.requests.size)
+        val contents = (0 until provider.requests[0].length()).map {
+            provider.requests[0].getJSONObject(it).optString("content")
+        }
+        assertTrue(contents.any { it.contains("摘要") || it.contains("对话摘要") })
+        assertTrue(contents.contains("现在") || contents.any { it.contains("现在") })
+        assertFalse(contents.contains("u1"))
+    }
+
+    @Test
     fun projectsPromptOccupancyAfterToolResults() {
         val events = mutableListOf<AgentEvent>()
         val provider = ScriptedProvider(

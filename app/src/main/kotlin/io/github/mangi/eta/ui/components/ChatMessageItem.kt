@@ -198,35 +198,11 @@ private fun decodeDataUrlBitmap(dataUrl: String): ImageBitmap? {
 }
 
 /**
- * 等待首个文本片段时的轻量反馈。
+ * 等待首个文本片段时的反馈。圆底变形指示器，对齐 RikkaHub 的 ContainedLoadingIndicator。
  */
 @Composable
 fun AITypingIndicator(modifier: Modifier = Modifier) {
-    val infiniteTransition = rememberInfiniteTransition(label = "dots")
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        repeat(3) { index ->
-            val delay = index * 150
-            val alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(600, delayMillis = delay, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "alpha"
-            )
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .graphicsLayer(alpha = alpha)
-                    .background(MiuixTheme.colorScheme.onSurfaceVariantSummary, CircleShape)
-            )
-        }
-    }
+    ContainedMorphLoadingIndicator(modifier = modifier)
 }
 
 /**

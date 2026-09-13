@@ -70,6 +70,8 @@ import io.github.mangi.eta.data.repository.UsageStatsRepository
 
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.hasRunningTools
+import io.github.mangi.eta.ui.model.hasCurrentTurnTools
+import io.github.mangi.eta.ui.model.hasStartedCurrentTurnOutput
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.model.MessageSearchRoleLabels
 import io.github.mangi.eta.ui.model.searchConversationMessages
@@ -150,6 +152,7 @@ internal class AgentAppState(
     private var compressionJob: Job? = null
     private var pendingManualCompress: PendingManualCompress? = null
     private val pendingSteerTextByConversation = mutableMapOf<String, String>()
+    private val autoCompressInterruptedIds = mutableSetOf<String>()
     private var pendingRetiredUsage = ConversationTokenUsageUi()
     private var pendingRetiredConversations = 0
     private var pendingRetiredMessages = 0
@@ -1330,6 +1333,7 @@ internal class AgentAppState(
         editBoundary: AgentConversationRevisionReducer.Boundary?,
         conversationId: String,
     ) {
+        autoCompressInterruptedIds.remove(conversationId)
         if (rejectSendIfCompressing()) return
         val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
         val runId = "run-${UUID.randomUUID()}"
@@ -2451,13 +2455,14 @@ internal class AgentAppState(
                 prompt,
                 fileReferences + staged,
             ).ifBlank { "请查看我补充的附件。" }
-            withContext(Dispatchers.Main) {
+            val shouldSteer = withContext(Dispatchers.Main) {
                 if (conversationId != null) {
                     pendingSteerTextByConversation[conversationId] = steerText
                 }
-                if (rejectSendIfCompressing()) return@withContext
-                AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, steerText)
+                !rejectSendIfCompressing()
             }
+            if (!shouldSteer) return@launch
+            AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, steerText)
         }
         if (homeState.isPaused) {
             continuePausedGeneration()
@@ -2910,6 +2915,7 @@ internal class AgentAppState(
                 updateRunTrace(runId) { messages ->
                     runMessageProjector.startAssistantBlock(runId, event, messages)
                 }
+                conversationIdForRun(runId)?.let { maybeAutoCompressDuringTurn(it, runId) }
             }
 
             is AgentEvent.AssistantBlockDelta -> {
@@ -3105,7 +3111,10 @@ internal class AgentAppState(
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return
         if (!allowRepeat && runId != null && runId in runCompressedDuringRun) return
         val state = conversationsById[conversationId] ?: return
-        if (state.isStreaming) return
+        if (state.isStreaming || state.isPaused) {
+            maybeAutoCompressDuringTurn(conversationId, runId)
+            return
+        }
         val contextWindow = compressionContextWindow()
         val estimatedTokens = liveContextUsage(
             history = state.history,
@@ -3302,6 +3311,7 @@ internal class AgentAppState(
             state.copy(livePromptTokens = tokens),
             updateTimestamp = false,
         )
+        maybeAutoCompressDuringTurn(conversationId, runId)
     }
 
     private fun insertSupplementMessage(
@@ -3770,6 +3780,55 @@ internal class AgentAppState(
         }
     }
 
+
+    /**
+     * 思考或输出中若已达自动压缩阈值：先停住当前生成，压完再继续这一轮。
+     * 当前轮已经出现工具则不打断，交给 Runtime 在下一轮请求前压缩，以免丢掉工具结果。
+     */
+    private fun maybeAutoCompressDuringTurn(conversationId: String, runId: String? = null) {
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return
+        if (pendingManualCompress != null || compressionJob?.isActive == true) return
+        if (conversationId in autoCompressInterruptedIds) return
+        if (runId != null && runId in runCompressedDuringRun) return
+        val state = conversationsById[conversationId] ?: return
+        if (!state.isStreaming && !state.isPaused) return
+        if (!state.hasStartedCurrentTurnOutput()) return
+        if (state.hasRunningTools() || state.hasCurrentTurnTools()) return
+        val estimatedTokens = liveContextUsage(
+            history = state.history,
+            currentInput = "",
+            pendingImages = emptyList(),
+            selectedModel = modelPickerState.selectedModel,
+            billedContextTokens = billedPromptTokens(state),
+            requestOverheadTokens = requestOverheadTokens,
+            billedOverheadTokens = billedOverheadTokens,
+        ).contextTokens
+        if (!shouldAutoCompress(state.history, compressionContextWindow(), estimatedTokens)) return
+        autoCompressInterruptedIds += conversationId
+        if (runId != null) {
+            runCompressedDuringRun.add(runId)
+        }
+        val prefs = Prefs.localAgentPreferences()
+        val custom = Prefs.isCustomCompressModelEnabled(prefs)
+        pendingManualCompress = PendingManualCompress(
+            conversationId = conversationId,
+            providerId = prefs?.takeIf { custom }
+                ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null),
+            modelId = prefs?.takeIf { custom }
+                ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null),
+            targetTokens = Prefs.getInt(
+                Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+                AgentContextCompactor.DEFAULT_TARGET_TOKENS,
+            ).coerceIn(500, 4000),
+            keepRecent = Prefs.getInt(
+                Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
+                AgentContextCompactor.DEFAULT_KEEP_RECENT,
+            ).coerceIn(0, 100),
+            resumeAfter = true,
+        )
+        setConversationCompressing(conversationId, true)
+        stopGenerationThenCompress(conversationId)
+    }
 
     private fun stopGenerationThenCompress(conversationId: String? = selectedConversationId) {
         pendingManualCompress = pendingManualCompress?.copy(resumeAfter = true)

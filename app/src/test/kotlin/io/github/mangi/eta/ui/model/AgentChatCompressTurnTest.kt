@@ -76,4 +76,45 @@ class AgentChatCompressTurnTest {
         assertFalse(state.hasRunningTools())
         assertTrue(state.hasStartedCurrentTurnOutput())
     }
+
+    @Test
+    fun previousTurnToolsDoNotCountAsCurrentTurnTools() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi("u1", "上一轮"),
+                ToolActivityMessageUi(
+                    id = "tool-old",
+                    toolName = "run_command",
+                    status = ToolActivityStatusUi.Success,
+                    argumentsSummary = "ls",
+                ),
+                UserMessageUi("u2", "新问题"),
+                ThinkingMessageUi("t2", "思考中", isStreaming = true),
+            ),
+            input = "",
+            isStreaming = true,
+            thinkingEnabled = true,
+        )
+        assertFalse(state.hasCurrentTurnTools())
+        assertTrue(state.hasStartedCurrentTurnOutput())
+    }
+
+    @Test
+    fun currentTurnFinishedToolsCount() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi("u1", "新问题"),
+                ToolActivityMessageUi(
+                    id = "tool-1",
+                    toolName = "run_command",
+                    status = ToolActivityStatusUi.Success,
+                    argumentsSummary = "ls",
+                ),
+            ),
+            input = "",
+            isStreaming = true,
+            thinkingEnabled = false,
+        )
+        assertTrue(state.hasCurrentTurnTools())
+    }
 }

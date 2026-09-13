@@ -247,6 +247,17 @@ internal fun AgentChatUiState.hasRunningTools(): Boolean =
         message is ToolActivityMessageUi && message.status == ToolActivityStatusUi.Running
     }
 
+/** 当前用户消息之后是否已经出现工具。用于避免自动压缩打断工具循环。 */
+internal fun AgentChatUiState.hasCurrentTurnTools(): Boolean {
+    val lastUserIndex = messages.indexOfLast { it is UserMessageUi }
+    val currentTurn = if (lastUserIndex >= 0) {
+        messages.subList(lastUserIndex + 1, messages.size)
+    } else {
+        messages
+    }
+    return currentTurn.any { it is ToolActivityMessageUi || it is ToolSummaryMessageUi }
+}
+
 /** 当前用户消息之后是否已经开始思考、工具或正文。不看更早轮次。 */
 internal fun AgentChatUiState.hasStartedCurrentTurnOutput(): Boolean {
     val lastUserIndex = messages.indexOfLast { it is UserMessageUi }

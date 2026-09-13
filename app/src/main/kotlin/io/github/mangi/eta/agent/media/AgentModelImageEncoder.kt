@@ -315,6 +315,42 @@ internal fun String.normalizedAgentImageMimeType(): String =
         }
         ?: "image/jpeg"
 
+internal fun ByteArray.sniffAgentImageMimeType(): String {
+    if (size >= 2 && this[0] == 0xFF.toByte() && this[1] == 0xD8.toByte()) return "image/jpeg"
+    if (
+        size >= 4 &&
+        this[0] == 0x89.toByte() && this[1] == 0x50.toByte() &&
+        this[2] == 0x4E.toByte() && this[3] == 0x47.toByte()
+    ) {
+        return "image/png"
+    }
+    if (
+        size >= 3 &&
+        this[0] == 'G'.code.toByte() && this[1] == 'I'.code.toByte() &&
+        this[2] == 'F'.code.toByte()
+    ) {
+        return "image/gif"
+    }
+    if (
+        size >= 12 &&
+        this[0] == 'R'.code.toByte() && this[1] == 'I'.code.toByte() &&
+        this[2] == 'F'.code.toByte() && this[3] == 'F'.code.toByte() &&
+        this[8] == 'W'.code.toByte() && this[9] == 'E'.code.toByte() &&
+        this[10] == 'B'.code.toByte() && this[11] == 'P'.code.toByte()
+    ) {
+        return "image/webp"
+    }
+    if (
+        size >= 12 &&
+        this[4] == 'f'.code.toByte() && this[5] == 't'.code.toByte() &&
+        this[6] == 'y'.code.toByte() && this[7] == 'p'.code.toByte()
+    ) {
+        val brand = String(this, 8, 4, Charsets.US_ASCII).lowercase()
+        return if (brand in setOf("avif", "avis")) "image/avif" else "image/heic"
+    }
+    return "image/png"
+}
+
 internal fun ByteArray.hasSupportedImageMagic(): Boolean {
     if (size < 8) return false
     if (this[0] == 0xFF.toByte() && this[1] == 0xD8.toByte()) return true

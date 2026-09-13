@@ -1173,6 +1173,9 @@
   <string name="chat_image_saved">Saved to gallery</string>
   <string name="chat_image_save_failed">Couldn\'t save image</string>
   <string name="chat_image_load_failed">Couldn\'t load image</string>
+  <string name="chat_image_prompt_required">Enter a description to generate an image</string>
+  <string name="chat_image_generation_empty">The model didn\'t return an image</string>
+  <string name="chat_image_generation_unsupported">This provider doesn\'t support image generation</string>
   <string name="chat_continue">Continue</string>
   <string name="chat_paused_run_abandoned">Paused reply ended</string>
   <string name="chat_continue_abort">Long press to end the paused reply</string>

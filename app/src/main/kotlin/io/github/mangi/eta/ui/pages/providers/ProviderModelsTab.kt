@@ -248,7 +248,7 @@ internal fun ProviderModelsTab(
                                         )
                                         return@launch
                                     }
-                                    val chatModels = models.filter(RemoteModelFetcher::isChatCapableModel)
+                                    val chatModels = models.filter(RemoteModelFetcher::isCatalogModel)
                                     val sync = ModelRepository.syncRemoteModels(provider.id, chatModels)
                                     if (sync.applied) {
                                         RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)

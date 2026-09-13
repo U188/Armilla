@@ -39,6 +39,7 @@ internal data class AgentModelOptionUi(
     val contextWindow: Int?,
     val preferredReasoningEffort: ReasoningEffort? = null,
     val supportsVision: Boolean = true,
+    val supportsImageGeneration: Boolean = false,
 )
 
 @Immutable
@@ -111,6 +112,7 @@ internal object AgentModelPickerProjector {
             contextWindow = model.effectiveContextWindow,
             preferredReasoningEffort = model.preferredReasoningEffort,
             supportsVision = model.supportsVision,
+            supportsImageGeneration = model.supportsImageGeneration,
         )
 }
 

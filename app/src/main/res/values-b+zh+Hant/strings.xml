@@ -1171,6 +1171,9 @@
   <string name="chat_image_saved">已儲存到相簿</string>
   <string name="chat_image_save_failed">圖片儲存失敗</string>
   <string name="chat_image_load_failed">圖片載入失敗</string>
+  <string name="chat_image_prompt_required">請輸入圖片描述</string>
+  <string name="chat_image_generation_empty">模型沒有返回圖片</string>
+  <string name="chat_image_generation_unsupported">目前供應商不支援生圖</string>
   <string name="chat_continue">繼續</string>
   <string name="chat_paused_run_abandoned">已結束暫停的回覆</string>
   <string name="chat_continue_abort">長按結束暫停的回覆</string>

@@ -45,6 +45,9 @@ data class Model(
     val supportsVision: Boolean
         get() = attachment == true || inputModalities.any { it.equals(IMAGE_MODALITY, ignoreCase = true) }
 
+    val supportsImageGeneration: Boolean
+        get() = ImageGenerationModels.matches(this)
+
     val supportsTools: Boolean
         get() = toolCall == true
 

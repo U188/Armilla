@@ -400,6 +400,17 @@ class RemoteModelFetcherTest {
     fun modelWithoutTextOutputIsNotChatCapable() {
         val imageOnly = modelWithId("custom-model").copy(outputModalities = listOf("image"))
         assertFalse(RemoteModelFetcher.isChatCapableModel(imageOnly))
+        assertTrue(RemoteModelFetcher.isCatalogModel(imageOnly))
+    }
+
+    @Test
+    fun keepsImageGenerationModelsInRemoteCatalog() {
+        assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("qwen-image-2.0-pro-2026-06-22")))
+        assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("dall-e-3")))
+        assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("gpt-image-1")))
+        assertFalse(RemoteModelFetcher.isCatalogModel(modelWithId("wanx2.1-t2v-turbo")))
+        assertFalse(RemoteModelFetcher.isCatalogModel(modelWithId("qwen-tts-2026-05-20")))
+        assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("qwen3.7-plus")))
     }
 
     private fun modelWithId(modelId: String): Model =

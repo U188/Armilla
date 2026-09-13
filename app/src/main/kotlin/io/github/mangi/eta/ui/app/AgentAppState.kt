@@ -33,6 +33,8 @@ import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.agent.model.AgentRequestOverhead
 import io.github.mangi.eta.agent.model.AgentConversationCodec
+import io.github.mangi.eta.agent.model.AgentImageGenerationClient
+import io.github.mangi.eta.agent.model.AgentImageGenerationParser
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
@@ -51,6 +53,7 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
+import io.github.mangi.eta.data.model.ProviderTypes
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import io.github.mangi.eta.data.repository.EtaBackupRepository
@@ -142,6 +145,7 @@ internal class AgentAppState(
     private val runEventCoalescer = AgentRunEventCoalescer()
     private val runEventFlushJobs = mutableMapOf<String, Job>()
     private val runJobs = mutableMapOf<String, Job>()
+    private val imageGenerationRunIds = mutableSetOf<String>()
     private var compressionJob: Job? = null
     private var pendingManualCompress: PendingManualCompress? = null
     private var pendingRetiredUsage = ConversationTokenUsageUi()
@@ -1235,6 +1239,15 @@ internal class AgentAppState(
         if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) {
             return
         }
+        val generateImage = selectedModelGeneratesImages()
+        if (generateImage && prompt.isBlank()) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.chat_image_prompt_required),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
         if (rejectSendIfCompressing()) {
             return
         }
@@ -1266,14 +1279,14 @@ internal class AgentAppState(
         }
 
         val history = editBoundary?.historyPrefix ?: homeState.history
-        if (rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
+        if (!generateImage && rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
             return
         }
         val conversationId = selectedConversationId ?: newConversationId().also { id ->
             selectedConversationId = id
             assignPendingFolder(id)
         }
-        val supportsVision = modelPickerState.selectedModel?.supportsVision ?: true
+        val supportsVision = generateImage || (modelPickerState.selectedModel?.supportsVision ?: true)
         if (pendingImages.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
                 val staged = stageChatImages(conversationId, pendingImages)
@@ -1532,8 +1545,9 @@ internal class AgentAppState(
             )
         }
         val parsed = AgentFileReferencePromptCodec.parse(boundary.userMessage.content)
-        val supportsVision = modelPickerState.selectedModel?.supportsVision ?: true
-        if (rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
+        val generateImage = selectedModelGeneratesImages()
+        val supportsVision = generateImage || (modelPickerState.selectedModel?.supportsVision ?: true)
+        if (!generateImage && rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
                 PendingFileReferenceUi(id = "regen-$index", reference = reference)
             })) {
             return
@@ -1723,8 +1737,12 @@ internal class AgentAppState(
     ) {
         runConversationIds[runId] = conversationId
         runOverheadTokens[runId] = requestOverheadTokens
+        val generateImage = selectedModelGeneratesImages()
+        if (generateImage) {
+            imageGenerationRunIds += runId
+        }
 
-        val willCompress = shouldAutoCompress(
+        val willCompress = !generateImage && shouldAutoCompress(
             history = history,
             contextWindow = compressionContextWindow(),
             estimatedTokens = liveContextUsage(
@@ -1737,6 +1755,15 @@ internal class AgentAppState(
                 billedOverheadTokens = billedOverheadTokens,
             ).contextTokens,
         )
+        val runMessages = if (generateImage) {
+            messages + AgentMessageUi(
+                id = "assistant-$runId-1",
+                content = "",
+                isStreaming = true,
+            )
+        } else {
+            messages
+        }
         updateConversation(
             conversationId,
             state.copy(
@@ -1744,7 +1771,7 @@ internal class AgentAppState(
                 isPaused = false,
                 isCompressingContext = willCompress,
                 history = history + userHistoryMessage,
-                messages = messages,
+                messages = runMessages,
                 messageEdit = null,
             )
         )
@@ -1797,6 +1824,16 @@ internal class AgentAppState(
                         )
                     )
                 }
+                return@launch
+            }
+            if (generateImage) {
+                executeImageGeneration(
+                    runId = runId,
+                    conversationId = conversationId,
+                    config = config,
+                    prompt = prompt,
+                    images = images,
+                )
                 return@launch
             }
             val modelImages = images.map { p ->
@@ -1887,6 +1924,102 @@ internal class AgentAppState(
             preparationJob.invokeOnCompletion { AgentExecutionService.release(leaseId) }
         }
         preparationJob.start()
+    }
+
+    private fun selectedModelGeneratesImages(): Boolean =
+        modelPickerState.selectedModel?.supportsImageGeneration == true
+
+    private suspend fun executeImageGeneration(
+        runId: String,
+        conversationId: String,
+        config: AgentModelClient.ModelConfig,
+        prompt: String,
+        images: List<PendingImageUi>,
+    ) {
+        try {
+            val apiPrompt = AgentFileReferencePromptCodec.parse(prompt).request.ifBlank { prompt }.trim()
+            if (apiPrompt.isBlank()) {
+                error(appContext.getString(R.string.chat_image_prompt_required))
+            }
+            if (config.providerType == ProviderTypes.ANTHROPIC) {
+                error(appContext.getString(R.string.chat_image_generation_unsupported))
+            }
+            val inputImages = images.mapNotNull { image ->
+                val bytes = AgentChatImageCache.readBytes(image.uri)
+                    ?: AgentChatImageCache.readBytes(image.dataUrl)
+                    ?: return@mapNotNull null
+                AgentImageGenerationClient.InputImage(
+                    bytes = bytes,
+                    mimeType = image.mimeType.ifBlank { "image/jpeg" },
+                )
+            }
+            val generated = AgentImageGenerationClient().generate(
+                config = config,
+                prompt = apiPrompt,
+                images = inputImages,
+            )
+            if (generated.images.isEmpty()) {
+                error(appContext.getString(R.string.chat_image_generation_empty))
+            }
+            val staged = generated.images.mapIndexedNotNull { index, image ->
+                val ext = AgentImageGenerationParser.extensionForMime(image.mimeType)
+                chatImageCache.stage(conversationId, image.bytes, "generated-${index + 1}.$ext")
+            }
+            if (staged.isEmpty()) {
+                error(appContext.getString(R.string.chat_image_generation_empty))
+            }
+            val markdown = AgentImageGenerationParser.markdown(
+                paths = staged.map { it.absolutePath },
+                text = generated.text,
+            )
+            withContext(Dispatchers.Main) {
+                finishImageGenerationRun(runId, markdown)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            val message = failure.message?.trim().orEmpty().ifBlank {
+                appContext.getString(R.string.chat_image_generation_empty)
+            }
+            withContext(Dispatchers.Main) {
+                failImageGenerationRun(runId, message)
+            }
+        }
+    }
+
+    private fun finishImageGenerationRun(runId: String, content: String) {
+        if (runId !in imageGenerationRunIds) return
+        runJobs.remove(runId)
+        imageGenerationRunIds.remove(runId)
+        completeLatestAssistantMessage(runId, content)
+        snapshotPartialAssistantToHistory(runId)
+        setConversationStreaming(runId, false)
+        val conversationId = conversationIdForRun(runId)
+        runConversationIds.remove(runId)
+        runOverheadTokens.remove(runId)
+        runCompressedDuringRun.remove(runId)
+        refreshConversationSummaries()
+        persistConversations()
+        if (conversationId != null) {
+            onConversationRunSettled(conversationId)
+        }
+    }
+
+    private fun failImageGenerationRun(runId: String, error: String) {
+        if (runId !in imageGenerationRunIds) return
+        runJobs.remove(runId)
+        imageGenerationRunIds.remove(runId)
+        replaceLatestAssistantWithNotice(runId, SystemNoticeCode.RuntimeFailed, error)
+        setConversationStreaming(runId, false)
+        val conversationId = conversationIdForRun(runId)
+        runConversationIds.remove(runId)
+        runOverheadTokens.remove(runId)
+        runCompressedDuringRun.remove(runId)
+        refreshConversationSummaries()
+        persistConversations()
+        if (conversationId != null) {
+            onConversationRunSettled(conversationId)
+        }
     }
 
     private fun List<PendingImageUi>.toHistoryImages(): List<AgentModelClient.ModelImage> =
@@ -2141,18 +2274,23 @@ internal class AgentAppState(
     }
 
     private fun stopRun(runId: String) {
+        val imageGen = imageGenerationRunIds.remove(runId)
         runJobs.remove(runId)?.cancel()
-        flushPendingRunDelta(runId)
-        scope.launch(Dispatchers.IO) {
-            AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
-        }
-        updateRunTrace(runId) { messages ->
-            val finalizedThinking = runMessageProjector.finalizeThinking(runId, messages)
-            val finalizedText = runMessageProjector.finalizeText(runId, finalizedThinking)
-            runMessageProjector.failRunningTools(SYNTHETIC_STATUS_STOPPED, finalizedText)
+        if (!imageGen) {
+            flushPendingRunDelta(runId)
+            scope.launch(Dispatchers.IO) {
+                AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
+            }
+            updateRunTrace(runId) { messages ->
+                val finalizedThinking = runMessageProjector.finalizeThinking(runId, messages)
+                val finalizedText = runMessageProjector.finalizeText(runId, finalizedThinking)
+                runMessageProjector.failRunningTools(SYNTHETIC_STATUS_STOPPED, finalizedText)
+            }
         }
         replaceLatestAssistantWithNotice(runId, SystemNoticeCode.Stopped)
-        snapshotPartialAssistantToHistory(runId)
+        if (!imageGen) {
+            snapshotPartialAssistantToHistory(runId)
+        }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
         runMessageProjector.clearRun(runId)
@@ -2168,6 +2306,7 @@ internal class AgentAppState(
 
     fun pauseCurrentRun() {
         val runId = activeRunIdForSelectedConversation() ?: return
+        if (runId in imageGenerationRunIds) return
         if (homeState.isPaused) return
         scope.launch(Dispatchers.IO) {
             AgentRuntimeClient(appContext, AndroidAgentLogger).pauseRun(runId)
@@ -2201,6 +2340,7 @@ internal class AgentAppState(
     private fun abortActiveRunForRevision() {
         val runId = activeRunIdForSelectedConversation()
         if (runId != null) {
+            imageGenerationRunIds.remove(runId)
             runJobs.remove(runId)?.cancel()
             scope.launch(Dispatchers.IO) {
                 AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
@@ -2235,6 +2375,7 @@ internal class AgentAppState(
 
     fun steerCurrentRun(text: String) {
         val runId = activeRunIdForSelectedConversation() ?: return
+        if (runId in imageGenerationRunIds) return
         val prompt = text.trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
@@ -2988,6 +3129,7 @@ internal class AgentAppState(
     ) {
         flushPendingRunDelta(runId)
         runJobs.remove(runId)
+        imageGenerationRunIds.remove(runId)
         updateRunTrace(runId) { messages -> runMessageProjector.finalizeRun(runId, messages) }
         applyConversationHistoryResult(runId, result.transcript)
         when {

@@ -76,6 +76,8 @@
   <string name="haptics_intensity_low">低</string>
   <string name="haptics_intensity_medium">中</string>
   <string name="haptics_intensity_high">高</string>
+  <string name="haptics_intensity_expand">调节震动幅度</string>
+  <string name="haptics_intensity_collapse">关闭幅度调节</string>
   <string name="route_skills">Skills</string>
   <string name="route_permissions">权限</string>
   <string name="route_system_enhancements">系统增强</string>

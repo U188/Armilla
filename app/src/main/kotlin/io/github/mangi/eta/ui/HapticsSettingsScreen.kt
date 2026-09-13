@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.runtime.Composable
@@ -124,6 +126,25 @@ internal fun HapticsSettingsScreen(onBack: () -> Unit) {
                     holdDownState = showIntensityDialog,
                     startAction = { PreferenceIcon(icon = Icons.Rounded.Vibration) },
                     endActions = {
+                        Icon(
+                            imageVector = if (showIntensityDialog) {
+                                Icons.Rounded.ExpandMore
+                            } else {
+                                Icons.Rounded.ChevronRight
+                            },
+                            contentDescription = stringResource(
+                                if (showIntensityDialog) {
+                                    R.string.haptics_intensity_collapse
+                                } else {
+                                    R.string.haptics_intensity_expand
+                                },
+                            ),
+                            modifier = Modifier
+                                .align(Alignment.CenterVertically)
+                                .padding(end = 6.dp)
+                                .size(16.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                        )
                         Switch(
                             checked = touchEnabled,
                             onCheckedChange = { value ->

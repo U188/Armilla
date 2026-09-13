@@ -7,6 +7,7 @@ internal object AgentContextCompactor {
     const val DEFAULT_TARGET_TOKENS = 2000
     internal const val SUMMARY_PREFIX = "[Conversation summary]"
     internal const val SUMMARY_PREFIX_ZH = "[\u5bf9\u8bdd\u6458\u8981]"
+    internal const val STEERING_USER_PREFIX = "用户补充指令："
     private const val MAX_MESSAGES_PER_CHUNK = 256
 
     data class Config(
@@ -101,8 +102,8 @@ internal object AgentContextCompactor {
      * Index of the first message that must stay uncompressed.
      *
      * "Keep recent N" is N user turns: the last N user messages plus every
-     * assistant/tool record that belongs to those turns. Summaries do not
-     * consume the quota.
+     * assistant/tool record that belongs to those turns. Summaries, tool
+     * records and steering supplements do not consume the quota.
      */
     fun recentKeepStartIndex(
         history: List<AgentModelClient.ConversationMessage>,
@@ -126,8 +127,15 @@ internal object AgentContextCompactor {
         message: AgentModelClient.ConversationMessage,
     ): Boolean {
         if (isCompressionSummary(message)) return false
+        if (isSteeringUserMessage(message)) return false
         return message.role.equals("user", ignoreCase = true)
     }
+
+    internal fun isSteeringUserMessage(
+        message: AgentModelClient.ConversationMessage,
+    ): Boolean =
+        message.role.equals("user", ignoreCase = true) &&
+            message.content.trimStart().startsWith(STEERING_USER_PREFIX)
 
     internal fun isVisibleConversationMessage(
         message: AgentModelClient.ConversationMessage,

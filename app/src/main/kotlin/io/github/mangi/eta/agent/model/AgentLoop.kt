@@ -312,7 +312,7 @@ internal class AgentLoop(
     }
 
     private fun steeringPrompt(supplement: String): String =
-        "用户补充指令：$supplement\n\n请基于当前任务上下文继续执行，不要从头重复已经完成或已经验证过的操作。"
+        "${AgentContextCompactor.STEERING_USER_PREFIX}$supplement\n\n请基于当前任务上下文继续执行，不要从头重复已经完成或已经验证过的操作。"
 
     private fun executeTool(
         round: Int,

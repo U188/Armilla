@@ -499,9 +499,8 @@ internal fun AgentConversationMessages(
     val showMorphLoading = isStreaming &&
         !isCompressingContext &&
         LocalAppearanceSettings.current.morphLoadingIndicator
-    val loadingItemCount = if (showMorphLoading) 1 else 0
     val compressingItemCount = if (isCompressingContext) 1 else 0
-    val bottomItemIndex = timelineEntries.size + loadingItemCount + compressingItemCount
+    val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
     val isAtBottom by remember(scrollState) {
         derivedStateOf { !scrollState.canScrollForward }
@@ -762,17 +761,6 @@ internal fun AgentConversationMessages(
                     }
                 }
             }
-            if (showMorphLoading) {
-                item(key = ChatLoadingIndicatorKey) {
-                    MorphGeneratingIndicator(
-                        modifier = Modifier.animateItem(
-                            fadeInSpec = tween(durationMillis = 180),
-                            placementSpec = null,
-                            fadeOutSpec = null,
-                        ),
-                    )
-                }
-            }
             if (isCompressingContext) {
                 item(key = ChatContextCompressingKey) {
                     ContextCompressingIndicator(
@@ -791,6 +779,22 @@ internal fun AgentConversationMessages(
                         .height(1.dp),
                 )
             }
+        }
+
+        // 生成中的指示器固定在对话区底部水平居中，不随流式内容一起移动。
+        // 回到最新按钮同时显示时，指示器整体上移一个按钮高度，避免两者重叠。
+        AnimatedVisibility(
+            visible = showMorphLoading,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(
+                    bottom = bottomInset + ChatLoadingIndicatorBottomPadding +
+                        if (!keepBottomAnchored && !isAtBottom) ChatBackToBottomButtonSlot else 0.dp,
+                ),
+            enter = fadeIn(tween(160)),
+            exit = fadeOut(tween(120)),
+        ) {
+            ContainedMorphLoadingIndicator()
         }
 
         AnimatedVisibility(
@@ -1083,22 +1087,11 @@ private fun AgentChatBottomBar(
 }
 
 private val ChatBottomFrostHeight = 24.dp
+private val ChatLoadingIndicatorBottomPadding = 12.dp
+private val ChatBackToBottomButtonSlot = 52.dp
 
 private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
 private const val ChatContextCompressingKey = "agent-chat-context-compressing"
-private const val ChatLoadingIndicatorKey = "agent-chat-loading-indicator"
-
-@Composable
-private fun MorphGeneratingIndicator(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        ContainedMorphLoadingIndicator()
-    }
-}
 
 @Composable
 private fun ContextCompressingIndicator(modifier: Modifier = Modifier) {

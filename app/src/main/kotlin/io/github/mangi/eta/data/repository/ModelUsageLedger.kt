@@ -11,7 +11,6 @@ internal data class ModelUsageSnapshot(
 ) {
     val totalInputTokens: Long get() = providers.sumOf { it.inputTokens }
     val totalOutputTokens: Long get() = providers.sumOf { it.outputTokens }
-    val billedCredits: Double get() = providers.sumOf { it.billedCredits ?: 0.0 }
 
     fun filtered(startMillis: Long?, endMillis: Long?): ModelUsageSnapshot {
         if (startMillis == null && endMillis == null) return this
@@ -31,11 +30,6 @@ internal data class ModelUsageProviderUi(
 ) {
     val inputTokens: Long get() = models.sumOf { it.inputTokens }
     val outputTokens: Long get() = models.sumOf { it.outputTokens }
-    val billedCredits: Double? get() {
-        val values = models.mapNotNull { it.billedCredits }
-        if (values.isEmpty()) return null
-        return values.sum()
-    }
 }
 
 internal data class ModelUsageEvent(
@@ -53,7 +47,6 @@ internal data class ModelUsageModelUi(
     val conversationCount: Int,
     val activeDays: Int,
     val events: List<ModelUsageEvent> = emptyList(),
-    val billedCredits: Double? = null,
 ) {
     val dailyAverageTokens: Long
         get() = if (activeDays <= 0) 0L else inputTokens / activeDays
@@ -76,7 +69,6 @@ internal data class ModelUsageModelUi(
             conversationCount = conversations.size,
             activeDays = days.size,
             events = matched,
-            billedCredits = null,
         )
     }
 }

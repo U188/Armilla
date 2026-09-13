@@ -1255,7 +1255,7 @@
     <string name="stats_page_output_tokens">输出 Token</string>
     <string name="stats_page_cached_tokens">缓存 Token</string>
     <string name="stats_page_launch_count">应用启动次数</string>
-    <string name="stats_tab_overview">用量统计</string>
+    <string name="stats_tab_overview">对话统计</string>
     <string name="stats_tab_models">模型用量</string>
     <string name="stats_model_total_title">总用量</string>
     <string name="stats_model_total_input">总输入（含缓存）</string>

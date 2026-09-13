@@ -51,7 +51,6 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.repository.ModelUsageModelUi
 import io.github.mangi.eta.data.repository.ModelUsageSnapshot
 import io.github.mangi.eta.data.repository.UsageStatsRepository
-import io.github.mangi.eta.data.repository.formatBalanceDisplay
 import io.github.mangi.eta.data.repository.UsageStatsSnapshot
 import io.github.mangi.eta.data.repository.formatStatCount
 import io.github.mangi.eta.data.repository.formatTokenCount
@@ -59,7 +58,6 @@ import io.github.mangi.eta.data.repository.heatmapAlpha
 import io.github.mangi.eta.data.repository.heatmapQuartiles
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.haptics.TouchHaptics
-import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -298,9 +296,6 @@ private fun ModelUsagePane(
                                 style = MiuixTheme.textStyles.title3,
                                 modifier = Modifier.weight(1f),
                             )
-                            provider.billedCredits?.let { credits ->
-                                ProviderBalanceAmount(amount = formatUsageCharge(credits))
-                            }
                         }
                         provider.models.forEach { model ->
                             val key = "${provider.id}/${model.id}"
@@ -586,9 +581,6 @@ private fun ModelUsageRow(
                 style = MiuixTheme.textStyles.body1,
                 modifier = Modifier.weight(1f),
             )
-            model.billedCredits?.let { credits ->
-                ProviderBalanceAmount(amount = formatUsageCharge(credits))
-            }
             androidx.compose.material3.Icon(
                 imageVector = if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight,
                 contentDescription = null,
@@ -836,11 +828,6 @@ private fun StatsGrid(stats: UsageStatsSnapshot, modifier: Modifier = Modifier) 
 
 private fun formatCurrentLifetime(current: String, lifetime: String): String =
     if (current == lifetime) current else "$current / $lifetime"
-
-private fun formatUsageCharge(credits: Double): String {
-    val magnitude = formatBalanceDisplay(credits.toString())
-    return if (credits > 0) "-$magnitude" else magnitude
-}
 
 @Composable
 private fun StatCard(

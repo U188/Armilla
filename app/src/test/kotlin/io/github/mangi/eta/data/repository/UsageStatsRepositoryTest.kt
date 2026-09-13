@@ -341,7 +341,6 @@ class UsageStatsRepositoryTest {
         )
         val model = snapshot.providers.single().models.single()
         assertEquals(24_150_000L, model.inputTokens)
-        assertEquals(null, model.billedCredits)
-        assertEquals(null, snapshot.providers.single().billedCredits)
+        assertEquals(154_300L, model.outputTokens)
     }
 }

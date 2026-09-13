@@ -1284,7 +1284,7 @@
     <string name="stats_page_output_tokens">Output tokens</string>
     <string name="stats_page_cached_tokens">Cached tokens</string>
     <string name="stats_page_launch_count">App launches</string>
-    <string name="stats_tab_overview">Usage stats</string>
+    <string name="stats_tab_overview">Chat stats</string>
     <string name="stats_tab_models">Model usage</string>
     <string name="stats_model_total_title">Total usage</string>
     <string name="stats_model_total_input">Total input (incl. cache)</string>

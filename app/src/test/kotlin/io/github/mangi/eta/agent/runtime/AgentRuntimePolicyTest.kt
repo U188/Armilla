@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.runtime
 import android.content.SharedPreferences
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.CustomBody
+import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ReasoningEffort
 import java.lang.reflect.Proxy
 import kotlinx.serialization.json.JsonObject
@@ -142,6 +143,32 @@ class AgentRuntimePolicyTest {
         val metadata = constrained.customBody.single().value as JsonObject
         assertFalse("enable_thinking" in metadata)
         assertEquals(JsonPrimitive("kept"), metadata["safe"])
+    }
+
+
+    @Test
+    fun withoutOptionalThinkingDisablesReasoningButKeepsTools() {
+        val constrained = AgentRuntimePolicy.withoutOptionalThinking(
+            modelConfig(terminalTools = true, browserTools = true, thinking = true).copy(
+                deviceDirectTools = true,
+                reasoningEffort = ReasoningEffort.HIGH,
+            ),
+        )
+        assertTrue(constrained.terminalTools)
+        assertTrue(constrained.browserTools)
+        assertTrue(constrained.deviceDirectTools)
+        assertFalse(constrained.thinkingEnabled)
+        assertEquals(ReasoningEffort.OFF, constrained.reasoningEffort)
+    }
+
+    @Test
+    fun withoutOptionalThinkingKeepsMandatoryReasoning() {
+        val source = modelConfig(terminalTools = true, browserTools = false, thinking = true).copy(
+            reasoningEffort = ReasoningEffort.MEDIUM,
+            reasoningCapabilities = ModelReasoningCapabilities(mandatory = true),
+        )
+        val constrained = AgentRuntimePolicy.withoutOptionalThinking(source)
+        assertEquals(source, constrained)
     }
 
     private fun modelConfig(

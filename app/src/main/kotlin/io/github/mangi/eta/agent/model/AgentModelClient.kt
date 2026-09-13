@@ -102,12 +102,12 @@ internal object AgentModelClient {
     ): ModelResponse.Text {
         config.validate()
         val initialCapabilities = capabilitiesProvider()
-        val trimmedHistory = if (skipHistoryTrimming) {
+        val configuredWindow = AgentContextCompactor.configuredContextWindow(config.contextWindow)
+        val trimmedHistory = if (skipHistoryTrimming || configuredWindow == null) {
             history
         } else {
-            val effectiveContextWindow = config.contextWindow ?: 128_000
             val historyBudget = AgentContextBudget.historyBudget(
-                contextWindow = effectiveContextWindow,
+                contextWindow = configuredWindow,
                 prompt = prompt,
                 images = images,
             )

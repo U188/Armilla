@@ -25,6 +25,11 @@ internal object AgentContextCompactor {
 
     fun coerceKeepRecent(value: Int): Int = value.coerceIn(MIN_KEEP_RECENT, MAX_KEEP_RECENT)
 
+    fun configuredContextWindow(value: Int?): Int? = value?.takeIf { it > 0 }
+
+    fun autoCompressEnabled(preferenceEnabled: Boolean, configuredWindow: Int?): Boolean =
+        preferenceEnabled && configuredContextWindow(configuredWindow) != null
+
     fun shouldCompress(
         history: List<AgentModelClient.ConversationMessage>,
         contextWindow: Int,
@@ -32,6 +37,7 @@ internal object AgentContextCompactor {
         thresholdPercent: Int = 90,
         estimatedTokens: Int? = null,
     ): Boolean {
+        if (contextWindow <= 0) return false
         if (recentKeepStartIndex(history, keepRecentMessages) <= 0) return false
         val estimated = estimatedTokens ?: history.sumOf { AgentContextBudget.countMessage(it) }
         return estimated >= contextWindow * thresholdPercent / 100

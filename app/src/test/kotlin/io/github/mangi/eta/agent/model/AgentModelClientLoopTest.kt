@@ -4,6 +4,7 @@ import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import io.github.mangi.eta.agent.tool.AgentToolCapabilities
+import io.github.mangi.eta.data.model.ReasoningEffort
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -728,6 +729,7 @@ class AgentModelClientLoopTest {
         )
 
         val requests = mutableListOf<JSONArray>()
+        val requestConfigs = mutableListOf<AgentModelClient.ModelConfig>()
         private var index = 0
 
         override fun complete(
@@ -736,6 +738,7 @@ class AgentModelClientLoopTest {
             onEvent: (ProviderEvent) -> Unit,
         ): ProviderResponse {
             requests += JSONArray(request.messages.toString())
+            requestConfigs += request.config
             val response = responses.getOrNull(index)
                 ?: error("缺少第 ${index + 1} 个 scripted response")
             index += 1
@@ -889,6 +892,73 @@ class AgentModelClientLoopTest {
         assertTrue(contents.any { it.contains("摘要") || it.contains("对话摘要") })
         assertTrue(contents.contains("现在") || contents.any { it.contains("现在") })
         assertFalse(contents.contains("u1"))
+    }
+
+    @Test
+    fun compactContinueRoundDisablesOptionalThinking() {
+        val controller = AgentRunController()
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, ctrl ->
+                    ctrl.requestCompact(keepRecentMessages = 1, targetTokens = 200)
+                    assistant(content = "前文", finishReason = "stop", promptTokens = 80)
+                },
+                { _, _ -> assistant(content = "续写", finishReason = "stop", promptTokens = 20) },
+            )
+        )
+        val history = (1..4).flatMap { n ->
+            listOf(
+                AgentConversationCodec.userTextMessage("u$n"),
+                AgentConversationCodec.assistantHistoryMessage(
+                    assistant(content = "a$n", finishReason = "stop"),
+                    emptyList(),
+                ),
+            )
+        }
+        val messages = org.json.JSONArray()
+        history.forEach { messages.put(it) }
+        messages.put(AgentConversationCodec.userTextMessage("现在"))
+
+        val result = AgentLoop(
+            config = modelConfig().copy(
+                thinkingEnabled = true,
+                reasoningEffort = ReasoningEffort.HIGH,
+            ),
+            messages = messages,
+            tools = AgentToolCatalog.build(terminalTools = false, browserTools = false),
+            provider = provider,
+            toolExecutor = AgentModelClient.ToolExecutor {
+                AgentModelClient.ToolResult(org.json.JSONObject().put("ok", true).toString())
+            },
+            runController = controller,
+            traceFormatter = AgentTraceFormatter(),
+            compactPolicy = AgentLoop.CompactPolicy(
+                enabled = false,
+                contextWindow = 8,
+                keepRecentMessages = 2,
+                targetTokens = 2000,
+                compressModelConfig = modelConfig(),
+            ),
+            compactHistory = { source, _ ->
+                listOf(
+                    AgentModelClient.ConversationMessage(
+                        role = "system",
+                        content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
+                    ),
+                ) + source.takeLast(2)
+            },
+        ).run()
+
+        assertEquals("续写", result.content)
+        assertEquals(2, provider.requestConfigs.size)
+        assertTrue(provider.requestConfigs[0].thinkingEnabled)
+        assertEquals(ReasoningEffort.HIGH, provider.requestConfigs[0].reasoningEffort)
+        assertFalse(provider.requestConfigs[1].thinkingEnabled)
+        assertEquals(ReasoningEffort.OFF, provider.requestConfigs[1].reasoningEffort)
+        val continueContents = (0 until provider.requests[1].length()).map {
+            provider.requests[1].getJSONObject(it).optString("content")
+        }
+        assertTrue(continueContents.any { it.contains("从上次中断的地方继续") })
     }
 
     @Test

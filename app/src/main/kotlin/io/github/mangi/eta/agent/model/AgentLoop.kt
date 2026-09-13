@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentRunController
+import io.github.mangi.eta.agent.runtime.AgentRuntimePolicy
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import org.json.JSONArray
 import org.json.JSONObject
@@ -67,6 +68,7 @@ internal class AgentLoop(
     private var pendingToolImageMessage: JSONObject? = null
     private var lastUsage: AgentTokenUsage? = null
     private var lastUsageMessageCount: Int = 0
+    private var suppressThinkingForNextRequest = false
 
     fun reasoningSnapshot(): String = accumulatedReasoning.toString().trim()
 
@@ -87,7 +89,7 @@ internal class AgentLoop(
             val completedRound = try {
                 modelRetry.complete(
                     initialRound = round,
-                    request = ProviderRequest(config, messages, roundTools, sessionId),
+                    request = ProviderRequest(requestConfigForRound(), messages, roundTools, sessionId),
                     provider = provider,
                     controller = runController,
                     onEvent = onEvent,
@@ -327,6 +329,12 @@ internal class AgentLoop(
         }
     }
 
+    private fun requestConfigForRound(): AgentModelClient.ModelConfig {
+        if (!suppressThinkingForNextRequest) return config
+        suppressThinkingForNextRequest = false
+        return AgentRuntimePolicy.withoutOptionalThinking(config)
+    }
+
     private fun compressorLabel(config: AgentModelClient.ModelConfig): String {
         val provider = config.providerName.trim()
         val model = config.modelDisplayName.trim().ifBlank { config.model.trim() }
@@ -362,6 +370,7 @@ internal class AgentLoop(
                 ),
             ),
         )
+        suppressThinkingForNextRequest = true
     }
 
     private fun executeTool(

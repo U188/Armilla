@@ -2128,14 +2128,20 @@ internal class AgentAppState(
             billedOverheadConversationId = conversationId
             billedOverheadTokens = null
         }
-        showCompactedRevisionNotice()
+        showCompactedRevisionNotice(resumeInPlace = true)
         persistConversations()
     }
 
-    private fun showCompactedRevisionNotice() {
+    private fun showCompactedRevisionNotice(resumeInPlace: Boolean = false) {
         Toast.makeText(
             appContext,
-            appContext.getString(R.string.state_ui_the_earlier_context_has_been_compressed_and_will_cf6c86),
+            appContext.getString(
+                if (resumeInPlace) {
+                    R.string.state_ui_earlier_context_compressed_will_continue
+                } else {
+                    R.string.state_ui_the_earlier_context_has_been_compressed_and_will_cf6c86
+                },
+            ),
             Toast.LENGTH_LONG,
         ).show()
     }
@@ -2320,6 +2326,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
         conversationId?.let(pendingSteerTextByConversation::remove)
+        conversationId?.let(pendingInRunCompactConversationIds::remove)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
@@ -2980,7 +2987,7 @@ internal class AgentAppState(
             }
 
             is AgentEvent.UsageReceived -> {
-                if (!event.projected) {
+                if (!event.projected && !isStaleUsageAfterCompact(runId, event.round)) {
                     val occupancy = event.usage.occupancyTokens()
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
                     updateLivePromptTokens(runId, occupancy)
@@ -3100,9 +3107,10 @@ internal class AgentAppState(
                 ),
             ),
         )
+        pendingInRunCompactConversationIds.remove(conversationId)
         billedOverheadConversationId = conversationId
         billedOverheadTokens = null
-        showCompactedRevisionNotice()
+        showCompactedRevisionNotice(resumeInPlace = true)
         persistConversations()
     }
 
@@ -3181,7 +3189,7 @@ internal class AgentAppState(
             )
             billedOverheadConversationId = conversationId
             billedOverheadTokens = null
-            showCompactedRevisionNotice()
+            showCompactedRevisionNotice(resumeInPlace = true)
             persistConversations()
         }
     }
@@ -3213,6 +3221,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
         conversationId?.let(pendingSteerTextByConversation::remove)
+        conversationId?.let(pendingInRunCompactConversationIds::remove)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
@@ -3266,13 +3275,17 @@ internal class AgentAppState(
         }
     }
 
-    private fun updateAssistantUsage(runId: String, round: Int, usage: TokenUsageUi) {
-        if (usage.isEmpty) return
+    private fun isStaleUsageAfterCompact(runId: String, round: Int): Boolean {
         val compactResumeRound = conversationStateForRun(runId).messages
             .lastOrNull { it is ContextCompactedMessageUi }
             ?.let { (it as ContextCompactedMessageUi).resumeRound }
             ?: 0
-        if (compactResumeRound > 0 && round < compactResumeRound) return
+        return compactResumeRound > 0 && round < compactResumeRound
+    }
+
+    private fun updateAssistantUsage(runId: String, round: Int, usage: TokenUsageUi) {
+        if (usage.isEmpty) return
+        if (isStaleUsageAfterCompact(runId, round)) return
         // 只补充 token 用量。不能触碰 isStreaming：Usage 事件紧跟在文本块结束之后，
         // 若把 isStreaming 改回 true，流式渲染会在流式/静态两种视图间反复切换，整段重渲染。
         val overhead = runOverheadTokens[runId] ?: requestOverheadTokens
@@ -4130,7 +4143,7 @@ internal class AgentAppState(
         }
         billedOverheadConversationId = conversationId
         billedOverheadTokens = null
-        if (announceRestart) showCompactedRevisionNotice()
+        if (announceRestart) showCompactedRevisionNotice(resumeInPlace = true)
         persistConversations()
     }
 }

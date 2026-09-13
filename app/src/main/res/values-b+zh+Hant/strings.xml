@@ -954,6 +954,7 @@
   <string name="state_ui_the_path_does_not_exist_or_is_no_longer_accessib_a9776e">路徑不存在或已無法存取</string>
   <string name="state_ui_path_verification_timed_out_please_try_again_703687">路徑校驗逾時，請重試</string>
   <string name="state_ui_the_earlier_context_has_been_compressed_and_will_cf6c86">較早的對話內容已壓縮，將從此訊息重新開始</string>
+  <string name="state_ui_earlier_context_compressed_will_continue">較早的對話內容已壓縮，將從中斷處繼續</string>
   <string name="state_ui_the_selected_project_type_does_not_match_3a5c49">選擇的項目類型不符</string>
   <plurals name="file_references_added_with_failures">
     <item quantity="other">已加入 %1$d 個項目，%2$d 個項目無法引用</item>

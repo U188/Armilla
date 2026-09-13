@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -189,5 +190,29 @@ class AgentContextCompactorTest {
         val start = AgentContextCompactor.recentKeepStartIndex(history, 1)
         assertEquals(history.indexOfLast { it.content == "还有没" }, start)
         assertFalse(history.subList(start, history.size).any { it.content == "u2" })
+    }
+
+    @Test
+    fun autoCompressRequiresConfiguredContextWindow() {
+        assertFalse(AgentContextCompactor.autoCompressEnabled(true, null))
+        assertFalse(AgentContextCompactor.autoCompressEnabled(true, 0))
+        assertFalse(AgentContextCompactor.autoCompressEnabled(false, 128_000))
+        assertTrue(AgentContextCompactor.autoCompressEnabled(true, 128_000))
+        assertNull(AgentContextCompactor.configuredContextWindow(null))
+        assertNull(AgentContextCompactor.configuredContextWindow(0))
+        assertEquals(32_000, AgentContextCompactor.configuredContextWindow(32_000))
+    }
+
+    @Test
+    fun shouldCompressRejectsNonPositiveWindow() {
+        val history = (1..3).flatMap { turn(it) }
+        assertFalse(
+            AgentContextCompactor.shouldCompress(
+                history = history,
+                contextWindow = 0,
+                keepRecentMessages = 1,
+                thresholdPercent = 0,
+            ),
+        )
     }
 }

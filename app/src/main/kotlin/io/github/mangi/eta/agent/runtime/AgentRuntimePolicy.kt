@@ -32,6 +32,22 @@ internal object AgentRuntimePolicy {
             thinking = preferences.allowed(Prefs.Keys.AGENT_THINKING_ENABLED),
         )
 
+    fun withoutOptionalThinking(config: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
+        if (config.reasoningCapabilities?.mandatory == true) return config
+        if (!config.effectiveReasoningEffort.enablesReasoning) return config
+        return constrain(
+            config,
+            Permissions(
+                terminalTools = true,
+                browserTools = true,
+                deviceDirectTools = true,
+                deviceSensitiveReadTools = true,
+                deviceSensitiveActionTools = true,
+                thinking = false,
+            ),
+        )
+    }
+
     fun constrain(
         config: AgentModelClient.ModelConfig,
         permissions: Permissions,

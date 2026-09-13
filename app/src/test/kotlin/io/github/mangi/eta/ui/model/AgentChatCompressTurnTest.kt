@@ -117,4 +117,46 @@ class AgentChatCompressTurnTest {
         )
         assertTrue(state.hasCurrentTurnTools())
     }
+
+    @Test
+    fun partialAssistantAfterLastUserShouldContinue() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi("u1", "写5000字故事"),
+                AgentMessageUi("a1", "故事写到一半"),
+            ),
+            input = "",
+            isStreaming = false,
+            thinkingEnabled = false,
+        )
+        assertTrue(state.hasPartialAssistantAfterLastUser())
+    }
+
+    @Test
+    fun steerAfterPartialShouldNotCountAsPartialToContinue() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi("u1", "写5000字故事"),
+                AgentMessageUi("a1", "故事写到一半"),
+                UserMessageUi("u2", "还有没"),
+            ),
+            input = "",
+            isStreaming = false,
+            thinkingEnabled = false,
+        )
+        assertFalse(state.hasPartialAssistantAfterLastUser())
+    }
+
+    @Test
+    fun userOnlyTurnHasNoPartialAssistant() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi("u1", "写5000字故事"),
+            ),
+            input = "",
+            isStreaming = true,
+            thinkingEnabled = false,
+        )
+        assertFalse(state.hasPartialAssistantAfterLastUser())
+    }
 }

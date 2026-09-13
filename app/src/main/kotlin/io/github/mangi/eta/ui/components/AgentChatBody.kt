@@ -894,6 +894,9 @@ private fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEntr
     }
 
     this@toTimelineEntries.forEach { message ->
+        if (message is UserMessageUi && message.isResumeAfterCompress()) {
+            return@forEach
+        }
         if (message.isWorkProcessMessage()) {
             workMessages += message
         } else {
@@ -942,6 +945,9 @@ internal fun resolveFinalResultMessageIds(
 
 internal fun UserMessageUi.isSteerSupplement(): Boolean =
     id.contains("-supplement-")
+
+internal fun UserMessageUi.isResumeAfterCompress(): Boolean =
+    id.contains("-supplement-resume")
 
 @Composable
 private fun AgentChatBottomBar(

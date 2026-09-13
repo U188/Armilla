@@ -72,6 +72,7 @@ import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.hasRunningTools
 import io.github.mangi.eta.ui.model.hasCurrentTurnTools
 import io.github.mangi.eta.ui.model.hasStartedCurrentTurnOutput
+import io.github.mangi.eta.ui.model.hasPartialAssistantAfterLastUser
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.model.MessageSearchRoleLabels
 import io.github.mangi.eta.ui.model.searchConversationMessages
@@ -1598,6 +1599,7 @@ internal class AgentAppState(
                         messages = homeState.messages.take(boundary.userMessageIndex + 1),
                         state = homeState,
                         reasoningEffort = homeState.reasoningEffort,
+                        skipAutoCompress = ignoreCompression,
                     )
                 }
             }
@@ -1618,6 +1620,7 @@ internal class AgentAppState(
             messages = homeState.messages.take(boundary.userMessageIndex + 1),
             state = homeState,
             reasoningEffort = homeState.reasoningEffort,
+            skipAutoCompress = ignoreCompression,
         )
     }
 
@@ -1747,6 +1750,7 @@ internal class AgentAppState(
         messages: List<AgentChatMessageUi>,
         state: AgentChatHomeUiState,
         reasoningEffort: ReasoningEffort,
+        skipAutoCompress: Boolean = false,
     ) {
         runConversationIds[runId] = conversationId
         runOverheadTokens[runId] = requestOverheadTokens
@@ -1756,7 +1760,7 @@ internal class AgentAppState(
             imageGenerationRunIds += runId
         }
 
-        val willCompress = !generateImage && shouldAutoCompress(
+        val willCompress = !generateImage && !skipAutoCompress && shouldAutoCompress(
             history = history,
             contextWindow = compressionContextWindow(),
             estimatedTokens = liveContextUsage(
@@ -1868,7 +1872,7 @@ internal class AgentAppState(
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
             ).contextTokens
-            val shouldCompress = shouldAutoCompress(
+            val shouldCompress = !skipAutoCompress && shouldAutoCompress(
                 history,
                 compressionContextWindow(config.contextWindow),
                 estimatedTokens,
@@ -3982,6 +3986,7 @@ internal class AgentAppState(
                         originalHistory,
                         compressed,
                         compressorLabel(modelConfig),
+                        announceRestart = !resumeAfter,
                     )
                 }
             } finally {
@@ -4000,9 +4005,58 @@ internal class AgentAppState(
     private fun resumeLastTurnAfterCompress(conversationId: String?) {
         if (conversationId != selectedConversationId) return
         if (homeState.isStreaming || homeState.isPaused || homeState.isCompressingContext) return
+        if (homeState.hasPartialAssistantAfterLastUser()) {
+            continuePartialTurnAfterCompress(conversationId)
+            return
+        }
         val lastUser = homeState.messages.lastOrNull { it is UserMessageUi } as? UserMessageUi
             ?: return
         regenerateMessage(lastUser.id, ignoreCompression = true)
+    }
+
+    private fun continuePartialTurnAfterCompress(conversationId: String?) {
+        val id = conversationId ?: return
+        val state = conversationsById[id] ?: return
+        val partial = state.messages.lastOrNull { message ->
+            message is AgentMessageUi && message.content.isNotBlank()
+        } as? AgentMessageUi ?: return
+        val prompt = RESUME_AFTER_COMPRESS_PROMPT
+        val runId = "run-${UUID.randomUUID()}"
+        val userMessage = UserMessageUi(
+            id = "user-$runId-supplement-resume",
+            content = prompt,
+        )
+        launchConversationRun(
+            conversationId = id,
+            runId = runId,
+            prompt = prompt,
+            images = emptyList(),
+            history = historyWithTrailingPartial(state.history, partial),
+            userHistoryMessage = AgentModelClient.ConversationMessage(
+                role = "user",
+                content = prompt,
+            ),
+            messages = state.messages + userMessage,
+            state = state,
+            reasoningEffort = state.reasoningEffort,
+            skipAutoCompress = true,
+        )
+    }
+
+    private fun historyWithTrailingPartial(
+        history: List<AgentModelClient.ConversationMessage>,
+        partial: AgentMessageUi,
+    ): List<AgentModelClient.ConversationMessage> {
+        val partialMessage = AgentModelClient.ConversationMessage(
+            role = "assistant",
+            content = partial.content,
+        )
+        val last = history.lastOrNull()
+        return if (last?.role == "assistant") {
+            if (last.content == partial.content) history else history.dropLast(1) + partialMessage
+        } else {
+            history + partialMessage
+        }
     }
 
 
@@ -4038,6 +4092,7 @@ internal class AgentAppState(
         originalHistory: List<AgentModelClient.ConversationMessage>,
         compressedHistory: List<AgentModelClient.ConversationMessage>,
         compressorLabel: String = "",
+        announceRestart: Boolean = true,
     ) {
         if (conversationId != null) {
             val current = conversationsById[conversationId] ?: return
@@ -4075,10 +4130,13 @@ internal class AgentAppState(
         }
         billedOverheadConversationId = conversationId
         billedOverheadTokens = null
-        showCompactedRevisionNotice()
+        if (announceRestart) showCompactedRevisionNotice()
         persistConversations()
     }
 }
+
+private val RESUME_AFTER_COMPRESS_PROMPT =
+    "${AgentContextCompactor.STEERING_USER_PREFIX}请从上次中断的地方继续，不要重复已经写过的内容，也不要从头开始。\n\n请基于当前任务上下文继续执行，不要从头重复已经完成或已经验证过的操作。"
 
 private data class PendingManualCompress(
     val conversationId: String?,

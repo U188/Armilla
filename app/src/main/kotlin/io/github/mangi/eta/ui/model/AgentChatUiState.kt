@@ -258,6 +258,15 @@ internal fun AgentChatUiState.hasCurrentTurnTools(): Boolean {
     return currentTurn.any { it is ToolActivityMessageUi || it is ToolSummaryMessageUi }
 }
 
+/** 最后一条非空助手正文是否在最后一条用户消息之后，即当前轮已写出可续写的内容。 */
+internal fun AgentChatUiState.hasPartialAssistantAfterLastUser(): Boolean {
+    val lastUserIndex = messages.indexOfLast { it is UserMessageUi }
+    val lastAssistantIndex = messages.indexOfLast { message ->
+        message is AgentMessageUi && message.content.isNotBlank()
+    }
+    return lastAssistantIndex > lastUserIndex
+}
+
 /** 当前用户消息之后是否已经开始思考、工具或正文。不看更早轮次。 */
 internal fun AgentChatUiState.hasStartedCurrentTurnOutput(): Boolean {
     val lastUserIndex = messages.indexOfLast { it is UserMessageUi }

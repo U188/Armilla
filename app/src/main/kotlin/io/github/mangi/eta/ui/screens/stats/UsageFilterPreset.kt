@@ -9,19 +9,15 @@ import java.time.temporal.TemporalAdjusters
 
 internal data class UsageTimeBound(
     val date: LocalDate? = null,
-    val hour: Int? = null,
-    val minute: Int? = null,
 ) {
     val isSet: Boolean get() = date != null
 
     fun toMillis(endOfBound: Boolean): Long? {
         val selectedDate = date ?: return null
-        val time = when {
-            hour == null || minute == null -> {
-                if (endOfBound) LocalTime.of(23, 59, 59, 999_000_000) else LocalTime.MIN
-            }
-            endOfBound -> LocalTime.of(hour, minute, 59, 999_000_000)
-            else -> LocalTime.of(hour, minute)
+        val time = if (endOfBound) {
+            LocalTime.of(23, 59, 59, 999_000_000)
+        } else {
+            LocalTime.MIN
         }
         return LocalDateTime.of(selectedDate, time)
             .atZone(ZoneId.systemDefault())
@@ -29,23 +25,10 @@ internal data class UsageTimeBound(
             .toEpochMilli()
     }
 
-    fun toDateTime(endOfBound: Boolean, now: LocalDateTime = LocalDateTime.now()): LocalDateTime {
-        val selectedDate = date ?: now.toLocalDate()
-        val time = when {
-            hour != null && minute != null -> LocalTime.of(hour, minute)
-            endOfBound -> LocalTime.of(23, 59)
-            else -> LocalTime.MIN
-        }
-        return LocalDateTime.of(selectedDate, time)
-    }
-
     companion object {
-        fun from(dateTime: LocalDateTime): UsageTimeBound =
-            UsageTimeBound(
-                date = dateTime.toLocalDate(),
-                hour = dateTime.hour,
-                minute = dateTime.minute,
-            )
+        fun from(date: LocalDate): UsageTimeBound = UsageTimeBound(date = date)
+
+        fun from(dateTime: LocalDateTime): UsageTimeBound = UsageTimeBound(date = dateTime.toLocalDate())
     }
 }
 
@@ -85,7 +68,7 @@ internal fun matchingUsageFilterPreset(
     if (!start.isSet || !end.isSet) return null
     val matches = UsageFilterPreset.entries.filter { preset ->
         val (expectedStart, expectedEnd) = usageFilterPresetRange(preset, today, weekStart)
-        start == UsageTimeBound.from(expectedStart) && end == UsageTimeBound.from(expectedEnd)
+        start.date == expectedStart.toLocalDate() && end.date == expectedEnd.toLocalDate()
     }
     if (preferred != null && preferred in matches) return preferred
     return matches.firstOrNull()

@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import android.text.format.DateFormat
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -51,7 +50,6 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.repository.ModelUsageModelUi
 import io.github.mangi.eta.data.repository.ModelUsageSnapshot
 import io.github.mangi.eta.data.repository.alignedToConversationTotals
-import io.github.mangi.eta.data.repository.scaledUsageTotal
 import io.github.mangi.eta.data.repository.UsageStatsRepository
 import io.github.mangi.eta.data.repository.UsageStatsSnapshot
 import io.github.mangi.eta.data.repository.formatStatCount
@@ -62,7 +60,6 @@ import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.format.TextStyle
@@ -252,11 +249,15 @@ private fun ModelUsagePane(
             startBound.toMillis(endOfBound = false),
             endBound.toMillis(endOfBound = true),
         )
-        ranged.alignedToConversationTotals(
-            scaledUsageTotal(conversationInputTokens, ranged.totalInputTokens, usage.totalInputTokens),
-            scaledUsageTotal(conversationOutputTokens, ranged.totalOutputTokens, usage.totalOutputTokens),
-            scaledUsageTotal(conversationCachedTokens, ranged.totalInputTokens, usage.totalInputTokens),
-        )
+        if (startBound.isSet || endBound.isSet) {
+            ranged
+        } else {
+            ranged.alignedToConversationTotals(
+                conversationInputTokens,
+                conversationOutputTokens,
+                conversationCachedTokens,
+            )
+        }
     }
     Column(
         modifier = modifier,
@@ -358,16 +359,14 @@ private fun ModelUsageFilterCard(
     onEndChange: (UsageTimeBound) -> Unit,
     onClear: () -> Unit,
 ) {
-    val context = LocalContext.current
     val view = LocalView.current
-    val use24Hour = DateFormat.is24HourFormat(context)
     var expanded by remember { mutableStateOf(false) }
     var pickerSide by remember { mutableStateOf<UsageBoundSide?>(null) }
     var selectedPreset by remember { mutableStateOf<UsageFilterPreset?>(null) }
     val matchedPreset = remember(start, end, selectedPreset) {
         matchingUsageFilterPreset(start, end, LocalDate.now(), preferred = selectedPreset)
     }
-    val summary = filterSummaryText(start, end, matchedPreset, use24Hour)
+    val summary = filterSummaryText(start, end, matchedPreset)
         ?: stringResource(R.string.stats_model_filter_collapsed)
     Card {
         Column {
@@ -410,7 +409,6 @@ private fun ModelUsageFilterCard(
                     UsageBoundRow(
                         label = stringResource(R.string.stats_model_filter_start),
                         bound = start,
-                        use24Hour = use24Hour,
                         onClick = {
                             TouchHaptics.click(view)
                             pickerSide = UsageBoundSide.Start
@@ -419,7 +417,6 @@ private fun ModelUsageFilterCard(
                     UsageBoundRow(
                         label = stringResource(R.string.stats_model_filter_end),
                         bound = end,
-                        use24Hour = use24Hour,
                         onClick = {
                             TouchHaptics.click(view)
                             pickerSide = UsageBoundSide.End
@@ -476,7 +473,6 @@ private fun ModelUsageFilterCard(
 private fun UsageBoundRow(
     label: String,
     bound: UsageTimeBound,
-    use24Hour: Boolean,
     onClick: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -486,7 +482,7 @@ private fun UsageBoundRow(
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
         UsageBoundChip(
-            text = formatUsageDateTime(bound, use24Hour)
+            text = formatUsageDate(bound)
                 ?: stringResource(R.string.stats_model_filter_datetime_placeholder),
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.CenterStart,
@@ -549,16 +545,9 @@ private fun UsageBoundChip(
     }
 }
 
-private fun formatUsageDateTime(bound: UsageTimeBound, use24Hour: Boolean): String? {
+private fun formatUsageDate(bound: UsageTimeBound): String? {
     val date = bound.date ?: return null
-    val hour = bound.hour
-    val minute = bound.minute
-    if (hour == null || minute == null) {
-        return date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
-    }
-    val pattern = if (use24Hour) "yyyy-MM-dd HH:mm" else "yyyy-MM-dd h:mm a"
-    return LocalDateTime.of(date, java.time.LocalTime.of(hour, minute))
-        .format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
+    return date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 }
 
 @Composable
@@ -566,7 +555,6 @@ private fun filterSummaryText(
     start: UsageTimeBound,
     end: UsageTimeBound,
     preset: UsageFilterPreset?,
-    use24Hour: Boolean,
 ): String? {
     val presetRes = when (preset) {
         UsageFilterPreset.Today -> R.string.stats_model_filter_preset_today
@@ -577,8 +565,8 @@ private fun filterSummaryText(
         null -> null
     }
     if (presetRes != null) return stringResource(presetRes)
-    val startText = formatUsageDateTime(start, use24Hour)
-    val endText = formatUsageDateTime(end, use24Hour)
+    val startText = formatUsageDate(start)
+    val endText = formatUsageDate(end)
     return when {
         startText != null && endText != null -> "$startText – $endText"
         startText != null -> startText

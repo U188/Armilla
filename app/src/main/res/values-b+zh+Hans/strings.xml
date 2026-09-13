@@ -1270,8 +1270,8 @@
     <string name="stats_model_filter_end">结束</string>
     <string name="stats_model_filter_clear">清除筛选</string>
     <string name="stats_model_filter_empty">这个时间范围内没有模型用量</string>
-    <string name="stats_model_filter_datetime_placeholder">日期和时间</string>
-    <string name="stats_model_filter_datetime_title">设置日期和时间</string>
+    <string name="stats_model_filter_datetime_placeholder">日期</string>
+    <string name="stats_model_filter_datetime_title">设置日期</string>
     <string name="stats_model_filter_set">设置</string>
     <string name="stats_model_filter_preset_today">今天</string>
     <string name="stats_model_filter_preset_7d">7天</string>

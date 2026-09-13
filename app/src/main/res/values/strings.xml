@@ -1299,8 +1299,8 @@
     <string name="stats_model_filter_end">To</string>
     <string name="stats_model_filter_clear">Clear range</string>
     <string name="stats_model_filter_empty">No model usage in this range</string>
-    <string name="stats_model_filter_datetime_placeholder">Date and time</string>
-    <string name="stats_model_filter_datetime_title">Set date and time</string>
+    <string name="stats_model_filter_datetime_placeholder">Date</string>
+    <string name="stats_model_filter_datetime_title">Set date</string>
     <string name="stats_model_filter_set">Set</string>
     <string name="stats_model_filter_preset_today">Today</string>
     <string name="stats_model_filter_preset_7d">7d</string>

@@ -77,4 +77,12 @@ class UsageFilterPresetTest {
             matchingUsageFilterPreset(UsageTimeBound.from(start), UsageTimeBound(), wednesday),
         )
     }
+
+    @Test
+    fun dateBoundIgnoresClockTime() {
+        val morning = LocalDateTime.of(2026, 9, 13, 0, 0)
+        val night = LocalDateTime.of(2026, 9, 13, 23, 59)
+        assertEquals(UsageTimeBound.from(morning), UsageTimeBound.from(night))
+        assertEquals(LocalDate.of(2026, 9, 13), UsageTimeBound.from(night).date)
+    }
 }

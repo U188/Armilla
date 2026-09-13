@@ -1,12 +1,9 @@
 package io.github.mangi.eta.ui.screens.stats
 
 import android.content.Context
-import android.graphics.Typeface
-import android.util.TypedValue
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.NumberPicker
-import android.widget.TextView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,7 +23,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.Month
 import java.time.YearMonth
 import java.time.format.TextStyle
@@ -47,7 +43,7 @@ internal fun UsageDateTimePickerDialog(
     onClear: () -> Unit,
 ) {
     if (!show) return
-    val initial = remember(current, endOfBound) { current.toDateTime(endOfBound) }
+    val initial = remember(current, endOfBound) { current.date ?: LocalDate.now() }
     var picked by remember(initial) { mutableStateOf(initial) }
     val textColor = MiuixTheme.colorScheme.onSurface.toArgb()
     val view = LocalView.current
@@ -60,7 +56,7 @@ internal fun UsageDateTimePickerDialog(
             AndroidView(
                 modifier = Modifier.fillMaxWidth(),
                 factory = { context ->
-                    SpinnerDateTimePickerView(context, picked, textColor) { picked = it }
+                    SpinnerDatePickerView(context, picked, textColor) { picked = it }
                 },
                 update = { picker ->
                     picker.setTextColor(textColor)
@@ -102,33 +98,25 @@ internal fun UsageDateTimePickerDialog(
     }
 }
 
-private class SpinnerDateTimePickerView(
+private class SpinnerDatePickerView(
     context: Context,
-    initial: LocalDateTime,
+    initial: LocalDate,
     textColor: Int,
-    private val onValueChange: (LocalDateTime) -> Unit,
+    private val onValueChange: (LocalDate) -> Unit,
 ) : LinearLayout(context) {
     private val yearPicker: NumberPicker
     private val monthPicker: NumberPicker
     private val dayPicker: NumberPicker
-    private val hourPicker: NumberPicker
-    private val minutePicker: NumberPicker
-    private val colonView: TextView
     private val minYear = minOf(2020, initial.year)
     private val maxYear = maxOf(LocalDate.now().year + 1, initial.year)
     private val monthLabels = monthDisplayLabels()
-    private val hourLabels = (0..23).map { it.toString().padStart(2, '0') }.toTypedArray()
-    private val minuteLabels = (0..59).map { it.toString().padStart(2, '0') }.toTypedArray()
     private var publishing = false
 
     init {
-        orientation = VERTICAL
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
         val density = resources.displayMetrics.density
         val pickerHeight = (148 * density).toInt()
-        val dateRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
         yearPicker = numberPicker(
             min = minYear,
             max = maxYear,
@@ -148,53 +136,13 @@ private class SpinnerDateTimePickerView(
             value = initial.dayOfMonth,
             wrap = true,
         )
-        dateRow.addPicker(yearPicker, pickerHeight)
-        dateRow.addPicker(monthPicker, pickerHeight)
-        dateRow.addPicker(dayPicker, pickerHeight)
-        addView(dateRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-
-        val timeRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, (8 * density).toInt(), 0, 0)
-        }
-        hourPicker = numberPicker(
-            min = 0,
-            max = 23,
-            value = initial.hour,
-            wrap = true,
-            labels = hourLabels,
-        )
-        minutePicker = numberPicker(
-            min = 0,
-            max = 59,
-            value = initial.minute,
-            wrap = true,
-            labels = minuteLabels,
-        )
-        colonView = TextView(context).apply {
-            text = ":"
-            gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
-        }
-        timeRow.addView(android.widget.Space(context), LayoutParams(0, pickerHeight, 1f))
-        timeRow.addPicker(hourPicker, pickerHeight)
-        timeRow.addView(
-            colonView,
-            LayoutParams(LayoutParams.WRAP_CONTENT, pickerHeight),
-        )
-        timeRow.addPicker(minutePicker, pickerHeight)
-        timeRow.addView(android.widget.Space(context), LayoutParams(0, pickerHeight, 1f))
-        addView(timeRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-
+        addPicker(yearPicker, pickerHeight)
+        addPicker(monthPicker, pickerHeight)
+        addPicker(dayPicker, pickerHeight)
         val listener = NumberPicker.OnValueChangeListener { _, _, _ -> publish() }
         yearPicker.setOnValueChangedListener(listener)
         monthPicker.setOnValueChangedListener(listener)
         dayPicker.setOnValueChangedListener(listener)
-        hourPicker.setOnValueChangedListener(listener)
-        minutePicker.setOnValueChangedListener(listener)
         setTextColor(textColor)
     }
 
@@ -202,9 +150,6 @@ private class SpinnerDateTimePickerView(
         yearPicker.setTextColor(color)
         monthPicker.setTextColor(color)
         dayPicker.setTextColor(color)
-        hourPicker.setTextColor(color)
-        minutePicker.setTextColor(color)
-        colonView.setTextColor(color)
     }
 
     private fun publish() {
@@ -219,15 +164,13 @@ private class SpinnerDateTimePickerView(
                 dayPicker.maxValue = maxDay
             }
             val day = dayPicker.value.coerceIn(1, maxDay)
-            onValueChange(
-                LocalDateTime.of(year, month, day, hourPicker.value, minutePicker.value),
-            )
+            onValueChange(LocalDate.of(year, month, day))
         } finally {
             publishing = false
         }
     }
 
-    private fun LinearLayout.addPicker(picker: NumberPicker, height: Int) {
+    private fun addPicker(picker: NumberPicker, height: Int) {
         addView(picker, LayoutParams(0, height, 1f))
     }
 
@@ -251,7 +194,6 @@ private class SpinnerDateTimePickerView(
         }
     }
 }
-
 
 private fun monthDisplayLabels(locale: Locale = Locale.getDefault()): Array<String> {
     return Array(12) { index ->

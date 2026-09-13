@@ -468,4 +468,66 @@ class UsageStatsRepositoryTest {
         assertEquals(0L, scaledUsageTotal(26_530_000, 0, snapshot.totalInputTokens))
         assertEquals(26_530_000L, scaledUsageTotal(26_530_000, snapshot.totalInputTokens, snapshot.totalInputTokens))
     }
+
+    @Test
+    fun dayFilterKeepsCollapsedEventsForThatCalendarDay() {
+        val zone = java.time.ZoneId.systemDefault()
+        val day1 = java.time.LocalDateTime.of(2026, 9, 12, 20, 34)
+            .atZone(zone).toInstant().toEpochMilli()
+        val day2 = java.time.LocalDateTime.of(2026, 9, 13, 13, 0)
+            .atZone(zone).toInstant().toEpochMilli()
+        val snapshot = decodeModelUsageSnapshot(
+            applyModelUsageDelta(
+                raw = applyModelUsageDelta(
+                    raw = applyModelUsageDelta(
+                        raw = null,
+                        delta = ModelUsageDelta(
+                            providerId = "fish",
+                            providerName = "魚",
+                            modelId = "grok-4.6",
+                            modelDisplayName = "grok-4.6",
+                            inputTokens = 10_000,
+                            outputTokens = 20,
+                            cachedTokens = 8_000,
+                            conversationId = "conv-1",
+                            round = 1,
+                            atMillis = day1,
+                        ),
+                    ),
+                    delta = ModelUsageDelta(
+                        providerId = "fish",
+                        providerName = "魚",
+                        modelId = "grok-4.6",
+                        modelDisplayName = "grok-4.6",
+                        inputTokens = 12_000,
+                        outputTokens = 80,
+                        cachedTokens = 9_000,
+                        conversationId = "conv-1",
+                        round = 1,
+                        atMillis = day1,
+                    ),
+                ),
+                delta = ModelUsageDelta(
+                    providerId = "fish",
+                    providerName = "魚",
+                    modelId = "grok-4.6",
+                    modelDisplayName = "grok-4.6",
+                    inputTokens = 5_000,
+                    outputTokens = 10,
+                    cachedTokens = 4_000,
+                    conversationId = "conv-1",
+                    round = 2,
+                    atMillis = day2,
+                ),
+            ),
+        )
+        val start = java.time.LocalDate.of(2026, 9, 12).atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = java.time.LocalDateTime.of(2026, 9, 12, 23, 59, 59, 999_000_000)
+            .atZone(zone).toInstant().toEpochMilli()
+        val filtered = snapshot.filtered(start, end).providers.single().models.single()
+        assertEquals(12_000L, filtered.inputTokens)
+        assertEquals(80L, filtered.outputTokens)
+        assertEquals(9_000L, filtered.cachedTokens)
+        assertEquals(1, filtered.events.size)
+    }
 }

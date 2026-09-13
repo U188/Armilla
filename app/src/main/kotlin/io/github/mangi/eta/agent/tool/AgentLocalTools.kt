@@ -158,7 +158,15 @@ internal class AgentLocalTools(
     fun terminalSessionIdentity(sessionId: String): String? =
         terminalController.sessionIdentity(sessionId)
 
-    override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =
+    override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
+        return if (ForegroundExclusiveGate.shouldSerialize(toolCall.name)) {
+            ForegroundExclusiveGate.withLock { executeInternal(toolCall) }
+        } else {
+            executeInternal(toolCall)
+        }
+    }
+
+    private fun executeInternal(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =
         runCatching {
             val args = JSONObject(toolCall.argumentsJson.ifBlank { "{}" })
             if (AgentToolRequirements.find(toolCall.name) != null &&

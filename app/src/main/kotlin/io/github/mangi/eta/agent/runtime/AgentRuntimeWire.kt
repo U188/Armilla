@@ -12,6 +12,7 @@ import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ReasoningEffort
 import java.io.Closeable
+import java.util.ArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -86,6 +87,7 @@ internal object AgentRuntimeWire {
 
     private const val KEY_TYPE = "type"
     private const val KEY_RUN_ID = "run_id"
+    private const val KEY_RUN_IDS = "run_ids"
     private const val KEY_PROMPT = "prompt"
     private const val KEY_STEER_TEXT = "steer_text"
     private const val KEY_MODEL_SESSION_ID = "model_session_id"
@@ -528,6 +530,25 @@ internal object AgentRuntimeWire {
 
     fun ackBundle(runId: String): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
+    }
+
+    fun activeRunsBundle(runIds: Collection<String>): Bundle = Bundle().apply {
+        val ids = runIds.map { it.trim() }.filter { it.isNotEmpty() }
+        putString(KEY_RUN_ID, ids.firstOrNull().orEmpty())
+        putStringArrayList(KEY_RUN_IDS, ArrayList(ids))
+    }
+
+    fun runIdsFromBundle(bundle: Bundle): Set<String> {
+        val listed = bundle.getStringArrayList(KEY_RUN_IDS)
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+        if (listed.isNotEmpty()) return listed.toSet()
+        return bundle.getString(KEY_RUN_ID)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { setOf(it) }
+            .orEmpty()
     }
 
     fun steerBundle(runId: String, text: String): Bundle = Bundle().apply {

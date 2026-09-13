@@ -343,4 +343,77 @@ class UsageStatsRepositoryTest {
         assertEquals(24_150_000L, model.inputTokens)
         assertEquals(154_300L, model.outputTokens)
     }
+
+    @Test
+    fun modelUsageReplacesSameConversationRoundInsteadOfDoubleCounting() {
+        val first = applyModelUsageDelta(
+            raw = null,
+            delta = ModelUsageDelta(
+                providerId = "fish",
+                providerName = "魚",
+                modelId = "grok-4.6",
+                modelDisplayName = "grok-4.6",
+                inputTokens = 10_000,
+                outputTokens = 20,
+                cachedTokens = 8_000,
+                conversationId = "conv-1",
+                round = 3,
+            ),
+        )
+        val second = applyModelUsageDelta(
+            raw = first,
+            delta = ModelUsageDelta(
+                providerId = "fish",
+                providerName = "魚",
+                modelId = "grok-4.6",
+                modelDisplayName = "grok-4.6",
+                inputTokens = 12_000,
+                outputTokens = 80,
+                cachedTokens = 9_000,
+                conversationId = "conv-1",
+                round = 3,
+            ),
+        )
+        val model = decodeModelUsageSnapshot(second).providers.single().models.single()
+        assertEquals(12_000L, model.inputTokens)
+        assertEquals(80L, model.outputTokens)
+        assertEquals(9_000L, model.cachedTokens)
+        assertEquals(1, model.events.size)
+    }
+
+    @Test
+    fun unfilteredModelUsageAlignsToConversationTotals() {
+        val snapshot = decodeModelUsageSnapshot(
+            applyModelUsageDelta(
+                raw = null,
+                delta = ModelUsageDelta(
+                    providerId = "fish",
+                    providerName = "魚",
+                    modelId = "grok-4.6",
+                    modelDisplayName = "grok-4.6",
+                    inputTokens = 29_530_000,
+                    outputTokens = 190_500,
+                    conversationId = "conv-1",
+                ),
+            ),
+        )
+        val aligned = snapshot.alignedToConversationTotals(
+            inputTokens = 26_530_000,
+            outputTokens = 166_000,
+            cachedTokens = 23_850_000,
+        )
+        val model = aligned.providers.single().models.single()
+        assertEquals(26_530_000L, aligned.totalInputTokens)
+        assertEquals(166_000L, aligned.totalOutputTokens)
+        assertEquals(23_850_000L, aligned.totalCachedTokens)
+        assertEquals(26_530_000L, model.inputTokens)
+        assertEquals(166_000L, model.outputTokens)
+        assertEquals(23_850_000L, model.cachedTokens)
+    }
+
+    @Test
+    fun distributeTotalsKeepsRemainderOnLastBucket() {
+        assertEquals(listOf(3L, 3L, 4L), distributeTotals(10, listOf(1, 1, 1)))
+        assertEquals(listOf(0L, 10L), distributeTotals(10, listOf(0, 0)))
+    }
 }

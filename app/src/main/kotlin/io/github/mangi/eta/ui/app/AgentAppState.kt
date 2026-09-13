@@ -2741,7 +2741,7 @@ internal class AgentAppState(
                     val occupancy = event.usage.occupancyTokens()
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
                     updateLivePromptTokens(runId, occupancy)
-                    recordModelUsage(runId, event.usage)
+                    recordModelUsage(runId, event.round, event.usage)
                 }
             }
 
@@ -2995,10 +2995,11 @@ internal class AgentAppState(
         refreshConversationSummaries()
     }
 
-    private fun recordModelUsage(runId: String, usage: AgentTokenUsage) {
+    private fun recordModelUsage(runId: String, round: Int, usage: AgentTokenUsage) {
         val model = modelPickerState.selectedModel ?: return
         val input = (usage.inputTokens ?: 0).toLong()
         val output = (usage.outputTokens ?: 0).toLong()
+        val cached = (usage.cachedTokens ?: 0).toLong()
         if (input <= 0L && output <= 0L) return
         val conversationId = conversationIdForRun(runId) ?: selectedConversationId
         scope.launch(Dispatchers.IO) {
@@ -3011,7 +3012,9 @@ internal class AgentAppState(
                         modelDisplayName = model.displayName.ifBlank { model.modelId },
                         inputTokens = input,
                         outputTokens = output,
+                        cachedTokens = cached,
                         conversationId = conversationId,
+                        round = round,
                     ),
                 )
             }

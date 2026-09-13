@@ -116,6 +116,9 @@ internal fun UsageStatsScreen(onBack: () -> Unit) {
             item(key = "model-usage") {
                 ModelUsagePane(
                     usage = stats.modelUsage,
+                    conversationInputTokens = stats.currentInputTokens,
+                    conversationOutputTokens = stats.currentOutputTokens,
+                    conversationCachedTokens = stats.currentCachedTokens,
                     modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp),
                 )
             }
@@ -227,13 +230,35 @@ private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
 @Composable
 private fun ModelUsagePane(
     usage: ModelUsageSnapshot,
+    conversationInputTokens: Long,
+    conversationOutputTokens: Long,
+    conversationCachedTokens: Long,
     modifier: Modifier = Modifier,
 ) {
     var expandedModels by remember { mutableStateOf(emptySet<String>()) }
     var startBound by remember { mutableStateOf(UsageTimeBound()) }
     var endBound by remember { mutableStateOf(UsageTimeBound()) }
-    val filtered = remember(usage, startBound, endBound) {
-        usage.filtered(startBound.toMillis(endOfBound = false), endBound.toMillis(endOfBound = true))
+    val filtered = remember(
+        usage,
+        startBound,
+        endBound,
+        conversationInputTokens,
+        conversationOutputTokens,
+        conversationCachedTokens,
+    ) {
+        val ranged = usage.filtered(
+            startBound.toMillis(endOfBound = false),
+            endBound.toMillis(endOfBound = true),
+        )
+        if (startBound.isSet || endBound.isSet) {
+            ranged
+        } else {
+            ranged.alignedToConversationTotals(
+                conversationInputTokens,
+                conversationOutputTokens,
+                conversationCachedTokens,
+            )
+        }
     }
     Column(
         modifier = modifier,
@@ -259,13 +284,19 @@ private fun ModelUsagePane(
                     style = MiuixTheme.textStyles.headline1,
                 )
                 ModelMetricRow(
-                    label = stringResource(R.string.stats_model_total_input),
+                    label = stringResource(R.string.stats_page_input_tokens),
                     value = formatTokenCount(filtered.totalInputTokens),
                 )
                 ModelMetricRow(
                     label = stringResource(R.string.stats_page_output_tokens),
                     value = formatTokenCount(filtered.totalOutputTokens),
                 )
+                if (filtered.totalCachedTokens > 0L) {
+                    ModelMetricRow(
+                        label = stringResource(R.string.stats_page_cached_tokens),
+                        value = formatTokenCount(filtered.totalCachedTokens),
+                    )
+                }
             }
         }
         if (filtered.providers.isEmpty()) {
@@ -603,6 +634,12 @@ private fun ModelUsageRow(
                     label = stringResource(R.string.stats_page_output_tokens),
                     value = formatTokenCount(model.outputTokens),
                 )
+                if (model.cachedTokens > 0L) {
+                    ModelMetricRow(
+                        label = stringResource(R.string.stats_page_cached_tokens),
+                        value = formatTokenCount(model.cachedTokens),
+                    )
+                }
                 ModelMetricRow(
                     label = stringResource(R.string.stats_model_daily_avg),
                     value = formatTokenCount(model.dailyAverageTokens),

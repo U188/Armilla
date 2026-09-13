@@ -361,7 +361,7 @@ internal object SettingsDataStore {
             predictiveBackEnabled = this[APPEARANCE_PREDICTIVE_BACK_ENABLED] ?: false,
             interfaceScale = this[APPEARANCE_INTERFACE_SCALE] ?: 1f,
             morphLoadingIndicator = this[APPEARANCE_MORPH_LOADING_INDICATOR] ?: true,
-            morphLoadingBeforeResponseOnly = this[APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE] ?: true,
+            morphLoadingBeforeResponseOnly = this[APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE] ?: false,
         ).normalized(),
     )
 

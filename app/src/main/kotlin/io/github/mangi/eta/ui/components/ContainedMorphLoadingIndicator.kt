@@ -43,7 +43,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun ContainedMorphLoadingIndicator(
     modifier: Modifier = Modifier,
-    size: Dp = 28.dp,
+    indicatorSize: Dp = 28.dp,
     containerColor: Color = MiuixTheme.colorScheme.primaryContainer,
     indicatorColor: Color = MiuixTheme.colorScheme.onPrimaryContainer,
 ) {
@@ -85,7 +85,7 @@ internal fun ContainedMorphLoadingIndicator(
 
     Box(
         modifier = modifier
-            .size(size)
+            .size(indicatorSize)
             .clip(CircleShape)
             .background(containerColor),
     ) {
@@ -96,14 +96,15 @@ internal fun ContainedMorphLoadingIndicator(
             val radii = FloatArray(from.size) { index ->
                 from[index] + (to[index] - from[index]) * progress
             }
+            val canvasSize = this.size
             val rotation = progress * 90f + morphRotationTarget + globalRotation.value
             val bounce = 1f + 0.08f * sin(progress * PI).toFloat()
             rotate(rotation) {
                 drawPath(
                     path = smoothPolarPath(
                         radii = radii,
-                        center = Offset(size.width / 2f, size.height / 2f),
-                        radius = minOf(size.width, size.height) * 0.40f * bounce,
+                        center = Offset(canvasSize.width / 2f, canvasSize.height / 2f),
+                        radius = minOf(canvasSize.width, canvasSize.height) * 0.40f * bounce,
                     ),
                     color = indicatorColor,
                 )

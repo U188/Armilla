@@ -50,6 +50,8 @@ internal object SettingsDataStore {
     private val APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE =
         booleanPreferencesKey("appearance_morph_loading_before_response")
     private val APP_LAUNCH_COUNT = intPreferencesKey("app_launch_count")
+    private val UPDATE_DISMISSED_VERSION = stringPreferencesKey("update_dismissed_version")
+    private val UPDATE_LAST_CHECK_AT = longPreferencesKey("update_last_check_at")
     private val RETIRED_INPUT_TOKENS = longPreferencesKey("retired_input_tokens")
     private val RETIRED_OUTPUT_TOKENS = longPreferencesKey("retired_output_tokens")
     private val RETIRED_CACHED_TOKENS = longPreferencesKey("retired_cached_tokens")
@@ -212,6 +214,40 @@ internal object SettingsDataStore {
         ensureInitialized()
         dataStore.edit { prefs ->
             prefs[APP_LAUNCH_COUNT] = (prefs[APP_LAUNCH_COUNT] ?: 0) + 1
+        }
+    }
+
+    suspend fun updateDismissedVersion(): String {
+        ensureInitialized()
+        return dataStore.data
+            .catch { cause ->
+                if (cause is IOException) emit(emptyPreferences()) else throw cause
+            }
+            .map { prefs -> prefs[UPDATE_DISMISSED_VERSION].orEmpty() }
+            .first()
+    }
+
+    suspend fun setUpdateDismissedVersion(version: String) {
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs.putOrRemove(UPDATE_DISMISSED_VERSION, version.trim().takeIf { it.isNotEmpty() })
+        }
+    }
+
+    suspend fun updateLastCheckAt(): Long {
+        ensureInitialized()
+        return dataStore.data
+            .catch { cause ->
+                if (cause is IOException) emit(emptyPreferences()) else throw cause
+            }
+            .map { prefs -> prefs[UPDATE_LAST_CHECK_AT] ?: 0L }
+            .first()
+    }
+
+    suspend fun setUpdateLastCheckAt(epochMillis: Long) {
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs[UPDATE_LAST_CHECK_AT] = epochMillis
         }
     }
 

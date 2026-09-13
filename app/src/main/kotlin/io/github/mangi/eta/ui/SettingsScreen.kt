@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Description
@@ -63,6 +64,8 @@ import io.github.mangi.eta.agent.accessibility.AgentAccessibilityService
 import io.github.mangi.eta.agent.voice.EtaVoiceInteractionService
 import io.github.mangi.eta.config.PowerAssistantTarget
 import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.data.model.AppUpdateOffer
+import io.github.mangi.eta.data.repository.AppUpdateRepository
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.systemizer.GoogleAppSystemizerInstaller
@@ -70,6 +73,7 @@ import io.github.mangi.eta.systemizer.RootManager
 import io.github.mangi.eta.systemizer.SystemizerInstallResult
 import io.github.mangi.eta.ui.app.EnhancementSettingsHistory
 import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
+import io.github.mangi.eta.ui.components.AppUpdateDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.components.PreferenceIcon
@@ -107,6 +111,9 @@ internal fun SettingsScreen(
     var hasUsedSystemizer by remember { mutableStateOf(enhancementHistory.hasUsedSystemizer) }
     var showSystemizerDialog by remember { mutableStateOf(false) }
     var installingSystemizer by remember { mutableStateOf(false) }
+    val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
 
     // 悬浮窗权限状态：授权后从系统设置返回时（ON_RESUME）刷新。
     var overlayGranted by remember {
@@ -687,6 +694,51 @@ internal fun SettingsScreen(
                 SmallTitle(stringResource(R.string.ui_about_bed172))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                     ArrowPreference(
+                        title = stringResource(R.string.update_check_title),
+                        summary = if (checkingUpdate) {
+                            stringResource(R.string.update_checking)
+                        } else {
+                            stringResource(
+                                R.string.update_current_version,
+                                currentVersion.ifBlank { stringResource(R.string.update_unknown_version) },
+                            )
+                        },
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.CloudDownload,
+                            )
+                        },
+                        onClick = {
+                            if (checkingUpdate) return@ArrowPreference
+                            checkingUpdate = true
+                            coroutineScope.launch {
+                                val result = AppUpdateRepository.checkForUpdate(context, force = true)
+                                checkingUpdate = false
+                                result.fold(
+                                    onSuccess = { offer ->
+                                        if (offer == null) {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.update_latest),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        } else {
+                                            updateOffer = offer
+                                        }
+                                    },
+                                    onFailure = { failure ->
+                                        Toast.makeText(
+                                            context,
+                                            failure.message?.takeIf { it.isNotBlank() }
+                                                ?: context.getString(R.string.update_check_failed),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                )
+                            }
+                        },
+                    )
+                    ArrowPreference(
                         title = stringResource(R.string.ui_source_code_740296),
                         startAction = {
                             PreferenceIcon(
@@ -711,6 +763,12 @@ internal fun SettingsScreen(
                 }
             }
         }
+
+        AppUpdateDialog(
+            offer = updateOffer,
+            currentVersion = currentVersion,
+            onDismiss = { updateOffer = null },
+        )
 
         SystemizerConfirmDialog(
             show = showSystemizerDialog,

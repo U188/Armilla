@@ -49,11 +49,14 @@ import io.github.mangi.eta.agent.device.BoundedRootCommandExecutor
 import io.github.mangi.eta.agent.device.DeviceLocationProvider
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.core.AndroidAgentLogger
+import io.github.mangi.eta.data.model.AppUpdateOffer
+import io.github.mangi.eta.data.repository.AppUpdateRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.AppearanceSettingsScreen
 import io.github.mangi.eta.ui.HapticsSettingsScreen
 import io.github.mangi.eta.ui.ContextCompressionSettingsScreen
 import io.github.mangi.eta.ui.SettingsScreen
+import io.github.mangi.eta.ui.components.AppUpdateDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.model.AgentChatAction
 import io.github.mangi.eta.ui.model.AgentHomeAction
@@ -89,6 +92,7 @@ import io.github.mangi.eta.ui.screens.terminal.TerminalEntryScreen
 import io.github.mangi.eta.ui.screens.terminal.WorkspaceScreen
 import io.github.mangi.eta.ui.screens.tools.AgentToolsScreen
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -151,9 +155,18 @@ fun AgentAppRoot(
     var conversationMoveTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var messageDeleteTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
     var messageRegenerateTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
+    var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
+    val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
 
     LaunchedEffect(Unit) {
         RuntimeConfigRepository.ensureDefaults(EtaApp.serviceInstance)
+    }
+
+    LaunchedEffect(Unit) {
+        delay(1_200)
+        AppUpdateRepository.checkForUpdate(context, force = false)
+            .getOrNull()
+            ?.let { updateOffer = it }
     }
 
     LaunchedEffect(assistantConversationKey) {
@@ -822,6 +835,12 @@ fun AgentAppRoot(
             )
         }
     }
+
+    AppUpdateDialog(
+        offer = updateOffer,
+        currentVersion = currentVersion,
+        onDismiss = { updateOffer = null },
+    )
 
     messageRegenerateTarget?.let { target ->
         WindowDialog(

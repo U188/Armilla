@@ -12,6 +12,7 @@ import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -156,12 +157,16 @@ internal object TouchHaptics {
         if (view == null) return
         if (!ignoreAppSwitch && !isTouchEnabled()) return
         if (intensity == HapticIntensity.DEFAULT) {
-            val flags = if (ignoreAppSwitch) {
-                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+            // ColorOS / HyperOS 单参数入口会走线性马达主题；带 flags=0 的双参数
+            // 会再检查 View.isHapticFeedbackEnabled，升级后这个标志经常是关的。
+            if (ignoreAppSwitch) {
+                view.performHapticFeedback(
+                    constant,
+                    HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING,
+                )
             } else {
-                0
+                view.performHapticFeedback(constant)
             }
-            view.performHapticFeedback(constant, flags)
             return
         }
         vibrateScaled(view, constant, intensity)
@@ -237,9 +242,9 @@ internal fun ApplyTouchHapticFeedbackEnabled() {
         TouchHaptics.reloadIntensity()
         onDispose { target.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    DisposableEffect(view, enabled) {
-        val previous = view.isHapticFeedbackEnabled
-        view.isHapticFeedbackEnabled = enabled
-        onDispose { view.isHapticFeedbackEnabled = previous }
+    SideEffect {
+        if (view.isHapticFeedbackEnabled != enabled) {
+            view.isHapticFeedbackEnabled = enabled
+        }
     }
 }

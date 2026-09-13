@@ -8,6 +8,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -337,10 +339,11 @@ private fun ModelUsageFilterCard(
     val use24Hour = DateFormat.is24HourFormat(context)
     var expanded by remember { mutableStateOf(false) }
     var pickerSide by remember { mutableStateOf<UsageBoundSide?>(null) }
-    val selectedPreset = remember(start, end) {
-        matchingUsageFilterPreset(start, end, LocalDate.now())
+    var selectedPreset by remember { mutableStateOf<UsageFilterPreset?>(null) }
+    val matchedPreset = remember(start, end, selectedPreset) {
+        matchingUsageFilterPreset(start, end, LocalDate.now(), preferred = selectedPreset)
     }
-    val summary = filterSummaryText(start, end, selectedPreset, use24Hour)
+    val summary = filterSummaryText(start, end, matchedPreset, use24Hour)
         ?: stringResource(R.string.stats_model_filter_collapsed)
     Card {
         Column {
@@ -399,9 +402,10 @@ private fun ModelUsageFilterCard(
                         },
                     )
                     UsageFilterPresetRow(
-                        selected = selectedPreset,
+                        selected = matchedPreset,
                         onSelect = { preset ->
                             TouchHaptics.click(view)
+                            selectedPreset = preset
                             val (from, to) = usageFilterPresetRange(preset, LocalDate.now())
                             onStartChange(UsageTimeBound.from(from))
                             onEndChange(UsageTimeBound.from(to))
@@ -415,6 +419,7 @@ private fun ModelUsageFilterCard(
                             modifier = Modifier
                                 .clickableNoRipple {
                                     TouchHaptics.click(view)
+                                    selectedPreset = null
                                     onClear()
                                 }
                                 .padding(top = 2.dp),
@@ -431,10 +436,12 @@ private fun ModelUsageFilterCard(
         endOfBound = pickerSide == UsageBoundSide.End,
         onDismiss = { pickerSide = null },
         onConfirm = { picked ->
+            selectedPreset = null
             if (pickerSide == UsageBoundSide.End) onEndChange(picked) else onStartChange(picked)
             pickerSide = null
         },
         onClear = {
+            selectedPreset = null
             if (pickerSide == UsageBoundSide.End) onEndChange(UsageTimeBound()) else onStartChange(UsageTimeBound())
             pickerSide = null
         },
@@ -464,6 +471,7 @@ private fun UsageBoundRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UsageFilterPresetRow(
     selected: UsageFilterPreset?,
@@ -476,14 +484,14 @@ private fun UsageFilterPresetRow(
         UsageFilterPreset.Last30Days to R.string.stats_model_filter_preset_30d,
         UsageFilterPreset.ThisMonth to R.string.stats_model_filter_preset_month,
     )
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items.forEach { (preset, labelRes) ->
             UsageBoundChip(
                 text = stringResource(labelRes),
-                modifier = Modifier.weight(1f),
                 selected = selected == preset,
                 onClick = { onSelect(preset) },
             )
@@ -505,7 +513,7 @@ private fun UsageBoundChip(
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) colors.primary else colors.primaryContainer)
             .clickableNoRipple(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = contentAlignment,
     ) {
         Text(

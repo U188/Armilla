@@ -65,9 +65,11 @@ internal fun usageFilterPresetRange(
     val end = today.atTime(23, 59)
     val startDate = when (preset) {
         UsageFilterPreset.Today -> today
-        UsageFilterPreset.Last7Days -> today.minusDays(6)
+        // 周四：上周四 00:00 → 今天 23:59。不是「含今天共 7 个日历日」。
+        UsageFilterPreset.Last7Days -> today.minusDays(7)
+        // 周四：本周一 00:00 → 今天 23:59。
         UsageFilterPreset.ThisWeek -> today.with(TemporalAdjusters.previousOrSame(weekStart))
-        UsageFilterPreset.Last30Days -> today.minusDays(29)
+        UsageFilterPreset.Last30Days -> today.minusDays(30)
         UsageFilterPreset.ThisMonth -> today.withDayOfMonth(1)
     }
     return startDate.atTime(0, 0) to end
@@ -78,10 +80,13 @@ internal fun matchingUsageFilterPreset(
     end: UsageTimeBound,
     today: LocalDate,
     weekStart: DayOfWeek = DayOfWeek.MONDAY,
+    preferred: UsageFilterPreset? = null,
 ): UsageFilterPreset? {
     if (!start.isSet || !end.isSet) return null
-    return UsageFilterPreset.entries.firstOrNull { preset ->
+    val matches = UsageFilterPreset.entries.filter { preset ->
         val (expectedStart, expectedEnd) = usageFilterPresetRange(preset, today, weekStart)
         start == UsageTimeBound.from(expectedStart) && end == UsageTimeBound.from(expectedEnd)
     }
+    if (preferred != null && preferred in matches) return preferred
+    return matches.firstOrNull()
 }

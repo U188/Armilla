@@ -320,4 +320,34 @@ class UsageStatsRepositoryTest {
         assertEquals("1.5K", formatStatCount(1500))
         assertEquals("1.50M", formatTokenCount(1_500_000))
     }
+
+    @Test
+    fun billedCreditsStayProportionalWhenFilteringAllEvents() {
+        val conversion = TokenBalanceConversion(divisor = 500_000.0)
+        val snapshot = decodeModelUsageSnapshot(
+            applyModelUsageDelta(
+                raw = null,
+                delta = ModelUsageDelta(
+                    providerId = "fish",
+                    providerName = "魚",
+                    modelId = "grok-4.6",
+                    modelDisplayName = "grok-4.6",
+                    inputTokens = 5_250_000,
+                    outputTokens = 73_500,
+                    conversationId = "conv-1",
+                    atMillis = java.time.LocalDateTime.of(2026, 9, 13, 12, 0)
+                        .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                ),
+            ),
+        ).withBalanceConversions(mapOf("fish" to conversion))
+        val model = snapshot.providers.single().models.single()
+        assertEquals(10.5, model.billedCredits!!, 0.0001)
+        val start = java.time.LocalDateTime.of(2026, 9, 7, 0, 0)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val end = java.time.LocalDateTime.of(2026, 9, 13, 23, 59, 59, 999_000_000)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val filtered = snapshot.filtered(start, end).providers.single().models.single()
+        assertEquals(5_250_000L, filtered.inputTokens)
+        assertEquals(10.5, filtered.billedCredits!!, 0.0001)
+    }
 }

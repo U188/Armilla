@@ -484,8 +484,8 @@ class SkillIndexService(
         val canonicalRoot = skillsRoot.canonicalFile.toPath()
         return skillsRoot.walkTopDown()
             .onEnter { dir ->
-                dir.name != ".git" &&
-                    dir.name != ASSISTANT_SKILL_DIR &&
+                // `.assistant` / `.visible` 是当前助手的发布拷贝，不能当成又一份已安装 Skill。
+                (dir == skillsRoot || !dir.name.startsWith(".")) &&
                     !Files.isSymbolicLink(dir.toPath()) &&
                     runCatching { dir.canonicalFile.toPath().startsWith(canonicalRoot) }.getOrDefault(false)
             }
@@ -496,6 +496,13 @@ class SkillIndexService(
                 buildInstalledEntry(skillFile.parentFile ?: return@mapNotNull null, registry, builtinAssets)
             }
             .distinctBy { it.rootPath }
+            .groupBy { it.id }
+            .values
+            .map { copies ->
+                copies.firstOrNull { copy ->
+                    File(copy.rootPath).parentFile?.canonicalFile == skillsRoot.canonicalFile
+                } ?: copies.first()
+            }
             .toList()
     }
 

@@ -268,4 +268,37 @@ class SkillRuntimeTest {
         assertFalse(File(visible, "beta").exists())
         assertTrue(File(skillsRoot, "beta/SKILL.md").isFile)
     }
+
+
+    @Test
+    fun managementIndexIgnoresVisibleAndAssistantCopies() {
+        val context = RuntimeEnvironment.getApplication()
+        val skillsRoot = File(context.filesDir, "skills").apply { mkdirs() }
+        fun writeSkill(dir: File, id: String) {
+            dir.mkdirs()
+            File(dir, "SKILL.md").writeText(
+                """
+                ---
+                name: $id
+                description: Test skill $id.
+                ---
+
+                # $id
+                """.trimIndent(),
+            )
+        }
+        writeSkill(File(skillsRoot, "alpha"), "alpha")
+        writeSkill(File(skillsRoot, ".visible/alpha"), "alpha")
+        writeSkill(File(skillsRoot, ".assistant/asst-1/alpha"), "alpha")
+        val service = SkillIndexService(
+            context = context,
+            skillsRoot = skillsRoot,
+        )
+
+        val indexed = service.listSkillsForManagement(forceRefresh = true).filter { it.id == "alpha" }
+
+        assertEquals(1, indexed.size)
+        assertEquals(File(skillsRoot, "alpha").canonicalFile.absolutePath, indexed.single().rootPath)
+    }
+
 }

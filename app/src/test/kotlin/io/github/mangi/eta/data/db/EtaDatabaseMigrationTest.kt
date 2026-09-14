@@ -52,6 +52,8 @@ class EtaDatabaseMigrationTest {
                 migration16To17WithMcpData,
                 EtaDatabase.MIGRATION_17_18,
                 EtaDatabase.MIGRATION_18_19,
+                EtaDatabase.MIGRATION_19_20,
+                EtaDatabase.MIGRATION_20_21,
             )
             .build()
         try {
@@ -107,6 +109,8 @@ class EtaDatabaseMigrationTest {
             assertEquals("[]", conversations.first { it.id == "conv-1" }.appliedRuntimeRunIdsJson)
             assertEquals("off", conversations.first { it.id == "conv-1" }.reasoningEffort)
             assertEquals("default", conversations.first { it.id == "conv-enabled" }.reasoningEffort)
+            assertEquals("", conversations.first { it.id == "conv-1" }.providerId)
+            assertEquals("", conversations.first { it.id == "conv-1" }.modelId)
             assertEquals(null, runBlocking(Dispatchers.IO) { database.conversationDao().state() })
             assertEquals(listOf("built-in", "manual"), provider.models.map { it.modelId })
             assertEquals(false, provider.hostedWebSearchEnabled)

@@ -168,6 +168,7 @@ internal class AgentAppState(
     private var pendingSkillZipSha256: String? = null
     private var currentReasoningCapabilities: ModelReasoningCapabilities? = null
     private var lastAppliedReasoningModelId: String? = null
+    @Volatile private var restoringConversationModel = false
     private var fileAttachmentOwnerVersion = 0L
     private val chatImageCache = AgentChatImageCache(appContext)
 
@@ -342,6 +343,7 @@ internal class AgentAppState(
 
     private fun observeRuntimeSelection() {
         scope.launch(Dispatchers.IO) {
+            restoreSelectedConversationRuntimeModel()
             combine(
                 RuntimeConfigRepository.selectedProviderIdFlow(),
                 RuntimeConfigRepository.selectedModelIdFlow(),
@@ -363,6 +365,7 @@ internal class AgentAppState(
                             isChanging = modelPickerState.isChanging,
                         )
                         applyReasoningCapabilities(capabilities)
+                        bindCurrentConversationModel(providerId, modelId)
                         refreshRequestOverhead()
                     }
                 }
@@ -376,6 +379,8 @@ internal class AgentAppState(
         lastAppliedReasoningModelId = selectedModelId
         currentReasoningCapabilities = capabilities
         val next = when {
+            restoringConversationModel -> homeState.withCurrentReasoningCapabilities()
+            firstApply && homeState.modelId.isNotBlank() -> homeState.withCurrentReasoningCapabilities()
             firstApply -> restoreReasoningEffortOnFirstApply()
             modelChanged -> homeState.withPreferredReasoningEffort()
             else -> homeState.withCurrentReasoningCapabilities()
@@ -664,15 +669,23 @@ internal class AgentAppState(
             selectedFolderId = null
             pendingNewConversationFolderId = null
             fileAttachmentOwnerVersion += 1
+            restoringConversationModel = true
             homeState = selectedConversationId
                 ?.let(conversationsById::get)
-                ?.withCurrentReasoningCapabilities()
-                ?: emptyChatState(false).withPreferredReasoningEffort()
+                ?.let { state ->
+                    if (currentReasoningCapabilities != null) {
+                        state.withCurrentReasoningCapabilities()
+                    } else {
+                        state
+                    }
+                }
+                ?: newDraftChatState()
             conversationPaneState = conversationPaneState.copy(
                 selectedConversationId = selectedConversationId,
                 searchQuery = "",
             )
             refreshConversationSummaries()
+            restoreConversationRuntimeModel(homeState)
         }
     }
 
@@ -1082,7 +1095,12 @@ internal class AgentAppState(
         val state = conversationsById[conversationId] ?: return
         fileAttachmentOwnerVersion += 1
         selectedConversationId = conversationId
-        val resolvedState = state.withPreferredReasoningEffort()
+        restoringConversationModel = true
+        val resolvedState = if (currentReasoningCapabilities != null) {
+            state.withCurrentReasoningCapabilities()
+        } else {
+            state
+        }
         conversationsById = conversationsById + (conversationId to resolvedState)
         homeState = resolvedState
         billedOverheadConversationId = null
@@ -1090,6 +1108,7 @@ internal class AgentAppState(
         syncBilledOverhead(conversationId, resolvedState.messages)
         conversationPaneState = conversationPaneState.copy(selectedConversationId = conversationId)
         persistConversations()
+        restoreConversationRuntimeModel(resolvedState)
     }
 
     fun createConversation() {
@@ -1097,7 +1116,7 @@ internal class AgentAppState(
         fileAttachmentOwnerVersion += 1
         selectedConversationId = null
         pendingNewConversationFolderId = selectedFolderId
-        homeState = emptyChatState(false).withPreferredReasoningEffort()
+        homeState = newDraftChatState()
         billedOverheadConversationId = null
         billedOverheadTokens = null
         conversationPaneState = conversationPaneState.copy(
@@ -1479,7 +1498,7 @@ internal class AgentAppState(
             scope.launch(Dispatchers.IO) { chatImageCache.deleteConversation(conversationId) }
             fileAttachmentOwnerVersion += 1
             selectedConversationId = null
-            homeState = emptyChatState(false).withPreferredReasoningEffort()
+            homeState = newDraftChatState()
             conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
             refreshConversationSummaries()
             persistConversations()
@@ -1818,7 +1837,7 @@ internal class AgentAppState(
             } else {
                 ReasoningEffort.OFF
             }
-            val config = RuntimeConfigRepository.currentRuntimeConfig()?.copy(
+            val config = runtimeConfigForBoundModel(state)?.copy(
                 terminalTools = agentBooleanForUi(Prefs.Keys.AGENT_TERMINAL_TOOLS),
                 browserTools = agentBooleanForUi(Prefs.Keys.AGENT_BROWSER_TOOLS),
                 deviceDirectTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_DIRECT_TOOLS),
@@ -3165,7 +3184,8 @@ internal class AgentAppState(
             conversationsById[conversationId]
         } ?: return
         val originalHistory = snapshot.history
-        val fallback = RuntimeConfigRepository.currentRuntimeConfig()
+        val fallback = runtimeConfigForBoundModel(snapshot)
+            ?: RuntimeConfigRepository.currentRuntimeConfig()
         val compressModelConfig = resolveCompressModelConfig(fallback)
         val compressed = tryCompressHistory(originalHistory, compressModelConfig)
         if (compressed == originalHistory) return
@@ -3492,6 +3512,8 @@ internal class AgentAppState(
             availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
             pendingImages = draft.pendingImages,
             pendingFileReferences = draft.pendingFileReferences,
+            providerId = currentBoundProviderId(),
+            modelId = currentBoundModelId(),
         )
         conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
     }
@@ -3716,6 +3738,96 @@ internal class AgentAppState(
                 }
             }.also { persistenceJob = it }
         }
+    }
+
+    private fun currentBoundProviderId(): String =
+        modelPickerState.selectedModel?.providerId.orEmpty()
+
+    private fun currentBoundModelId(): String =
+        modelPickerState.selectedModel?.id.orEmpty()
+
+    private fun newDraftChatState(): AgentChatHomeUiState =
+        emptyChatState(false)
+            .copy(
+                providerId = currentBoundProviderId(),
+                modelId = currentBoundModelId(),
+            )
+            .withPreferredReasoningEffort()
+
+    private fun bindCurrentConversationModel(providerId: String?, modelId: String?) {
+        val boundProvider = providerId.orEmpty()
+        val boundModel = modelId.orEmpty()
+        if (restoringConversationModel) {
+            restoringConversationModel = false
+            return
+        }
+        if (boundProvider.isBlank() || boundModel.isBlank()) return
+        val conversationId = selectedConversationId
+        if (conversationId == null) {
+            if (homeState.providerId != boundProvider || homeState.modelId != boundModel) {
+                homeState = homeState.copy(providerId = boundProvider, modelId = boundModel)
+            }
+            return
+        }
+        val current = conversationsById[conversationId] ?: homeState
+        if (current.providerId == boundProvider && current.modelId == boundModel) return
+        updateCurrentConversation(current.copy(providerId = boundProvider, modelId = boundModel))
+        persistConversations()
+    }
+
+    private fun restoreConversationRuntimeModel(state: AgentChatHomeUiState) {
+        val modelId = state.modelId
+        if (modelId.isBlank()) {
+            restoringConversationModel = false
+            bindCurrentConversationModel(
+                modelPickerState.selectedModel?.providerId,
+                modelPickerState.selectedModel?.id,
+            )
+            return
+        }
+        if (modelPickerState.selectedModel?.id == modelId) {
+            restoringConversationModel = false
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val applied = RuntimeConfigRepository.setSelectedModelIdIfPresent(modelId)
+            if (applied) {
+                RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+            } else {
+                withContext(Dispatchers.Main) {
+                    restoringConversationModel = false
+                    bindCurrentConversationModel(
+                        modelPickerState.selectedModel?.providerId,
+                        modelPickerState.selectedModel?.id,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun restoreSelectedConversationRuntimeModel() {
+        val state = selectedConversationId?.let(conversationsById::get) ?: homeState
+        val modelId = state.modelId
+        if (modelId.isBlank()) return
+        val currentModelId = runCatching { SettingsDataStore.settings().selectedModelId }.getOrNull()
+        if (currentModelId == modelId) return
+        restoringConversationModel = true
+        val applied = RuntimeConfigRepository.setSelectedModelIdIfPresent(modelId)
+        if (applied) {
+            RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+        } else {
+            restoringConversationModel = false
+        }
+    }
+
+    private suspend fun runtimeConfigForBoundModel(
+        state: AgentChatHomeUiState,
+    ): AgentModelClient.ModelConfig? {
+        if (state.providerId.isNotBlank() && state.modelId.isNotBlank()) {
+            RuntimeConfigRepository.configForProviderAndModel(state.providerId, state.modelId)
+                ?.let { return it }
+        }
+        return RuntimeConfigRepository.currentRuntimeConfig()
     }
 
     private companion object {
@@ -3956,7 +4068,8 @@ internal class AgentAppState(
                     }
                     return@launch
                 }
-                val fallback = RuntimeConfigRepository.currentRuntimeConfig()
+                val fallback = runtimeConfigForBoundModel(snapshot)
+                    ?: RuntimeConfigRepository.currentRuntimeConfig()
                 val modelConfig = resolveCompressModelConfig(
                     fallback = fallback,
                     providerId = request.providerId,

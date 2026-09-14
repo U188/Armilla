@@ -15,6 +15,8 @@ internal data class AgentChatUiState(
     val isCompressingContext: Boolean = false,
     val thinkingEnabled: Boolean,
     val reasoningEffort: ReasoningEffort = ReasoningEffort.fromLegacy(thinkingEnabled),
+    val providerId: String = "",
+    val modelId: String = "",
     val availableReasoningEfforts: List<ReasoningEffort> = emptyList(),
     val pendingImages: List<PendingImageUi> = emptyList(),
     val pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),

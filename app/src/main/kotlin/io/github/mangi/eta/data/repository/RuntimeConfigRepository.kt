@@ -65,6 +65,14 @@ internal object RuntimeConfigRepository {
         ProviderRepository.repairSelection()
     }
 
+    suspend fun setSelectedModelIdIfPresent(id: String?): Boolean {
+        if (id.isNullOrBlank()) return false
+        val provider = ProviderRepository.providerByModelId(id)?.takeIf { it.isEnabled } ?: return false
+        val model = provider.models.firstOrNull { it.id == id && it.isEnabled } ?: return false
+        setSelectedModelId(model.id)
+        return true
+    }
+
     suspend fun currentRuntimeConfig(): AgentModelClient.ModelConfig? {
         ProviderRepository.ensureBuiltInsMerged()
         val settings = ProviderRepository.repairSelection()

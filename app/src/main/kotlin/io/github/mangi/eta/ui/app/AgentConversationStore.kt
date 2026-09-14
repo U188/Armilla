@@ -3,6 +3,7 @@ package io.github.mangi.eta.ui.app
 import android.content.Context
 import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.ConversationContextCheckpointEntity
 import io.github.mangi.eta.data.db.ConversationFolderEntity
 import io.github.mangi.eta.data.db.ConversationEntity
@@ -92,6 +93,8 @@ internal object AgentConversationStore {
                         updatedAt = updatedAt[id] ?: now,
                         folderId = folderIds[id].orEmpty(),
                         isPinned = id in pinnedIds,
+                        providerId = state.providerId,
+                        modelId = state.modelId,
                     )
                 }
                 val messages = sorted.flatMap { (conversationId, state) ->
@@ -159,6 +162,7 @@ internal object AgentConversationStore {
         val titles = mutableMapOf<String, String>()
         val updatedAt = mutableMapOf<String, Long>()
 
+        val (fallbackProviderId, fallbackModelId) = defaultSelection()
         conversations.forEach { conversation ->
             val history = AgentConversationCodec.decodeTranscript(
                 dao.contextCheckpoint(conversation.id)?.historyJson
@@ -183,6 +187,8 @@ internal object AgentConversationStore {
                 isStreaming = false,
                 thinkingEnabled = conversation.reasoningEffortValue.enablesReasoning,
                 reasoningEffort = conversation.reasoningEffortValue,
+                providerId = conversation.providerId.ifBlank { fallbackProviderId },
+                modelId = conversation.modelId.ifBlank { fallbackModelId },
             )
             titles[conversation.id] = conversation.title.takeUnless { it == LEGACY_UNNAMED_TITLE }.orEmpty()
             updatedAt[conversation.id] = conversation.updatedAt
@@ -219,6 +225,11 @@ internal object AgentConversationStore {
 
     private val ConversationMetadata.reasoningEffortValue: ReasoningEffort
         get() = ReasoningEffort.fromWireValue(reasoningEffort) ?: ReasoningEffort.OFF
+
+    private suspend fun defaultSelection(): Pair<String, String> {
+        val settings = runCatching { SettingsDataStore.settings() }.getOrNull()
+        return settings?.selectedProviderId.orEmpty() to settings?.selectedModelId.orEmpty()
+    }
 
     private fun AgentChatMessageUi.toEntityOrNull(
         conversationId: String,

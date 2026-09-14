@@ -111,6 +111,8 @@ class AgentConversationStoreTest {
             isStreaming = true,
             thinkingEnabled = true,
             reasoningEffort = ReasoningEffort.HIGH,
+            providerId = "provider-1",
+            modelId = "model-1",
         )
 
         runBlocking {
@@ -133,8 +135,46 @@ class AgentConversationStoreTest {
         assertFalse(restored.isStreaming)
         assertTrue(restored.thinkingEnabled)
         assertEquals(ReasoningEffort.HIGH, restored.reasoningEffort)
+        assertEquals("provider-1", restored.providerId)
+        assertEquals("model-1", restored.modelId)
         assertEquals(conversation.messages, restored.messages)
         assertEquals(conversation.history, restored.history)
+    }
+
+    @Test
+    fun saveAndLoadKeepsDifferentModelsPerConversation() {
+        runBlocking {
+            AgentConversationStore.save(
+                context = context,
+                selectedConversationId = "conv-a",
+                conversationsById = mapOf(
+                    "conv-a" to AgentChatHomeUiState(
+                        messages = emptyList(),
+                        input = "",
+                        isStreaming = false,
+                        thinkingEnabled = false,
+                        providerId = "provider-a",
+                        modelId = "model-a",
+                    ),
+                    "conv-b" to AgentChatHomeUiState(
+                        messages = emptyList(),
+                        input = "",
+                        isStreaming = false,
+                        thinkingEnabled = false,
+                        providerId = "provider-b",
+                        modelId = "model-b",
+                    ),
+                ),
+                titles = mapOf("conv-a" to "A", "conv-b" to "B"),
+                updatedAt = mapOf("conv-a" to 2L, "conv-b" to 1L),
+            )
+        }
+
+        val snapshot = AgentConversationStore.load(context)
+        assertEquals("provider-a", snapshot.conversationsById.getValue("conv-a").providerId)
+        assertEquals("model-a", snapshot.conversationsById.getValue("conv-a").modelId)
+        assertEquals("provider-b", snapshot.conversationsById.getValue("conv-b").providerId)
+        assertEquals("model-b", snapshot.conversationsById.getValue("conv-b").modelId)
     }
 
     @Test

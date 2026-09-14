@@ -48,6 +48,8 @@ class EtaBackupRepositoryTest {
             thinkingEnabled = true,
             createdAt = 1L,
             updatedAt = 2L,
+            providerId = provider.id,
+            modelId = provider.models.first().id,
         )
         EtaDatabase.get(context).conversationDao().replaceAll(
             conversations = listOf(conversation),
@@ -97,6 +99,9 @@ class EtaBackupRepositoryTest {
         val restoredSettings = SettingsDataStore.settings()
         assertEquals(provider.id, restoredSettings.selectedProviderId)
         assertEquals(provider.models.first().id, restoredSettings.selectedModelId)
+        val restoredConversation = EtaDatabase.get(context).conversationDao().conversationEntities().single()
+        assertEquals(provider.id, restoredConversation.providerId)
+        assertEquals(provider.models.first().id, restoredConversation.modelId)
         assertEquals("sk-backup-test", ProviderRepository.providerById(provider.id)?.apiKey)
         assertEquals(ModelSource.CATALOG, ProviderRepository.providerById(provider.id)?.models?.first()?.source)
     }

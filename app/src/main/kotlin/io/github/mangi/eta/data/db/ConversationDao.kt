@@ -11,14 +11,16 @@ import androidx.room.Transaction
 internal interface ConversationDao {
     @Query(
         "SELECT id, title, thinking_enabled, reasoning_effort, " +
-            "applied_runtime_run_ids_json, created_at, updated_at, folder_id, is_pinned " +
+            "applied_runtime_run_ids_json, created_at, updated_at, folder_id, is_pinned, " +
+            "provider_id, model_id " +
             "FROM conversations ORDER BY updated_at DESC"
     )
     suspend fun conversations(): List<ConversationMetadata>
 
     @Query(
         "SELECT id, title, thinking_enabled, reasoning_effort, " +
-            "applied_runtime_run_ids_json, created_at, updated_at, folder_id, is_pinned " +
+            "applied_runtime_run_ids_json, created_at, updated_at, folder_id, is_pinned, " +
+            "provider_id, model_id " +
             "FROM conversations ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"
     )
     suspend fun conversationsPage(limit: Int, offset: Int): List<ConversationMetadata>

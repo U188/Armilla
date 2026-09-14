@@ -205,7 +205,6 @@ class AgentRunControllerTest {
         }
         assertFalse(worker.isAlive)
     }
-}
 
     @Test
     fun requestCompactCancelsOnlyInterruptibleResources() {

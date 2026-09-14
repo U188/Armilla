@@ -798,7 +798,7 @@ internal object AgentBrowserSession {
             val parts = mutableListOf("$name=$value", "Domain=$domain", "Path=$pathValue")
             if (item.optBoolean("secure", currentUrl.startsWith("https://"))) parts += "Secure"
             if (item.optBoolean("http_only", false) || item.optBoolean("httpOnly", false)) parts += "HttpOnly"
-            if (item.has("expires")) parts += "Expires=" + item.opt("expires").toString()
+            if (item.has("expires")) parts += "Expires=" + item.opt("expires")?.toString()
             manager.setCookie(currentUrl, parts.joinToString("; "))
             written++
         }

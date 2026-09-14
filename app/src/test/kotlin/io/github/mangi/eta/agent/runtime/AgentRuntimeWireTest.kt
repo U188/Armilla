@@ -46,7 +46,7 @@ class AgentRuntimeWireTest {
                 payload = AgentUiHandoffPayload("conversation-1").toJson(),
             ),
         )
-        val bundle = AgentRuntimeWire.toLegacyBundle(request)
+        val bundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor())
         assertEquals(request, AgentRuntimeWire.runRequestFromBundle(bundle))
         bundle.remove("model_session_id")
         assertEquals("conversation-1", AgentRuntimeWire.runRequestFromBundle(bundle).effectiveModelSessionId)

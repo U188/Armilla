@@ -932,6 +932,7 @@ class AgentModelClientLoopTest {
             },
             runController = controller,
             traceFormatter = AgentTraceFormatter(),
+            onEvent = {},
             compactPolicy = AgentLoop.CompactPolicy(
                 enabled = false,
                 contextWindow = 8,

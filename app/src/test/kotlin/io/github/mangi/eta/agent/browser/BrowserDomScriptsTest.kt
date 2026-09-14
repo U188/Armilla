@@ -28,4 +28,18 @@ class BrowserDomScriptsTest {
         assertFalse(script.contains("requireHitTarget"))
         assertFalse(script.contains("TARGET_OCCLUDED"))
     }
+
+    @Test
+    fun `hover dispatches mouseenter`() {
+        val script = BrowserDomScripts.wrap(BrowserDomScripts.hover("#menu", null, null))
+        assertTrue(script.contains("mouseenter"))
+        assertTrue(script.contains("mouseover"))
+    }
+
+    @Test
+    fun `backbone depth is bounded`() {
+        val script = BrowserDomScripts.wrap(BrowserDomScripts.backbone(3))
+        assertTrue(script.contains("MAX_DEPTH = 3"))
+        assertTrue(script.contains("MAX_NODES = 80"))
+    }
 }

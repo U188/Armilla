@@ -10,6 +10,7 @@ import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.agent.media.MAX_AGENT_IMAGE_BYTES
 import io.github.mangi.eta.agent.media.MAX_AGENT_VIDEO_BYTES
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.terminal.LinuxGuestPathResolver
 import java.io.File
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -20,9 +21,10 @@ internal class AgentImageTools(
     private val context: Context,
     private val root: BoundedRootCommandExecutor,
     private val rootAvailable: () -> Boolean = { RootAccess.isGranted },
+    private val resolveGuestPath: (String) -> String = { LinuxGuestPathResolver.resolveForApp(context, it) },
 ) {
     fun readImage(args: JSONObject): AgentModelClient.ToolResult {
-        val source = args.getString("path").removePrefix("file://")
+        val source = resolveGuestPath(args.getString("path").removePrefix("file://"))
         val sourceKind = when {
             source.startsWith("content://") -> ImageSourceKind.ContentUri
             source.startsWith("/") && !source.contains('\u0000') -> ImageSourceKind.File

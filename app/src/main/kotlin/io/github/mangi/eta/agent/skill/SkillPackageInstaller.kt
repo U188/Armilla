@@ -393,6 +393,21 @@ class SkillPackageInstaller internal constructor(
                 "Skill description 必填且不能超过 $MAX_SKILL_DESCRIPTION_LENGTH 字符",
             )
         }
+        val body = raw.substringAfter("---", "").substringAfter("---", "").trim()
+        val compatibility = SkillCompatibilityChecker.evaluate(
+            id = name,
+            name = name,
+            description = description,
+            compatibility = parsed["compatibility"]?.trim(),
+            metadata = parsed["metadata"]?.let { SkillParser.parseIndentedBlock(it) } ?: emptyMap(),
+            body = body,
+        )
+        if (!compatibility.available) {
+            fail(
+                SkillInstallErrorCode.INCOMPATIBLE_SKILL,
+                compatibility.reason ?: "当前环境无法运行该 Skill",
+            )
+        }
         return ValidatedSkillMetadata(name = name, description = description)
     }
 

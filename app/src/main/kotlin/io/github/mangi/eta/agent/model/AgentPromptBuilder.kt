@@ -109,6 +109,7 @@ internal object AgentPromptBuilder {
                         "async 后台命令是独立 shell，不要和 session_id 混用。不要调用 search_apps 查询“终端”或“Termux”。" +
                         "Eta 已内置终端，不要回答‘没有终端应用’或要求另装终端 App。" +
                         "读取图片或视频画面必须调用 read_image，不要为了看视频去解析 MP4 或调用 ffmpeg。" +
+                        "read_image 可直接读取 Linux 的 /workspace 与 /workspace/mounts 路径，会映射到宿主文件，不必先拷到 Android 路径。" +
                         "read_image 对视频会抽取封面帧作为视觉输入，并返回时长等信息。" +
                         "同一轮模型回复最多调用一次 read_image；需要查看多张或更多帧时，" +
                         "必须等待当前结果返回并观察内容，再在下一轮调用下一张，禁止在同一轮并行或批量调用多个 read_image。"
@@ -119,7 +120,16 @@ internal object AgentPromptBuilder {
             messages.put(
                 systemMessage(
                     "网页浏览、读取、交互和截图使用 browser_use：它是 Agent 共享的离屏浏览器，不会把页面显式交给外部应用；" +
-                        "每次调用只执行一个 action。通常先 navigate，再用 get_readable 提取正文，或用 find_elements 找到可交互元素后操作。" +
+                        "每次调用只执行一个 action。navigate 接受完整 URL、域名或搜索词；Linux 的 /workspace 网页可用 file 路径打开。" +
+                        "默认桌面 Chrome 身份，可用 set_user_agent 在 desktop_chrome 与 mobile_chrome 之间切换，也可用 set_viewport 改视口。" +
+                        "通常先 navigate，再用 get_readable 提取 Markdown 正文（支持 offset/max_chars 分页），或用 find_elements / get_backbone 了解结构。" +
+                        "动态页可用 execute_js、hover、scroll_and_collect、wait_for_dom_stable、wait_for_selector；fetch 使用当前页会话下载资源。" +
+                        "get_cookies / set_cookies 只作用于当前站点。get_cookies 不返回明文，只给 cookie 名和 env 文件路径；" +
+                        "Linux 中 `. /var/minis/offloads/env_cookies_xxx.sh` 后用 COOKIE_<NAME>，与 MiniS hub 技能相同。" +
+                        "Linux 的 /var/minis/workspace、/offloads、/browser、/skills 映射到当前工作区与已安装 Skills，minis:// 也可在 navigate 中打开。" +
+                        "screenshot 默认识口，full_page=true 可尽量截整页。" +
+                        "点击、输入、滚动、悬停成功后会附带一张预览图，仍可用 screenshot 获取更清晰画面。" +
+                        "用户打开 Agent 浏览器页会接管同一 WebView，期间网页工具会暂停。保留 go_back / go_forward / reload。" +
                         "只有需要把 URI 交给外部应用时才使用 open_uri；open_uri 不用于读取网页。"
                 )
             )

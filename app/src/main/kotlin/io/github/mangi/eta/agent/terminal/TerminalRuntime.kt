@@ -43,6 +43,14 @@ internal object TerminalRuntime {
     fun workspace(identity: String): String =
         if (identity == "root") "/data/local/tmp/eta" else userWorkspacePath
 
+    fun skillsDirectory(): File? = appContext?.let { File(it.filesDir, "skills") }
+
+    fun ensureLinuxWorkspaceLayout(hostWorkspace: String) {
+        File(hostWorkspace).mkdirs()
+        File(hostWorkspace, "offloads").mkdirs()
+        File(hostWorkspace, "browser").mkdirs()
+    }
+
     fun nativeExecutable(name: String): File? = nativeLibraryDir?.let { File(it, name) }
         ?.takeIf { it.isFile && it.canExecute() }
 }

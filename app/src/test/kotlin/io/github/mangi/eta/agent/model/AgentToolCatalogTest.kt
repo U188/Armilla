@@ -61,6 +61,14 @@ class AgentToolCatalogTest {
         assertEquals("boolean", properties.getJSONObject("submit").getString("type"))
         assertFalse(properties.getJSONObject("url").getString("description").contains("HTTPS"))
         assertFalse(function.getString("description").contains("拦截"))
+        val actions = properties.getJSONObject("action").getJSONArray("enum").let { array ->
+            (0 until array.length()).map { array.getString(it) }.toSet()
+        }
+        assertTrue("execute_js" in actions)
+        assertTrue("set_user_agent" in actions)
+        assertTrue("get_backbone" in actions)
+        assertTrue("wait_for_selector" in actions)
+        assertTrue("go_back" in actions)
     }
 
     @Test

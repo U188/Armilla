@@ -152,7 +152,7 @@ internal object AgentSkillToolCatalog {
         tools.put(
             AgentToolSchema.function(
                 name = "skills_install_from_github",
-                description = "Install selected Skill directories from a public GitHub repository. Paths must come from skills_inspect_github. If one replaceable user Skill conflicts, retry that exact repository, commitSha, path, and id with replaceExisting=true; built-in Skills can never be overwritten. Installation does not run bundled scripts, and installed Skills become available next turn.",
+                description = "Install selected Skill directories from a public GitHub repository. Paths must come from skills_inspect_github. If one replaceable user Skill conflicts, retry that exact repository, commitSha, path, and id with replaceExisting=true; built-in Skills can never be overwritten. Skills that require Apple runtimes, MiniS Android CLI, or MiniS iOS sandbox are rejected before install. Installation does not run bundled scripts, and installed Skills become available next turn.",
                 parameters = JSONObject()
                     .put("type", "object")
                     .put(

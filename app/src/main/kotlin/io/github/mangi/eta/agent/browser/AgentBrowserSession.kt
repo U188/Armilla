@@ -13,6 +13,7 @@ import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -23,7 +24,10 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.graphics.createBitmap
+import io.github.mangi.eta.agent.terminal.LinuxGuestPathResolver
+import io.github.mangi.eta.agent.terminal.TerminalRuntime
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -58,6 +62,8 @@ internal data class BrowserSessionSnapshot(
     val isUserControlling: Boolean = false,
     val lastAgentRunId: String? = null,
     val lastAgentToolCallId: String? = null,
+    val desktopMode: Boolean = true,
+    val userAgent: String = BrowserUserAgent.DEFAULT.wireName,
 )
 
 internal data class BrowserImage(
@@ -86,6 +92,7 @@ internal object AgentBrowserSession {
     private const val MAX_TEXT_CHARS = 12_000
     private const val NAVIGATION_TIMEOUT_MS = 25_000L
     private const val JAVASCRIPT_TIMEOUT_MS = 8_000L
+    private const val ASYNC_JAVASCRIPT_TIMEOUT_MS = 15_000L
     private const val POST_ACTION_TIMEOUT_MS = 10_000L
     private const val SCREENSHOT_MAX_WIDTH = 1_280
     private const val SCREENSHOT_MAX_HEIGHT = 2_400
@@ -93,6 +100,8 @@ internal object AgentBrowserSession {
     private const val PREVIEW_MAX_WIDTH = 480
     private const val PREVIEW_MAX_HEIGHT = 900
     private const val PREVIEW_QUALITY = 60
+    private const val FULL_PAGE_MAX_HEIGHT = 8_192
+    private const val FETCH_MAX_BYTES = 8 * 1024 * 1024
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val operationLock = ReentrantLock()
@@ -163,10 +172,24 @@ internal object AgentBrowserSession {
     @Volatile
     private var activeAgentRunId: String? = null
 
+    @Volatile
+    private var userAgentProfile: BrowserUserAgent = BrowserUserAgent.DEFAULT
+
+    @Volatile
+    private var sessionViewport: Pair<Int, Int>? = null
+
+    @Volatile
+    private var pendingAsyncJs: CompletableFuture<String>? = null
+
+    private val pageBridge = PageBridge()
+
     fun initialize(context: Context) {
         if (appContext == null) {
             synchronized(this) {
-                if (appContext == null) appContext = context.applicationContext
+                if (appContext == null) {
+                    appContext = context.applicationContext
+                    userAgentProfile = BrowserUserAgent.load()
+                }
             }
         }
     }
@@ -198,12 +221,24 @@ internal object AgentBrowserSession {
     }
 
     fun navigateFromUser(context: Context, url: String): BrowserToolResult {
-        val target = url.trim().let { value ->
-            if (value.isNotBlank() && "://" !in value) "https://$value" else value
+        initialize(context)
+        val target = BrowserNavigation.normalize(url.trim()) { path ->
+            LinuxGuestPathResolver.resolveForApp(context.applicationContext, path)
         }
         return executeInternal(
             context = context,
             args = JSONObject().put("action", "navigate").put("url", target),
+            userInitiated = true,
+        )
+    }
+
+    fun setDesktopModeFromUser(enabled: Boolean): BrowserToolResult {
+        val context = appContext
+            ?: return errorResult("set_user_agent", "BROWSER_NOT_INITIALIZED", "浏览器尚未初始化")
+        val profile = if (enabled) BrowserUserAgent.DESKTOP_CHROME else BrowserUserAgent.MOBILE_CHROME
+        return executeInternal(
+            context = context,
+            args = JSONObject().put("action", "set_user_agent").put("user_agent", profile.wireName),
             userInitiated = true,
         )
     }
@@ -363,7 +398,7 @@ internal object AgentBrowserSession {
             }
             try {
                 runCatching {
-                    when (action) {
+                    val result = when (action) {
                         "navigate" -> navigate(args)
                         "get_readable" -> readPage(args, readable = true)
                         "get_text" -> readPage(args, readable = false)
@@ -377,8 +412,19 @@ internal object AgentBrowserSession {
                         "go_forward" -> historyNavigation(action, backwards = false)
                         "reload" -> reload()
                         "wait_for_selector" -> waitForSelector(args)
+                        "execute_js" -> executeJs(args)
+                        "get_backbone" -> getBackbone(args)
+                        "hover" -> hover(args)
+                        "fetch" -> fetchResource(args)
+                        "get_cookies" -> getCookies(args)
+                        "set_cookies" -> setCookies(args)
+                        "set_user_agent" -> setUserAgent(args)
+                        "set_viewport" -> setViewport(args)
+                        "scroll_and_collect" -> scrollAndCollect(args)
+                        "wait_for_dom_stable" -> waitForDomStable(args)
                         else -> throw BrowserFailure("INVALID_ACTION", "浏览器 action 无效")
                     }
+                    attachVisualSnapshot(action, result, userInitiated)
                 }.getOrElse { throwable -> failureResult(action, throwable) }
             } finally {
                 if (activeOperationEpoch == epoch) activeOperationEpoch = 0L
@@ -389,8 +435,12 @@ internal object AgentBrowserSession {
     }
 
     private fun navigate(args: JSONObject): BrowserToolResult {
-        val rawUrl = args.optString("url").trim()
-        if (rawUrl.isBlank()) throw BrowserFailure("INVALID_ARGUMENT", "navigate 缺少 url")
+        val requested = args.optString("url").trim()
+        if (requested.isBlank()) throw BrowserFailure("INVALID_ARGUMENT", "navigate 缺少 url")
+        val rawUrl = BrowserNavigation.normalize(requested) { path ->
+            val context = appContext ?: return@normalize path
+            LinuxGuestPathResolver.resolveForApp(context, path)
+        }
         val view = ensureWebView()
         val epoch = activeOperationEpoch
         val waiter = LoadWaiter()
@@ -521,12 +571,14 @@ internal object AgentBrowserSession {
 
     private fun screenshot(args: JSONObject): BrowserToolResult {
         val view = requirePage()
-        val captured = captureViewport(view)
+        val fullPage = args.optBoolean("full_page", false)
+        val captured = if (fullPage) captureFullPage(view) else captureViewport(view)
         val includeImage = args.optBoolean("read_image", true)
         val envelope = baseEnvelope("screenshot", true, "ok")
             .put("image_width", captured.width)
             .put("image_height", captured.height)
             .put("image_bytes", captured.bytes.size)
+            .put("full_page", fullPage)
         val image = if (includeImage) {
             BrowserImage(
                 dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(captured.bytes, Base64.NO_WRAP),
@@ -611,6 +663,374 @@ internal object AgentBrowserSession {
         )
     }
 
+    private fun hover(args: JSONObject): BrowserToolResult {
+        val view = requirePage()
+        val target = targetFrom(args)
+        val value = evaluateObject(view, BrowserDomScripts.hover(target.selector, target.x, target.y))
+        waitForPostAction()
+        return toolResult(mergeValue(baseEnvelope("hover", true, "ok"), value))
+    }
+
+    private fun getBackbone(args: JSONObject): BrowserToolResult {
+        val view = requirePage()
+        val depth = args.optInt("max_depth", 5).coerceIn(1, 8)
+        val value = evaluateObject(view, BrowserDomScripts.backbone(depth))
+        return toolResult(mergeValue(baseEnvelope("get_backbone", true, "ok"), value).put("max_depth", depth))
+    }
+
+    private fun executeJs(args: JSONObject): BrowserToolResult {
+        val script = args.optString("script")
+        if (script.isBlank()) throw BrowserFailure("INVALID_ARGUMENT", "execute_js 缺少 script")
+        val view = requirePage()
+        val raw = evaluateAsync(view, script)
+        val envelope = baseEnvelope("execute_js", true, "ok")
+        val parsed = runCatching { JSONObject(raw) }.getOrNull()
+        if (parsed != null) mergeValue(envelope, parsed) else envelope.put("value", raw.take(8_000))
+        return toolResult(envelope)
+    }
+    private fun fetchResource(args: JSONObject): BrowserToolResult {
+        val url = args.optString("url").trim()
+        if (url.isBlank()) throw BrowserFailure("INVALID_ARGUMENT", "fetch 缺少 url")
+        val view = requirePage()
+        val quoted = JSONObject.quote(url)
+        val script = """
+            const resp = await fetch($quoted, { credentials: 'include' });
+            const buf = await resp.arrayBuffer();
+            if (buf.byteLength > $FETCH_MAX_BYTES) {
+              return { error: 'FETCH_TOO_LARGE', size: buf.byteLength };
+            }
+            const bytes = new Uint8Array(buf);
+            let binary = '';
+            const chunk = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunk) {
+              binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+            }
+            return {
+              base64: btoa(binary),
+              contentType: resp.headers.get('content-type') || '',
+              status: resp.status,
+              url: resp.url,
+              size: bytes.length
+            };
+        """.trimIndent()
+        val raw = evaluateAsync(view, script)
+        val payload = runCatching { JSONObject(raw) }.getOrElse {
+            throw BrowserFailure("SCRIPT_FAILED", "fetch 结果无法解析")
+        }
+        if (payload.has("error")) {
+            throw BrowserFailure("FETCH_FAILED", payload.optString("error").ifBlank { "fetch 失败" })
+        }
+        val base64 = payload.optString("base64")
+        val data = if (base64.isNotBlank()) Base64.decode(base64, Base64.DEFAULT) else ByteArray(0)
+        if (data.size > FETCH_MAX_BYTES) throw BrowserFailure("FETCH_TOO_LARGE", "下载内容超过大小限制")
+        val directory = File(TerminalRuntime.workspace("root"), "browser").apply { mkdirs() }
+        val extension = extensionForMime(payload.optString("contentType"))
+        val file = File(directory, "fetch_${System.currentTimeMillis()}.$extension")
+        file.writeBytes(data)
+        val envelope = baseEnvelope("fetch", true, "ok")
+            .put("requested_url", url)
+            .put("final_url", payload.optString("url"))
+            .put("http_status", payload.optInt("status"))
+            .put("mime", payload.optString("contentType"))
+            .put("bytes", data.size)
+            .put("path", file.absolutePath)
+            .put("workspace_path", "/workspace/browser/${file.name}")
+            .put("minis_path", "/var/minis/browser/${file.name}")
+        return toolResult(envelope)
+    }
+    private fun getCookies(args: JSONObject): BrowserToolResult {
+        if (currentUrl.isBlank()) throw BrowserFailure("NO_PAGE", "当前没有网页，请先调用 navigate")
+        val raw = CookieManager.getInstance().getCookie(currentUrl).orEmpty()
+        val keywords = BrowserCookieOffload.keywords(args)
+        val fuzzy = args.optBoolean("fuzzy", true)
+        val cookies = raw.split(';').mapNotNull { part ->
+            val item = part.trim()
+            if (item.isEmpty() || '=' !in item) return@mapNotNull null
+            val name = item.substringBefore('=').trim()
+            val value = item.substringAfter('=').trim()
+            if (name.isEmpty()) null else name to value
+        }.filter { (name, _) -> BrowserCookieOffload.matches(name, keywords, fuzzy) }
+            .take(80)
+        val context = appContext
+            ?: throw BrowserFailure("BROWSER_NOT_INITIALIZED", "浏览器尚未初始化")
+        val offloadDir = File(LinuxGuestPathResolver.workspaceHostForApp(context), "offloads")
+        val file = runCatching {
+            BrowserCookieOffload.write(
+                directory = offloadDir,
+                host = hostOf(currentUrl).ifBlank { "site" },
+                url = currentUrl,
+                cookies = cookies,
+            )
+        }.getOrElse {
+            throw BrowserFailure("COOKIE_OFFLOAD_FAILED", "无法写入 cookie env 文件")
+        }
+        return toolResult(
+            baseEnvelope("get_cookies", true, "ok")
+                .put("cookie_count", cookies.size)
+                .put("cookie_names", BrowserCookieOffload.namesArray(cookies))
+                .put("env_path", "/workspace/offloads/${file.name}")
+                .put("minis_env_path", "/var/minis/offloads/${file.name}")
+                .put(
+                    "note",
+                    "明文 cookie 已写入 env 文件，未包含在此结果中。" +
+                        "Linux 中执行: . /var/minis/offloads/${file.name}" +
+                        " 或 . /workspace/offloads/${file.name}。" +
+                        "变量名为 COOKIE_<NAME>，例如 COOKIE_SESSDATA。",
+                ),
+        )
+    }
+
+    private fun setCookies(args: JSONObject): BrowserToolResult {
+        if (currentUrl.isBlank()) throw BrowserFailure("NO_PAGE", "当前没有网页，请先调用 navigate")
+        val cookies = args.optJSONArray("cookies")
+            ?: args.optString("cookies").takeIf { it.isNotBlank() }?.let { runCatching { JSONArray(it) }.getOrNull() }
+            ?: throw BrowserFailure("INVALID_ARGUMENT", "set_cookies 缺少 cookies")
+        if (cookies.length() == 0) throw BrowserFailure("INVALID_ARGUMENT", "set_cookies 缺少 cookies")
+        val manager = CookieManager.getInstance()
+        var written = 0
+        for (index in 0 until cookies.length()) {
+            val item = cookies.optJSONObject(index) ?: continue
+            val name = item.optString("name").trim()
+            val value = item.optString("value")
+            if (name.isEmpty()) continue
+            val domain = item.optString("domain").ifBlank { hostOf(currentUrl) }
+            val pathValue = item.optString("path").ifBlank { "/" }
+            val parts = mutableListOf("$name=$value", "Domain=$domain", "Path=$pathValue")
+            if (item.optBoolean("secure", currentUrl.startsWith("https://"))) parts += "Secure"
+            if (item.optBoolean("http_only", false) || item.optBoolean("httpOnly", false)) parts += "HttpOnly"
+            if (item.has("expires")) parts += "Expires=" + item.opt("expires").toString()
+            manager.setCookie(currentUrl, parts.joinToString("; "))
+            written++
+        }
+        manager.flush()
+        return toolResult(baseEnvelope("set_cookies", true, "ok").put("written", written))
+    }
+    private fun setUserAgent(args: JSONObject): BrowserToolResult {
+        val profile = BrowserUserAgent.fromWire(args.optString("user_agent"))
+            ?: throw BrowserFailure("INVALID_ARGUMENT", "user_agent 仅支持 desktop_chrome 或 mobile_chrome")
+        val view = ensureWebView()
+        val reloadNeeded = currentUrl.isNotBlank()
+        callOnMain {
+            userAgentProfile = profile
+            sessionViewport = null
+            BrowserUserAgent.persist(profile)
+            applyBrowserSettingsOnMain(view)
+            if (attachedContainer == null || view.parent !== attachedContainer) {
+                layoutOffscreenOnMain(view, profile.viewportWidth, profile.viewportHeight)
+            }
+            publishSnapshotOnMain()
+            if (reloadNeeded) view.reload()
+        }
+        if (reloadNeeded) waitForPostAction()
+        return toolResult(
+            baseEnvelope("set_user_agent", true, "ok")
+                .put("user_agent", profile.wireName)
+                .put("desktop_mode", profile.desktop)
+                .put("viewport_width", profile.viewportWidth)
+                .put("viewport_height", profile.viewportHeight)
+        )
+    }
+
+    private fun setViewport(args: JSONObject): BrowserToolResult {
+        if (args.optBoolean("reset", false)) {
+            sessionViewport = null
+        } else {
+            val width = args.optInt("viewport_width", 0)
+            val height = args.optInt("viewport_height", 0)
+            if (width < 320 || height < 320) {
+                throw BrowserFailure("INVALID_ARGUMENT", "set_viewport 需要 viewport_width 与 viewport_height，且不小于 320")
+            }
+            sessionViewport = width.coerceAtMost(2560) to height.coerceAtMost(FULL_PAGE_MAX_HEIGHT)
+        }
+        val view = ensureWebView()
+        val (width, height) = currentViewportPx()
+        val shouldReload = currentUrl.isNotBlank()
+        callOnMain {
+            if (attachedContainer == null || view.parent !== attachedContainer) {
+                layoutOffscreenOnMain(view, width, height)
+            }
+            publishSnapshotOnMain()
+            if (shouldReload) view.reload()
+        }
+        if (shouldReload) waitForPostAction()
+        return toolResult(
+            baseEnvelope("set_viewport", true, "ok")
+                .put("viewport_width", width)
+                .put("viewport_height", height)
+                .put("reset", sessionViewport == null)
+        )
+    }
+    private fun scrollAndCollect(args: JSONObject): BrowserToolResult {
+        val view = requirePage()
+        val selector = validatedSelector(
+            JSONObject().put("selector", args.optString("item_selector").ifBlank { args.optString("selector") }),
+            required = true,
+        )!!
+        val iterations = args.optInt("scroll_count", 5).coerceIn(1, 30)
+        val keywords = jsonStringList(args, "keywords")
+        val seen = LinkedHashSet<String>()
+        val collected = JSONArray()
+        repeat(iterations) { step ->
+            throwIfInterrupted()
+            val batch = evaluateObject(view, BrowserDomScripts.collectItems(selector))
+            val items = batch.optJSONArray("items")
+            if (items != null) {
+                for (index in 0 until items.length()) {
+                    val item = items.optJSONObject(index) ?: continue
+                    val text = item.optString("text")
+                    if (text.isBlank() || text in seen) continue
+                    if (keywords.isNotEmpty() && keywords.none { text.contains(it, ignoreCase = true) }) continue
+                    seen += text
+                    collected.put(item)
+                    if (collected.length() >= 80) break
+                }
+            }
+            if (step < iterations - 1 && collected.length() < 80) {
+                evaluateObject(view, BrowserDomScripts.scrollByViewport())
+                Thread.sleep(350)
+            }
+        }
+        return toolResult(
+            baseEnvelope("scroll_and_collect", true, "ok")
+                .put("scroll_count", iterations)
+                .put("item_selector", selector)
+                .put("matched", collected.length())
+                .put("items", collected)
+                .put("elements", collected)
+        )
+    }
+
+    private fun waitForDomStable(args: JSONObject): BrowserToolResult {
+        val view = requirePage()
+        val timeout = when {
+            args.has("timeout_ms") -> args.optLong("timeout_ms")
+            args.has("timeout") -> args.optLong("timeout")
+            else -> 5_000L
+        }.coerceIn(1_000L, 30_000L)
+        val deadline = System.currentTimeMillis() + timeout
+        var last = -1
+        var stable = false
+        val started = System.currentTimeMillis()
+        while (System.currentTimeMillis() < deadline) {
+            throwIfInterrupted()
+            val signature = evaluateObject(view, BrowserDomScripts.bodySignature())
+            val size = signature.optInt("body_length", -1)
+            if (size == last && size > 0) {
+                stable = true
+                break
+            }
+            last = size
+            Thread.sleep(200)
+        }
+        val elapsed = System.currentTimeMillis() - started
+        return toolResult(
+            baseEnvelope("wait_for_dom_stable", stable, if (stable) "ok" else "timeout")
+                .put("elapsed_ms", elapsed)
+                .put("body_length", last)
+                .put("stable", stable)
+        )
+    }
+    private fun attachVisualSnapshot(
+        action: String,
+        result: BrowserToolResult,
+        userInitiated: Boolean,
+    ): BrowserToolResult {
+        if (userInitiated || action !in VISUAL_ACTIONS || result.images.isNotEmpty()) return result
+        val ok = runCatching { JSONObject(result.content).optBoolean("ok", false) }.getOrDefault(false)
+        if (!ok) return result
+        val preview = runCatching { capturePreview() }.getOrNull() ?: return result
+        val envelope = runCatching { JSONObject(result.content) }.getOrNull() ?: return result
+        envelope.put("snapshot_attached", true)
+        envelope.put("snapshot_width", preview.width)
+        envelope.put("snapshot_height", preview.height)
+        return result.copy(content = BrowserPayloadLimiter.serialize(envelope), images = result.images + preview)
+    }
+
+    private fun captureFullPage(view: WebView): CapturedImage {
+        if (attachedContainer != null && view.parent === attachedContainer) {
+            return captureViewport(view)
+        }
+        val info = evaluateObject(view, BrowserDomScripts.pageInfo())
+        val contentHeight = info.optInt("content_height", 0).coerceAtLeast(view.height)
+        val targetHeight = contentHeight.coerceAtMost(FULL_PAGE_MAX_HEIGHT)
+        val targetWidth = view.width.coerceAtLeast(currentViewportPx().first)
+        callOnMain { layoutOffscreenOnMain(view, targetWidth, targetHeight) }
+        Thread.sleep(120)
+        val captured = captureViewport(
+            view,
+            maxWidth = SCREENSHOT_MAX_WIDTH,
+            maxHeight = FULL_PAGE_MAX_HEIGHT,
+            quality = SCREENSHOT_QUALITY,
+        )
+        callOnMain { layoutOffscreenOnMain(view, currentViewportPx().first, currentViewportPx().second) }
+        return captured
+    }
+
+    private fun evaluateAsync(view: WebView, script: String): String {
+        throwIfInterrupted()
+        val epoch = activeOperationEpoch
+        val future = CompletableFuture<String>()
+        pendingAsyncJs = future
+        val wrapped = """
+            (async function(){
+              try {
+                var __r__ = await (async function(){ $script })();
+                if (__r__ === undefined || __r__ === null) { __eta__.resolve(''); }
+                else if (typeof __r__ === 'object') { __eta__.resolve(JSON.stringify(__r__)); }
+                else { __eta__.resolve(String(__r__)); }
+              } catch (error) {
+                __eta__.reject(error && error.message ? error.message : String(error));
+              }
+            })();
+        """.trimIndent()
+        mainHandler.post {
+            if (webView !== view || interrupted.get() || activeOperationEpoch != epoch || epoch == 0L) {
+                future.completeExceptionally(BrowserFailure("CANCELLED", "操作已取消", "cancelled"))
+            } else {
+                runCatching { view.evaluateJavascript(wrapped, null) }.onFailure(future::completeExceptionally)
+            }
+        }
+        return try {
+            future.get(ASYNC_JAVASCRIPT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            future.cancel(true)
+            throw BrowserFailure("SCRIPT_TIMEOUT", "网页脚本超时", "timeout")
+        } catch (error: ExecutionException) {
+            throw error.cause ?: error
+        } finally {
+            if (pendingAsyncJs === future) pendingAsyncJs = null
+            throwIfInterrupted()
+        }
+    }
+
+    private fun jsonStringList(args: JSONObject, key: String): List<String> {
+        val array = args.optJSONArray(key) ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val value = array.optString(index).trim()
+                if (value.isNotBlank()) add(value)
+            }
+        }
+    }
+
+    private fun extensionForMime(mime: String): String {
+        val lowered = mime.substringBefore(';').trim().lowercase(Locale.ROOT)
+        return when {
+            "json" in lowered -> "json"
+            "html" in lowered -> "html"
+            "javascript" in lowered -> "js"
+            "png" in lowered -> "png"
+            "jpeg" in lowered || "jpg" in lowered -> "jpg"
+            "webp" in lowered -> "webp"
+            "gif" in lowered -> "gif"
+            "pdf" in lowered -> "pdf"
+            "svg" in lowered -> "svg"
+            "xml" in lowered -> "xml"
+            "text/plain" == lowered -> "txt"
+            else -> "bin"
+        }
+    }
+
     private fun targetFrom(args: JSONObject): BrowserTarget {
         val selector = validatedSelector(args, required = false)
         val hasX = args.has("coordinate_x") && !args.isNull("coordinate_x")
@@ -674,29 +1094,23 @@ internal object AgentBrowserSession {
         }
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     private fun ensureWebView(): WebView {
-        webView?.let { return it }
+        webView?.let { view ->
+            callOnMain { applyBrowserSettingsOnMain(view) }
+            return view
+        }
         return callOnMain {
             webView ?: run {
                 val base = appContext ?: error("browser context unavailable")
                 val wrapper = MutableContextWrapper(attachedContainer?.context ?: base)
                 val view = WebView(wrapper).apply {
                     setBackgroundColor(Color.WHITE)
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.allowFileAccess = true
-                    settings.allowContentAccess = true
-                    settings.javaScriptCanOpenWindowsAutomatically = true
-                    settings.mediaPlaybackRequiresUserGesture = false
-                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    settings.safeBrowsingEnabled = false
-                    settings.setSupportZoom(true)
-                    settings.builtInZoomControls = true
-                    settings.displayZoomControls = false
+                    addJavascriptInterface(pageBridge, "__eta__")
                     webViewClient = BrowserClient()
                     webChromeClient = BrowserChrome()
                 }
+                applyBrowserSettingsOnMain(view)
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
                 contextWrapper = wrapper
@@ -707,6 +1121,26 @@ internal object AgentBrowserSession {
                 view
             }
         }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    @Suppress("DEPRECATION")
+    private fun applyBrowserSettingsOnMain(view: WebView) {
+        view.settings.javaScriptEnabled = true
+        view.settings.domStorageEnabled = true
+        view.settings.allowFileAccess = true
+        view.settings.allowContentAccess = true
+        view.settings.allowFileAccessFromFileURLs = true
+        view.settings.javaScriptCanOpenWindowsAutomatically = true
+        view.settings.mediaPlaybackRequiresUserGesture = false
+        view.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+        view.settings.safeBrowsingEnabled = false
+        view.settings.setSupportZoom(true)
+        view.settings.builtInZoomControls = true
+        view.settings.displayZoomControls = false
+        view.settings.useWideViewPort = true
+        view.settings.loadWithOverviewMode = true
+        view.settings.userAgentString = userAgentProfile.userAgent
     }
 
     private fun attachWebViewOnMain(view: WebView, container: ViewGroup) {
@@ -723,16 +1157,28 @@ internal object AgentBrowserSession {
         }
     }
 
-    private fun layoutOffscreenOnMain(view: WebView) {
-        if (view.width > 0 && view.height > 0) return
-        val metrics = (appContext ?: return).resources.displayMetrics
-        val width = metrics.widthPixels.coerceIn(720, SCREENSHOT_MAX_WIDTH)
-        val height = metrics.heightPixels.coerceIn(1_280, SCREENSHOT_MAX_HEIGHT)
+    private fun layoutOffscreenOnMain(view: WebView, widthOverride: Int? = null, heightOverride: Int? = null) {
+        if (attachedContainer != null && view.parent === attachedContainer && widthOverride == null) return
+        if (widthOverride == null && view.width > 0 && view.height > 0 && sessionViewport == null) return
+        val (defaultWidth, defaultHeight) = currentViewportPx()
+        val width = (widthOverride ?: defaultWidth).coerceAtLeast(320)
+        val height = (heightOverride ?: defaultHeight).coerceAtLeast(320)
         view.measure(
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
         )
         view.layout(0, 0, width, height)
+    }
+
+    private fun currentViewportPx(): Pair<Int, Int> {
+        sessionViewport?.let { return it }
+        if (userAgentProfile.desktop) {
+            return userAgentProfile.viewportWidth to userAgentProfile.viewportHeight
+        }
+        val metrics = (appContext ?: return userAgentProfile.viewportWidth to userAgentProfile.viewportHeight)
+            .resources.displayMetrics
+        return metrics.widthPixels.coerceIn(720, SCREENSHOT_MAX_WIDTH) to
+            metrics.heightPixels.coerceIn(1_280, SCREENSHOT_MAX_HEIGHT)
     }
 
     private fun destroyWebViewOnMain() {
@@ -943,6 +1389,8 @@ internal object AgentBrowserSession {
             isUserControlling = userControlActive,
             lastAgentRunId = lastAgentRunId,
             lastAgentToolCallId = lastAgentToolCallId,
+            desktopMode = userAgentProfile.desktop,
+            userAgent = userAgentProfile.wireName,
         )
     }
 
@@ -1109,6 +1557,20 @@ internal object AgentBrowserSession {
             if (latch.await(timeoutMs, TimeUnit.MILLISECONDS)) outcome else null
     }
 
+    private class PageBridge {
+        @JavascriptInterface
+        fun resolve(value: String?) {
+            pendingAsyncJs?.complete(value.orEmpty())
+        }
+
+        @JavascriptInterface
+        fun reject(error: String?) {
+            pendingAsyncJs?.completeExceptionally(
+                BrowserFailure("SCRIPT_FAILED", error?.ifBlank { "JavaScript 执行失败" } ?: "JavaScript 执行失败"),
+            )
+        }
+    }
+
     private class BrowserFailure(
         val code: String,
         override val message: String,
@@ -1129,6 +1591,18 @@ internal object AgentBrowserSession {
         "go_forward",
         "reload",
         "wait_for_selector",
+        "execute_js",
+        "get_backbone",
+        "hover",
+        "fetch",
+        "get_cookies",
+        "set_cookies",
+        "set_user_agent",
+        "set_viewport",
+        "scroll_and_collect",
+        "wait_for_dom_stable",
     )
+
+    private val VISUAL_ACTIONS = setOf("navigate", "click", "type", "scroll", "hover")
 
 }

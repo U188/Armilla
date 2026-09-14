@@ -93,6 +93,7 @@ class AgentPromptBuilderTest {
         assertTrue(messages.systemContents().any { it.contains("表格前后留空行") })
         assertTrue(messages.getJSONObject(2).getString("content").contains("open_and_exec"))
         assertTrue(messages.getJSONObject(2).getString("content").contains("同一轮模型回复最多调用一次 read_image"))
+        assertTrue(messages.getJSONObject(2).getString("content").contains("read_image 可直接读取 Linux 的 /workspace"))
         assertTrue(messages.getJSONObject(2).getString("content").contains("再在下一轮调用下一张"))
         assertFalse(messages.systemContents().any { it.contains("网页浏览、读取") })
         assertEquals("旧问题", messages.getJSONObject(3).getString("content"))
@@ -134,6 +135,9 @@ class AgentPromptBuilderTest {
         assertEquals(listOf("system", "system", "system", "user"), messages.roles())
         val systemContents = messages.systemContents()
         assertTrue(systemContents.any { it.contains("browser_use") })
+        assertTrue(systemContents.any { it.contains("desktop_chrome") })
+        assertTrue(systemContents.any { it.contains("get_backbone") })
+        assertTrue(systemContents.any { it.contains("/var/minis/offloads") })
         assertFalse(systemContents.any { it.contains("open_and_exec") })
         val skillMessage = systemContents.single { it.contains("id=screen-audit") }
         assertTrue(skillMessage.contains("path=/skills/screen-audit/SKILL.md"))

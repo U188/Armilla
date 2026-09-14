@@ -26,7 +26,12 @@ internal object ProotCommandBuilder {
             args += listOf("-b", "$source:$destination")
         }
         listOf("/dev", "/proc", "/sys").filter { File(it).isDirectory }.forEach { bind(it) }
+        TerminalRuntime.ensureLinuxWorkspaceLayout(workspace)
         bind(workspace, "/workspace")
+        bind(workspace, "/var/minis/workspace")
+        bind("$workspace/offloads", "/var/minis/offloads")
+        bind("$workspace/browser", "/var/minis/browser")
+        TerminalRuntime.skillsDirectory()?.takeIf { it.isDirectory }?.let { bind(it.absolutePath, "/var/minis/skills") }
         bind(tempDirectory.absolutePath, "/dev/shm")
         if (publicStorageGranted && File("/storage/emulated/0").canRead()) bind("/storage/emulated/0")
         sharedMounts.filter {

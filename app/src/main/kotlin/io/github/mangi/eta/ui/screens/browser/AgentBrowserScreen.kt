@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.AdsClick
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.GppMaybe
 import androidx.compose.material.icons.rounded.Language
@@ -170,11 +171,11 @@ internal fun AgentBrowserScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { state -> addressFocused = state.isFocused },
-            label = stringResource(R.string.ui_url_or_domain_name_3ee97a),
+            label = stringResource(R.string.browser_address_hint),
             useLabelAsPlaceholder = true,
             singleLine = true,
             keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
+                keyboardType = KeyboardType.Text,
                 imeAction = ImeAction.Go,
             ),
             keyboardActions = KeyboardActions(onGo = { navigate() }),
@@ -216,6 +217,11 @@ internal fun AgentBrowserScreen(
             actionPending = actionPending,
             onBack = { launchBrowserAction { AgentBrowserSession.goBackFromUser() } },
             onForward = { launchBrowserAction { AgentBrowserSession.goForwardFromUser() } },
+            onToggleDesktop = {
+                launchBrowserAction {
+                    AgentBrowserSession.setDesktopModeFromUser(!snapshot.desktopMode)
+                }
+            },
             onRefresh = {
                 if (snapshot.isLoading) {
                     scope.launch(Dispatchers.IO) {
@@ -275,6 +281,7 @@ private fun BrowserWindow(
     actionPending: Boolean,
     onBack: () -> Unit,
     onForward: () -> Unit,
+    onToggleDesktop: () -> Unit,
     onRefresh: () -> Unit,
     onOpenExternal: () -> Unit,
     onReset: () -> Unit,
@@ -293,6 +300,7 @@ private fun BrowserWindow(
             actionPending = actionPending,
             onBack = onBack,
             onForward = onForward,
+            onToggleDesktop = onToggleDesktop,
             onRefresh = onRefresh,
             onOpenExternal = onOpenExternal,
             onReset = onReset,
@@ -334,6 +342,7 @@ private fun BrowserToolbar(
     actionPending: Boolean,
     onBack: () -> Unit,
     onForward: () -> Unit,
+    onToggleDesktop: () -> Unit,
     onRefresh: () -> Unit,
     onOpenExternal: () -> Unit,
     onReset: () -> Unit,
@@ -390,6 +399,15 @@ private fun BrowserToolbar(
         }
 
         BrowserControlButton(
+            icon = Icons.Rounded.Computer,
+            description = stringResource(
+                if (snapshot.desktopMode) R.string.browser_desktop_mode else R.string.browser_mobile_mode,
+            ),
+            enabled = !actionPending,
+            onClick = onToggleDesktop,
+            active = snapshot.desktopMode,
+        )
+        BrowserControlButton(
             icon = Icons.AutoMirrored.Rounded.OpenInNew,
             description = stringResource(R.string.browser_open_external),
             enabled = snapshot.available,
@@ -410,6 +428,7 @@ private fun BrowserControlButton(
     description: String,
     enabled: Boolean,
     onClick: () -> Unit,
+    active: Boolean = false,
 ) {
     IconButton(
         onClick = onClick,
@@ -425,7 +444,7 @@ private fun BrowserControlButton(
             imageVector = icon,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = MiuixTheme.colorScheme.onSurface,
+            tint = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
         )
     }
 }

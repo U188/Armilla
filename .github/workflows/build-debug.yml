@@ -61,6 +61,11 @@ jobs:
             | base64 --decode \
             > "$RUNNER_TEMP/eta-release.p12"
 
+      - name: 运行单元测试
+        run: >-
+          ./gradlew --no-daemon --no-configuration-cache
+          :app:testReleaseUnitTest
+
       - name: 构建 Release APK
         env:
           ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-release.p12

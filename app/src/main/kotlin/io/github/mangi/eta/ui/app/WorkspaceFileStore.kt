@@ -6,10 +6,9 @@ import io.github.mangi.eta.agent.device.AgentFileReferenceGateway
 import io.github.mangi.eta.agent.terminal.LinuxEnvironmentPaths
 import io.github.mangi.eta.agent.terminal.LinuxExecutionBackend
 import io.github.mangi.eta.agent.terminal.LinuxFileExplorer
+import io.github.mangi.eta.agent.terminal.LinuxGuestPathResolver
 import io.github.mangi.eta.agent.terminal.ShellProcessSupervisor
 import io.github.mangi.eta.agent.terminal.TerminalEnvironment
-import io.github.mangi.eta.agent.terminal.TerminalPrivateStorage
-import io.github.mangi.eta.agent.terminal.TerminalRuntime
 import io.github.mangi.eta.agent.terminal.runOneShotShell
 import io.github.mangi.eta.agent.terminal.shellQuote
 import io.github.mangi.eta.data.repository.LinuxEnvironmentSettingsRepository
@@ -26,11 +25,7 @@ internal fun resolveWorkspaceHost(
     filesDir: File,
     linuxReady: Boolean,
     backend: LinuxExecutionBackend,
-): File = if (linuxReady && backend == LinuxExecutionBackend.CHROOT) {
-    File(TerminalRuntime.workspace("root"))
-} else {
-    TerminalPrivateStorage.workspace(filesDir)
-}
+): File = LinuxGuestPathResolver.workspaceHost(filesDir, linuxReady, backend)
 
 internal fun guestWorkspacePath(relative: String): String {
     val raw = if (relative.isBlank()) {

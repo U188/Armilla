@@ -1251,6 +1251,7 @@ private fun isEtaAssistantActive(context: Context): Boolean =
 @Composable
 private fun DonateQrDialog(onDismiss: () -> Unit) {
     var wechatSelected by remember { mutableStateOf(true) }
+    val view = LocalView.current
     WindowDialog(
         show = true,
         title = stringResource(R.string.about_donate),
@@ -1264,7 +1265,7 @@ private fun DonateQrDialog(onDismiss: () -> Unit) {
                 ),
                 selectedTabIndex = if (wechatSelected) 0 else 1,
                 onTabSelected = {
-                    TouchHaptics.click(LocalView.current)
+                    TouchHaptics.click(view)
                     wechatSelected = it == 0
                 },
                 modifier = Modifier

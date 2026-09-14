@@ -224,7 +224,7 @@ internal object SettingsDataStore {
                     key.name.startsWith(LINUX_BACKEND_PREFIX) ||
                         key.name.startsWith(SELECTED_MODEL_BY_PROVIDER_PREFIX)
                 }
-                .forEach(prefs::remove)
+                .forEach { key -> prefs.remove(key) }
             prefs.putOrRemove(SELECTED_PROVIDER_ID, snapshot.selectedProviderId)
             prefs.putOrRemove(SELECTED_MODEL_ID, snapshot.selectedModelId)
             prefs[MEMORY_ENABLED] = snapshot.memoryEnabled

@@ -249,17 +249,19 @@ internal fun ModelProviderListScreen(
                                     checked = provider.id in selectedProviderIds,
                                     onOpen = { onNavigate(AppRoute.ModelProviderDetail(provider.id)) },
                                     onToggleChecked = {
-                                        if (provider.isBuiltIn) return
-                                        selectedProviderIds = if (provider.id in selectedProviderIds) {
-                                            selectedProviderIds - provider.id
-                                        } else {
-                                            selectedProviderIds + provider.id
+                                        if (!provider.isBuiltIn) {
+                                            selectedProviderIds = if (provider.id in selectedProviderIds) {
+                                                selectedProviderIds - provider.id
+                                            } else {
+                                                selectedProviderIds + provider.id
+                                            }
                                         }
                                     },
                                     onEnterSelection = {
-                                        if (provider.isBuiltIn) return
-                                        selectionMode = true
-                                        selectedProviderIds = setOf(provider.id)
+                                        if (!provider.isBuiltIn) {
+                                            selectionMode = true
+                                            selectedProviderIds = setOf(provider.id)
+                                        }
                                     },
                                 )
                             }

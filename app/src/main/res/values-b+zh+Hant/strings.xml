@@ -953,6 +953,8 @@
   <string name="state_ui_unable_to_open_selection_9f0004">無法開啟所選內容</string>
   <string name="state_ui_the_selected_file_cannot_be_read_please_select_a_7265b9">無法讀取所選檔案，請重新選擇。</string>
   <string name="state_ui_unable_to_read_this_image_please_try_again_or_us_d94978">無法讀取這張圖片，請重試或改用其他圖片</string>
+  <string name="state_ui_unable_to_read_this_video">無法讀取這個影片，請重試或換一個</string>
+  <string name="state_ui_video_exceeds_limit">影片超過 %1$d MiB 上限</string>
   <string name="state_ui_unnamed_skill_a58008">未命名 Skill</string>
   <string name="state_ui_the_local_zip_must_contain_only_one_skill_b89daf">本機 ZIP 必須只包含一個 Skill。</string>
   <string name="state_ui_natively_bounded_storage_of_last_7_days_of_notif_ca7f01">在本機限量儲存最近 7 天通知，僅在工具呼叫時讀取</string>
@@ -1200,12 +1202,16 @@
   <string name="chat_stop">停止</string>
   <string name="chat_send">傳送</string>
   <string name="chat_image_preview">圖片預覽</string>
+  <string name="chat_video_preview">影片預覽</string>
   <string name="chat_image_saved">已儲存到相簿</string>
   <string name="chat_image_save_failed">圖片儲存失敗</string>
   <string name="chat_image_load_failed">圖片載入失敗</string>
   <string name="chat_image_prompt_required">請輸入圖片描述</string>
   <string name="chat_image_generation_empty">模型沒有返回圖片</string>
   <string name="chat_image_generation_unsupported">目前供應商不支援生圖</string>
+  <string name="chat_video_prompt_required">請輸入影片描述</string>
+  <string name="chat_video_generation_empty">模型沒有返回影片</string>
+  <string name="chat_video_generation_unsupported">目前供應商不支援生影片</string>
   <string name="chat_continue">繼續</string>
   <string name="chat_paused_run_abandoned">已結束暫停的回覆</string>
   <string name="chat_continue_abort">長按結束暫停的回覆</string>
@@ -1214,6 +1220,7 @@
   <string name="reasoning_picker_title">調整思考深度</string>
   <string name="status_unsupported">不支援</string>
   <string name="attachment_image">圖片</string>
+  <string name="attachment_video">影片</string>
   <string name="attachment_file">檔案</string>
   <string name="attachment_folder">資料夾</string>
   <string name="attachment_enter_path">輸入路徑</string>

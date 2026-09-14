@@ -11,6 +11,7 @@ sealed interface AgentHomeAction {
     data object AbortPausedRun : AgentHomeAction
     data class AssistantSelected(val id: String) : AgentHomeAction
     data class ImageAttached(val uri: String) : AgentHomeAction
+    data class VideoAttached(val uri: String) : AgentHomeAction
     data class RemoveImage(val id: String) : AgentHomeAction
     data class FilesAttached(val uris: List<String>) : AgentHomeAction
     data class FolderAttached(val uri: String) : AgentHomeAction
@@ -48,6 +49,7 @@ sealed interface AgentChatAction {
     data object OpenBrowser : AgentChatAction
     data class EditAssistant(val id: String) : AgentChatAction
     data class ImageAttached(val uri: String) : AgentChatAction
+    data class VideoAttached(val uri: String) : AgentChatAction
     data class RemoveImage(val id: String) : AgentChatAction
     data class FilesAttached(val uris: List<String>) : AgentChatAction
     data class FolderAttached(val uri: String) : AgentChatAction

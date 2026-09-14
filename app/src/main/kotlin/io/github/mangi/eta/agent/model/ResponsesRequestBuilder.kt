@@ -103,6 +103,13 @@ internal object ResponsesRequestBuilder {
                             content.put(JSONObject().put("type", "input_image").put("image_url", url))
                         }
                     }
+                    "video_url", "input_video" -> {
+                        val url = part.optJSONObject("video_url")?.optString("url")
+                            ?: part.optString("video_url")
+                        if (url.isNotBlank()) {
+                            content.put(JSONObject().put("type", "input_video").put("video_url", url))
+                        }
+                    }
                 }
             }
         }

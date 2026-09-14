@@ -49,6 +49,19 @@ class AgentChatImageCacheTest {
         val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
         assertEquals(bytes.toList(), AgentChatImageCache.readBytes(dataUrl)!!.toList())
     }
+
+    @Test
+    fun stageFromFileCopiesVideoBytes() {
+        val context = RuntimeEnvironment.getApplication()
+        val cache = AgentChatImageCache(context)
+        val source = File(context.cacheDir, "clip.mp4")
+        val payload = byteArrayOf(1, 2, 3, 4, 5)
+        source.writeBytes(payload)
+        val staged = cache.stageFromFile("conv-video", source, "chat-video-1.mp4")!!
+        assertTrue(File(staged.absolutePath).isFile)
+        assertEquals(payload.toList(), File(staged.absolutePath).readBytes().toList())
+        assertTrue(staged.displayName.contains("chat-video-1.mp4") || staged.displayName.endsWith("mp4"))
+    }
 }
 
 class AgentHistoryImageHydratorTest {
@@ -77,5 +90,67 @@ class AgentHistoryImageHydratorTest {
         assertTrue(textOnly.content.contains("/missing/chat-image-1.jpg"))
         assertTrue(textOnly.contentJson.contains("[用户图片]"))
         assertFalse(textOnly.contentJson.contains("image_file"))
+    }
+
+    @Test
+    fun missingVideoFileIsDroppedForVideoModelsAndListedOtherwise() {
+        val persisted = AgentConversationCodec.durableMessage(
+            AgentConversationCodec.userPersistedImageMessage(
+                text = "看看这段视频",
+                images = listOf(
+                    AgentConversationCodec.PersistedImage(
+                        path = "/missing/chat-video-1.mp4",
+                        mimeType = "video/mp4",
+                        displayName = "chat-video-1.mp4",
+                    ),
+                ),
+            ),
+        )
+        assertTrue(persisted.contentJson.contains("video_file"))
+        assertFalse(persisted.contentJson.contains("base64"))
+
+        val video = AgentHistoryImageHydrator.hydrate(
+            persisted,
+            supportsVision = true,
+            supportsVideo = true,
+        )
+        assertFalse(video.contentJson.contains("video_url"))
+        assertFalse(video.contentJson.contains("video_file"))
+
+        val textOnly = AgentHistoryImageHydrator.hydrate(
+            persisted,
+            supportsVision = true,
+            supportsVideo = false,
+        )
+        assertTrue(textOnly.content.contains("/missing/chat-video-1.mp4"))
+        assertTrue(textOnly.contentJson.contains("[用户视频]"))
+        assertFalse(textOnly.contentJson.contains("video_file"))
+    }
+
+    @Test
+    fun existingVideoFileHydratesToVideoUrl() {
+        val file = File.createTempFile("chat-video", ".mp4")
+        file.writeBytes(byteArrayOf(9, 8, 7, 6, 5, 4))
+        val persisted = AgentConversationCodec.durableMessage(
+            AgentConversationCodec.userPersistedImageMessage(
+                text = "看视频",
+                images = listOf(
+                    AgentConversationCodec.PersistedImage(
+                        path = file.absolutePath,
+                        mimeType = "video/mp4",
+                        displayName = "chat-video-1.mp4",
+                    ),
+                ),
+            ),
+        )
+        val hydrated = AgentHistoryImageHydrator.hydrate(
+            persisted,
+            supportsVision = true,
+            supportsVideo = true,
+        )
+        assertTrue(hydrated.contentJson.contains("video_url"))
+        assertTrue(hydrated.contentJson.contains("data:video/mp4;base64,"))
+        assertFalse(hydrated.contentJson.contains("video_file"))
+        file.delete()
     }
 }

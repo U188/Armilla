@@ -53,6 +53,11 @@ internal object AgentContextBudget {
     fun countStoredImages(count: Int): Int = count.coerceAtLeast(0) * IMAGE_MIN_TOKENS
 
     fun countImageTokens(image: AgentModelClient.ModelImage): Int {
+        if (image.mimeType.startsWith("video/", ignoreCase = true) ||
+            image.reference.startsWith("data:video/", ignoreCase = true)
+        ) {
+            return max(1_200, image.bytes / 1_024)
+        }
         val w = image.width
         val h = image.height
         return if (w != null && h != null && w > 0 && h > 0) {
@@ -133,11 +138,28 @@ internal object AgentContextBudget {
         return when (type) {
             "text" -> countTokens(part.optString("text"))
             "image_url", "image_file", "image", "input_image" -> countContentImage(part)
+            "video_url", "video_file", "input_video" -> countContentVideo(part)
             else -> {
                 val text = part.optString("text")
                 if (text.isNotBlank()) countTokens(text) else 0
             }
         }
+    }
+
+    private fun countContentVideo(part: JSONObject): Int {
+        val url = part.optJSONObject("video_url")?.optString("url").orEmpty()
+            .ifBlank { part.optString("url") }
+            .ifBlank { part.optString("path") }
+        if (url.startsWith("data:video/", ignoreCase = true)) {
+            val marker = "base64,"
+            val index = url.indexOf(marker, ignoreCase = true)
+            if (index >= 0) {
+                val encoded = url.substring(index + marker.length).filterNot { it.isWhitespace() }
+                val bytes = (encoded.length * 3) / 4
+                return max(1_200, bytes / 1_024)
+            }
+        }
+        return 1_200
     }
 
     private fun countContentImage(part: JSONObject): Int {

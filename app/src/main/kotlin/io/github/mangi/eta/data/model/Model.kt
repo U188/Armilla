@@ -45,8 +45,14 @@ data class Model(
     val supportsVision: Boolean
         get() = attachment == true || inputModalities.any { it.equals(IMAGE_MODALITY, ignoreCase = true) }
 
+    val supportsVideo: Boolean
+        get() = inputModalities.any { it.equals(VIDEO_MODALITY, ignoreCase = true) }
+
     val supportsImageGeneration: Boolean
         get() = ImageGenerationModels.matches(this)
+
+    val supportsVideoGeneration: Boolean
+        get() = VideoGenerationModels.matches(this)
 
     val supportsTools: Boolean
         get() = toolCall == true
@@ -57,6 +63,7 @@ data class Model(
     companion object {
         const val TEXT_MODALITY = "text"
         const val IMAGE_MODALITY = "image"
+        const val VIDEO_MODALITY = "video"
     }
 }
 

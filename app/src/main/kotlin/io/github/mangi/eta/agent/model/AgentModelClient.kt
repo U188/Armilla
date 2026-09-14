@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.media.AgentHistoryImageHydrator
+import io.github.mangi.eta.agent.media.isVideoMedia
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentRunCancelledException
 import io.github.mangi.eta.agent.runtime.AgentRunController
@@ -113,10 +114,13 @@ internal object AgentModelClient {
             )
             AgentContextBudget.trimHistory(history, historyBudget)
         }
-        val outboundImages = if (config.supportsVision) images else emptyList()
+        val outboundImages = images.filter { image ->
+            if (image.isVideoMedia()) config.supportsVideo else config.supportsVision
+        }
         val outboundHistory = AgentHistoryImageHydrator.hydrateAll(
             history = trimmedHistory,
             supportsVision = config.supportsVision,
+            supportsVideo = config.supportsVideo,
         )
         val messages = AgentPromptBuilder.buildInitialMessages(
             config,
@@ -284,6 +288,7 @@ internal object AgentModelClient {
         val customHeaders: List<CustomHeader> = emptyList(),
         val customBody: List<CustomBody> = emptyList(),
         val supportsVision: Boolean = true,
+        val supportsVideo: Boolean = false,
     ) {
         val effectiveReasoningEffort: ReasoningEffort
             get() = reasoningEffort ?: ReasoningEffort.fromLegacy(thinkingEnabled)

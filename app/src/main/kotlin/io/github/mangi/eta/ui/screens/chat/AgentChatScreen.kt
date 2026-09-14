@@ -52,6 +52,7 @@ internal fun AgentChatScreen(
             onContinue = { onAction(AgentChatAction.ContinueRun) },
             onAbortPausedRun = { onAction(AgentChatAction.AbortPausedRun) },
             onAttachImage = { uri -> onAction(AgentChatAction.ImageAttached(uri)) },
+            onAttachVideo = { uri -> onAction(AgentChatAction.VideoAttached(uri)) },
             onRemoveImage = { id -> onAction(AgentChatAction.RemoveImage(id)) },
             onAttachFiles = { uris -> onAction(AgentChatAction.FilesAttached(uris)) },
             onAttachFolder = { uri -> onAction(AgentChatAction.FolderAttached(uri)) },

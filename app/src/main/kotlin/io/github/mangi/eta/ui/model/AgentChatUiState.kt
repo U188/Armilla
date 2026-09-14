@@ -38,6 +38,8 @@ data class UserMessageUi(
     val images: List<String> = emptyList(),
     val isEdited: Boolean = false,
     val imageSources: List<String> = emptyList(),
+    val imageIsVideo: List<Boolean> = emptyList(),
+    val imageDurationsMs: List<Long?> = emptyList(),
 ) : AgentChatMessageUi
 
 @Immutable
@@ -227,6 +229,9 @@ data class PendingImageUi(
     val uri: String,
     val dataUrl: String,
     val mimeType: String,
+    val isVideo: Boolean = false,
+    val durationMs: Long? = null,
+    val byteSize: Int = 0,
 )
 
 @Immutable

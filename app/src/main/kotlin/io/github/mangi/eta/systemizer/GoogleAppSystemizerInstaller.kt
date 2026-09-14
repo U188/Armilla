@@ -3,6 +3,7 @@ package io.github.mangi.eta.systemizer
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import io.github.mangi.eta.agent.device.RootSu
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import java.io.File
@@ -143,7 +144,7 @@ internal class GoogleAppSystemizerInstaller(
         }.getOrNull()
 
     private fun runSu(command: String, timeoutSeconds: Long): RootCommandResult {
-        return runProcess(timeoutSeconds, "su", "-c", command)
+        return runProcess(timeoutSeconds, *RootSu.args(command))
     }
 
     private fun runProcess(timeoutSeconds: Long, vararg command: String): RootCommandResult {

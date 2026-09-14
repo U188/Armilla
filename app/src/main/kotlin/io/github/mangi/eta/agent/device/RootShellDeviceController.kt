@@ -1152,7 +1152,7 @@ internal class RootShellDeviceController(
 
     private fun runRootProcess(command: String, timeoutSeconds: Long): ProcessBytesResult {
         val envelope = RootCommandEnvelope(command)
-        val result = runProcess(timeoutSeconds, "su", "-c", envelope.script)
+        val result = runProcess(timeoutSeconds, *RootSu.args(envelope.script))
         val rootOutput = envelope.inspect(result.stderr.decodeToString())
         val completed = result.exitCode >= 0 && result.stderrComplete
         if (rootOutput.denied(completed)) {

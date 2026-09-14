@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.model
 
+import io.github.mangi.eta.agent.media.isVideoMedia
+
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.json.JSONArray
@@ -21,6 +23,7 @@ internal object AgentConversationCodec {
     private const val MAX_TOOL_CALLS_PER_MESSAGE = 64
     private const val IMAGE_OMITTED_TEXT = "[图片观察已在当前回合使用，未写入持久会话]"
     internal const val IMAGE_FILE_TYPE = "image_file"
+    internal const val VIDEO_FILE_TYPE = "video_file"
     private const val SENSITIVE_TOOL_OMITTED_TEXT =
         "[敏感工具参数与原始结果仅供当前回合使用，未写入持久会话]"
     private const val COMPACTION_NOTICE =
@@ -114,14 +117,22 @@ internal object AgentConversationCodec {
                 .put("text", text)
         )
         images.forEach { image ->
-            require(image.reference.isProviderImageReference()) {
+            require(image.reference.isProviderMediaReference()) {
                 "模型图片尚未在 Agent Runtime 中物化"
             }
-            content.put(
-                JSONObject()
-                    .put("type", "image_url")
-                    .put("image_url", JSONObject().put("url", image.reference))
-            )
+            if (image.isVideoMedia()) {
+                content.put(
+                    JSONObject()
+                        .put("type", "video_url")
+                        .put("video_url", JSONObject().put("url", image.reference)),
+                )
+            } else {
+                content.put(
+                    JSONObject()
+                        .put("type", "image_url")
+                        .put("image_url", JSONObject().put("url", image.reference)),
+                )
+            }
         }
         return JSONObject()
             .put("role", "user")
@@ -145,9 +156,14 @@ internal object AgentConversationCodec {
                 .put("text", text),
         )
         images.forEach { image ->
+            val type = if (image.mimeType.startsWith("video/", ignoreCase = true)) {
+                VIDEO_FILE_TYPE
+            } else {
+                IMAGE_FILE_TYPE
+            }
             content.put(
                 JSONObject()
-                    .put("type", IMAGE_FILE_TYPE)
+                    .put("type", type)
                     .put("path", image.path)
                     .put("mime", image.mimeType)
                     .put("name", image.displayName),
@@ -168,7 +184,7 @@ internal object AgentConversationCodec {
             for (index in 0 until content.length()) {
                 val item = content.optJSONObject(index) ?: continue
                 when (item.optString("type")) {
-                    IMAGE_FILE_TYPE -> {
+                    IMAGE_FILE_TYPE, VIDEO_FILE_TYPE -> {
                         item.optString("path").trim()
                             .takeIf { it.startsWith("/") }
                             ?.let(::add)
@@ -195,6 +211,9 @@ internal object AgentConversationCodec {
         startsWith("https://", ignoreCase = true) ||
             startsWith("http://", ignoreCase = true) ||
             startsWith("data:image/", ignoreCase = true)
+
+    private fun String.isProviderMediaReference(): Boolean =
+        isProviderImageReference() || startsWith("data:video/", ignoreCase = true)
 
     fun assistantHistoryMessage(
         source: JSONObject,
@@ -373,19 +392,23 @@ internal object AgentConversationCodec {
         for (index in 0 until source.length()) {
             val item = source.optJSONObject(index) ?: continue
             when {
-                item.optString("type") == IMAGE_FILE_TYPE -> {
+                item.optString("type") == IMAGE_FILE_TYPE ||
+                    item.optString("type") == VIDEO_FILE_TYPE -> {
                     val path = item.optString("path")
+                    val type = item.optString("type")
                     if (path.startsWith("/") && path.length <= 1_024) {
                         target.put(
                             JSONObject()
-                                .put("type", IMAGE_FILE_TYPE)
+                                .put("type", type)
                                 .put("path", path)
                                 .put("mime", item.optString("mime").take(128))
                                 .put("name", item.optString("name").take(80)),
                         )
                     }
                 }
-                item.optString("type") == "image_url" || item.has("source") -> {
+                item.optString("type") == "image_url" ||
+                    item.optString("type") == "video_url" ||
+                    item.has("source") -> {
                     omittedImage = true
                 }
                 else -> target.put(sanitizeContentObject(item))

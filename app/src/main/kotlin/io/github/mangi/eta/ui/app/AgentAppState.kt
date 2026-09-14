@@ -22,6 +22,8 @@ import io.github.mangi.eta.agent.device.DeviceLocationProvider
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.media.AgentChatImageCache
 import io.github.mangi.eta.agent.media.AgentImageCodec
+import io.github.mangi.eta.agent.media.AgentVideoCodec
+import io.github.mangi.eta.agent.media.MAX_AGENT_VIDEO_BYTES
 import io.github.mangi.eta.agent.mcp.McpRunSnapshot
 import io.github.mangi.eta.agent.memory.AgentMemoryContext
 import io.github.mangi.eta.agent.memory.AgentMemoryContextBuilder
@@ -36,6 +38,8 @@ import io.github.mangi.eta.agent.model.AgentConversationCodec
 import io.github.mangi.eta.agent.model.AgentImageGenerationClient
 import io.github.mangi.eta.agent.model.AgentImageGenerationParser
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.model.AgentVideoGenerationClient
+import io.github.mangi.eta.agent.model.AgentVideoGenerationParser
 import io.github.mangi.eta.agent.runtime.AgentEvent
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
 import io.github.mangi.eta.agent.runtime.AgentExternalArchivePayload
@@ -113,6 +117,8 @@ import io.github.mangi.eta.ui.model.ToolGroupUi
 import io.github.mangi.eta.ui.model.ToolItemUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.fullImageSourceAt
+import io.github.mangi.eta.ui.model.isVideoAt
+import io.github.mangi.eta.ui.model.durationMsAt
 import io.github.mangi.eta.ui.model.canDeleteUserSkill
 import java.io.InputStream
 import java.io.OutputStream
@@ -1263,11 +1269,15 @@ internal class AgentAppState(
         if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) {
             return
         }
-        val generateImage = selectedModelGeneratesImages()
-        if (generateImage && prompt.isBlank()) {
+        val generateVideo = selectedModelGeneratesVideos()
+        val generateImage = !generateVideo && selectedModelGeneratesImages()
+        if ((generateImage || generateVideo) && prompt.isBlank()) {
             Toast.makeText(
                 appContext,
-                appContext.getString(R.string.chat_image_prompt_required),
+                appContext.getString(
+                    if (generateVideo) R.string.chat_video_prompt_required
+                    else R.string.chat_image_prompt_required,
+                ),
                 Toast.LENGTH_SHORT,
             ).show()
             return
@@ -1303,25 +1313,34 @@ internal class AgentAppState(
         }
 
         val history = editBoundary?.historyPrefix ?: homeState.history
-        if (!generateImage && rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
+        if (!generateImage && !generateVideo && rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
             return
         }
         val conversationId = selectedConversationId ?: newConversationId().also { id ->
             selectedConversationId = id
             assignPendingFolder(id)
         }
-        val supportsVision = generateImage || (modelPickerState.selectedModel?.supportsVision ?: true)
+        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision ?: true)
+        val supportsVideo = modelPickerState.selectedModel?.supportsVideo ?: false
         if (pendingImages.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
                 val staged = stageChatImages(conversationId, pendingImages)
                 withContext(Dispatchers.Main) {
                     if (homeState.isStreaming || rejectSendIfCompressing()) return@withContext
+                    val outbound = pendingImages.filter { image ->
+                        if (image.isVideo) supportsVideo else supportsVision
+                    }
+                    val extraFiles = pendingImages.mapIndexedNotNull { index, image ->
+                        val file = staged.getOrNull(index) ?: return@mapIndexedNotNull null
+                        val asFile = (image.isVideo && !supportsVideo) || (!image.isVideo && !supportsVision)
+                        file.takeIf { asFile }
+                    }
                     startPreparedSend(
                         prompt = prompt,
                         uiImages = pendingImages,
-                        modelImages = if (supportsVision) pendingImages else emptyList(),
-                        fileReferences = if (supportsVision) fileReferences else fileReferences + staged,
-                        persistedImages = staged,
+                        modelImages = outbound,
+                        fileReferences = fileReferences + extraFiles,
+                        persistedImages = staged.filterNotNull(),
                         history = history,
                         editBoundary = editBoundary,
                         conversationId = conversationId,
@@ -1365,6 +1384,8 @@ internal class AgentAppState(
                 persistedImages.size == uiImages.size -> persistedImages.map { it.absolutePath }
                 else -> uiImages.map { it.uri }
             },
+            imageIsVideo = uiImages.map { it.isVideo },
+            imageDurationsMs = uiImages.map { it.durationMs },
         )
         val messages = if (editBoundary == null) {
             homeState.messages + userMessage
@@ -1421,12 +1442,23 @@ internal class AgentAppState(
     private fun stageChatImages(
         conversationId: String,
         images: List<PendingImageUi>,
-    ): List<AgentFileReference> =
-        images.mapIndexedNotNull { index, image ->
-            val bytes = AgentChatImageCache.readBytes(image.uri)
-                ?: AgentChatImageCache.readBytes(image.dataUrl)
-                ?: return@mapIndexedNotNull null
-            chatImageCache.stage(conversationId, bytes, image.cacheDisplayName(index))
+    ): List<AgentFileReference?> =
+        images.mapIndexed { index, image ->
+            if (image.isVideo) {
+                val file = java.io.File(image.uri.removePrefix("file://"))
+                if (!file.isFile) return@mapIndexed null
+                chatImageCache.stageFromFile(
+                    conversationId,
+                    file,
+                    image.cacheDisplayName(index),
+                    MAX_AGENT_VIDEO_BYTES,
+                )
+            } else {
+                val bytes = AgentChatImageCache.readBytes(image.uri)
+                    ?: AgentChatImageCache.readBytes(image.dataUrl)
+                    ?: return@mapIndexed null
+                chatImageCache.stage(conversationId, bytes, image.cacheDisplayName(index))
+            }
         }
 
     fun beginMessageEdit(messageId: String) {
@@ -1435,11 +1467,14 @@ internal class AgentAppState(
         abortActiveRunForRevision()
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
+            val video = boundary.userMessage.isVideoAt(index)
             PendingImageUi(
                 id = "edit-${boundary.userMessage.id}-$index",
                 uri = boundary.userMessage.fullImageSourceAt(index),
                 dataUrl = dataUrl,
-                mimeType = dataUrl.imageMimeType(),
+                mimeType = if (video) "video/mp4" else dataUrl.imageMimeType(),
+                isVideo = video,
+                durationMs = boundary.userMessage.durationMsAt(index),
             )
         }
         val parsedPrompt = AgentFileReferencePromptCodec.parse(boundary.userMessage.content)
@@ -1567,17 +1602,21 @@ internal class AgentAppState(
         val conversationId = selectedConversationId ?: return
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
+            val video = boundary.userMessage.isVideoAt(index)
             PendingImageUi(
                 id = "regenerate-${boundary.userMessage.id}-$index",
                 uri = boundary.userMessage.fullImageSourceAt(index),
                 dataUrl = dataUrl,
-                mimeType = dataUrl.imageMimeType(),
+                mimeType = if (video) "video/mp4" else dataUrl.imageMimeType(),
+                isVideo = video,
+                durationMs = boundary.userMessage.durationMsAt(index),
             )
         }
         val parsed = AgentFileReferencePromptCodec.parse(boundary.userMessage.content)
-        val generateImage = selectedModelGeneratesImages()
-        val supportsVision = generateImage || (modelPickerState.selectedModel?.supportsVision ?: true)
-        if (!generateImage && rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
+        val generateVideo = selectedModelGeneratesVideos()
+        val generateImage = !generateVideo && selectedModelGeneratesImages()
+        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision ?: true)
+        if (!generateImage && !generateVideo && rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
                 PendingFileReferenceUi(id = "regen-$index", reference = reference)
             })) {
             return
@@ -1586,7 +1625,7 @@ internal class AgentAppState(
         if (images.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
                 val extra = if (parsed.references.isEmpty()) {
-                    stageChatImages(conversationId, images)
+                    stageChatImages(conversationId, images).filterNotNull()
                 } else {
                     emptyList()
                 }
@@ -1773,12 +1812,13 @@ internal class AgentAppState(
         runConversationIds[runId] = conversationId
         runOverheadTokens[runId] = requestOverheadTokens
         pendingSteerTextByConversation.remove(conversationId)
-        val generateImage = selectedModelGeneratesImages()
-        if (generateImage) {
+        val generateVideo = selectedModelGeneratesVideos()
+        val generateImage = !generateVideo && selectedModelGeneratesImages()
+        if (generateImage || generateVideo) {
             imageGenerationRunIds += runId
         }
 
-        val willCompress = !generateImage && !skipAutoCompress && shouldAutoCompress(
+        val willCompress = !generateImage && !generateVideo && !skipAutoCompress && shouldAutoCompress(
             history = history,
             contextWindow = compressionContextWindow(),
             estimatedTokens = liveContextUsage(
@@ -1791,7 +1831,7 @@ internal class AgentAppState(
                 billedOverheadTokens = billedOverheadTokens,
             ).contextTokens,
         )
-        val runMessages = if (generateImage) {
+        val runMessages = if (generateImage || generateVideo) {
             messages + AgentMessageUi(
                 id = "assistant-$runId-1",
                 content = "",
@@ -1860,6 +1900,16 @@ internal class AgentAppState(
                         )
                     )
                 }
+                return@launch
+            }
+            if (generateVideo) {
+                executeVideoGeneration(
+                    runId = runId,
+                    conversationId = conversationId,
+                    config = config,
+                    prompt = prompt,
+                    images = images,
+                )
                 return@launch
             }
             if (generateImage) {
@@ -1974,6 +2024,9 @@ internal class AgentAppState(
     private fun selectedModelGeneratesImages(): Boolean =
         modelPickerState.selectedModel?.supportsImageGeneration == true
 
+    private fun selectedModelGeneratesVideos(): Boolean =
+        modelPickerState.selectedModel?.supportsVideoGeneration == true
+
     private suspend fun executeImageGeneration(
         runId: String,
         conversationId: String,
@@ -1989,7 +2042,7 @@ internal class AgentAppState(
             if (config.providerType == ProviderTypes.ANTHROPIC) {
                 error(appContext.getString(R.string.chat_image_generation_unsupported))
             }
-            val inputImages = images.mapNotNull { image ->
+            val inputImages = images.filter { !it.isVideo }.mapNotNull { image ->
                 val bytes = AgentChatImageCache.readBytes(image.uri)
                     ?: AgentChatImageCache.readBytes(image.dataUrl)
                     ?: return@mapNotNull null
@@ -2025,6 +2078,69 @@ internal class AgentAppState(
         } catch (failure: Throwable) {
             val message = failure.message?.trim().orEmpty().ifBlank {
                 appContext.getString(R.string.chat_image_generation_empty)
+            }
+            withContext(Dispatchers.Main) {
+                failImageGenerationRun(runId, message)
+            }
+        }
+    }
+
+    private suspend fun executeVideoGeneration(
+        runId: String,
+        conversationId: String,
+        config: AgentModelClient.ModelConfig,
+        prompt: String,
+        images: List<PendingImageUi>,
+    ) {
+        try {
+            val apiPrompt = AgentFileReferencePromptCodec.parse(prompt).request.ifBlank { prompt }.trim()
+            if (apiPrompt.isBlank()) {
+                error(appContext.getString(R.string.chat_video_prompt_required))
+            }
+            if (config.providerType == ProviderTypes.ANTHROPIC) {
+                error(appContext.getString(R.string.chat_video_generation_unsupported))
+            }
+            val inputImages = images.filter { !it.isVideo }.mapNotNull { image ->
+                val bytes = AgentChatImageCache.readBytes(image.uri)
+                    ?: AgentChatImageCache.readBytes(image.dataUrl)
+                    ?: return@mapNotNull null
+                AgentVideoGenerationClient.InputImage(
+                    bytes = bytes,
+                    mimeType = image.mimeType.ifBlank { "image/jpeg" },
+                )
+            }
+            val generated = AgentVideoGenerationClient().generate(
+                config = config,
+                prompt = apiPrompt,
+                images = inputImages,
+            )
+            if (generated.videos.isEmpty()) {
+                error(appContext.getString(R.string.chat_video_generation_empty))
+            }
+            val staged = generated.videos.mapIndexedNotNull { index, video ->
+                val ext = AgentVideoGenerationParser.extensionForMime(video.mimeType)
+                chatImageCache.stage(
+                    conversationId,
+                    video.bytes,
+                    "generated-${index + 1}.$ext",
+                    maxBytes = AgentVideoGenerationClient.MAX_GENERATED_VIDEO_BYTES,
+                )
+            }
+            if (staged.isEmpty()) {
+                error(appContext.getString(R.string.chat_video_generation_empty))
+            }
+            val markdown = AgentVideoGenerationParser.markdown(
+                paths = staged.map { it.absolutePath },
+                text = generated.text,
+            )
+            withContext(Dispatchers.Main) {
+                finishImageGenerationRun(runId, markdown)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            val message = failure.message?.trim().orEmpty().ifBlank {
+                appContext.getString(R.string.chat_video_generation_empty)
             }
             withContext(Dispatchers.Main) {
                 failImageGenerationRun(runId, message)
@@ -2074,6 +2190,11 @@ internal class AgentAppState(
         name.endsWith(".png", ignoreCase = true) -> "image/png"
         name.endsWith(".webp", ignoreCase = true) -> "image/webp"
         name.endsWith(".gif", ignoreCase = true) -> "image/gif"
+        name.endsWith(".mp4", ignoreCase = true) -> "video/mp4"
+        name.endsWith(".webm", ignoreCase = true) -> "video/webm"
+        name.endsWith(".mov", ignoreCase = true) -> "video/quicktime"
+        name.endsWith(".mkv", ignoreCase = true) -> "video/x-matroska"
+        name.endsWith(".3gp", ignoreCase = true) -> "video/3gpp"
         else -> "image/jpeg"
     }
 
@@ -2190,6 +2311,57 @@ internal class AgentAppState(
                     uri = image.reference,
                     dataUrl = preview.reference,
                     mimeType = image.mimeType,
+                )
+                withContext(Dispatchers.Main) {
+                    updateCurrentConversation(homeState.copy(pendingImages = homeState.pendingImages + pending))
+                }
+            } finally {
+                val selectedUri = Uri.parse(uri)
+                if (selectedUri.scheme == ContentResolver.SCHEME_CONTENT) {
+                    runCatching {
+                        appContext.contentResolver.releasePersistableUriPermission(
+                            selectedUri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun attachVideo(uri: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val parsed = Uri.parse(uri)
+                val attachment = AgentVideoCodec.importFromUri(appContext, parsed)
+                if (attachment == null) {
+                    withContext(Dispatchers.Main) {
+                        val tooLarge = runCatching {
+                            appContext.contentResolver.openAssetFileDescriptor(parsed, "r")?.use { it.length }
+                        }.getOrNull()?.let { it > MAX_AGENT_VIDEO_BYTES.toLong() } == true
+                        Toast.makeText(
+                            appContext,
+                            if (tooLarge) {
+                                appContext.getString(
+                                    R.string.state_ui_video_exceeds_limit,
+                                    MAX_AGENT_VIDEO_BYTES / 1024 / 1024,
+                                )
+                            } else {
+                                appContext.getString(R.string.state_ui_unable_to_read_this_video)
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                    return@launch
+                }
+                val pending = PendingImageUi(
+                    id = "vid-${UUID.randomUUID()}",
+                    uri = attachment.file.absolutePath,
+                    dataUrl = attachment.thumbnail.reference,
+                    mimeType = attachment.mimeType,
+                    isVideo = true,
+                    durationMs = attachment.durationMs.takeIf { it > 0L },
+                    byteSize = attachment.bytes,
                 )
                 withContext(Dispatchers.Main) {
                     updateCurrentConversation(homeState.copy(pendingImages = homeState.pendingImages + pending))
@@ -2482,7 +2654,7 @@ internal class AgentAppState(
         )
         scope.launch(Dispatchers.IO) {
             val staged = if (conversationId != null && pendingImages.isNotEmpty()) {
-                stageChatImages(conversationId, pendingImages)
+                stageChatImages(conversationId, pendingImages).filterNotNull()
             } else {
                 emptyList()
             }

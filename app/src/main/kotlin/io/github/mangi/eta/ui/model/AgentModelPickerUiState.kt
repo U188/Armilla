@@ -40,6 +40,8 @@ internal data class AgentModelOptionUi(
     val preferredReasoningEffort: ReasoningEffort? = null,
     val supportsVision: Boolean = true,
     val supportsImageGeneration: Boolean = false,
+    val supportsVideo: Boolean = false,
+    val supportsVideoGeneration: Boolean = false,
 )
 
 @Immutable
@@ -113,6 +115,8 @@ internal object AgentModelPickerProjector {
             preferredReasoningEffort = model.preferredReasoningEffort,
             supportsVision = model.supportsVision,
             supportsImageGeneration = model.supportsImageGeneration,
+            supportsVideo = model.supportsVideo,
+            supportsVideoGeneration = model.supportsVideoGeneration,
         )
 }
 
@@ -298,14 +302,27 @@ internal fun liveContextUsage(
 }
 
 internal fun PendingImageUi.toLiveModelImage(): AgentModelClient.ModelImage =
-    AgentModelClient.ModelImage(
-        reference = dataUrl,
-        mimeType = mimeType,
-        bytes = dataUrl.length,
-        source = uri,
-    )
+    if (isVideo) {
+        AgentModelClient.ModelImage(
+            reference = uri,
+            mimeType = mimeType,
+            bytes = byteSize,
+            source = uri,
+        )
+    } else {
+        AgentModelClient.ModelImage(
+            reference = dataUrl,
+            mimeType = mimeType,
+            bytes = dataUrl.length,
+            source = uri,
+        )
+    }
 
 internal fun PendingImageUi.cacheDisplayName(index: Int): String {
+    if (isVideo) {
+        val extension = io.github.mangi.eta.agent.media.AgentVideoCodec.extensionForMime(mimeType, uri)
+        return "chat-video-${index + 1}.$extension"
+    }
     val extension = when {
         mimeType.contains("png", ignoreCase = true) -> "png"
         mimeType.contains("webp", ignoreCase = true) -> "webp"

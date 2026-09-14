@@ -242,7 +242,7 @@ internal object AgentConversationStore {
                 sortIndex = sortIndex,
                 type = TYPE_USER,
                 content = content,
-                imagesJson = encodeUserMessageImages(images, imageSources),
+                imagesJson = encodeUserMessageImages(images, imageSources, imageIsVideo, imageDurationsMs),
                 isEdited = isEdited,
             )
 
@@ -328,13 +328,15 @@ internal object AgentConversationStore {
     private fun ConversationMessageEntity.toMessageOrNull(): AgentChatMessageUi? =
         when (type) {
             TYPE_USER -> {
-                val (previews, sources) = decodeUserMessageImages(imagesJson)
+                val decoded = decodeUserMessageImages(imagesJson)
                 UserMessageUi(
                     id = id,
                     content = content,
-                    images = previews,
+                    images = decoded.previews,
                     isEdited = isEdited,
-                    imageSources = sources,
+                    imageSources = decoded.sources,
+                    imageIsVideo = decoded.videoFlags,
+                    imageDurationsMs = decoded.durationsMs,
                 )
             }
 

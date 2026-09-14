@@ -19,10 +19,10 @@ internal class AgentChatImageCache(context: Context) {
         conversationId: String,
         bytes: ByteArray,
         displayName: String,
+        maxBytes: Int = MAX_AGENT_IMAGE_BYTES,
     ): AgentFileReference? {
-        if (bytes.isEmpty() || bytes.size > MAX_AGENT_IMAGE_BYTES) return null
-        val conversationDir = File(root, sanitize(conversationId)).apply { mkdirs() }
-        if (!conversationDir.isDirectory) return null
+        if (bytes.isEmpty() || bytes.size > maxBytes) return null
+        val conversationDir = conversationDir(conversationId) ?: return null
         val safeName = AgentFileReferenceGateway.safeImportName(displayName)
         val destination = File(conversationDir, "${UUID.randomUUID()}-$safeName")
         destination.writeBytes(bytes)
@@ -32,6 +32,33 @@ internal class AgentChatImageCache(context: Context) {
             absolutePath = destination.absolutePath,
             kind = AgentFileReferenceKind.File,
         )
+    }
+
+    fun stageFromFile(
+        conversationId: String,
+        source: File,
+        displayName: String,
+        maxBytes: Int = MAX_AGENT_VIDEO_BYTES,
+    ): AgentFileReference? {
+        if (!source.isFile || source.length() !in 1L..maxBytes.toLong()) return null
+        val conversationDir = conversationDir(conversationId) ?: return null
+        val safeName = AgentFileReferenceGateway.safeImportName(displayName)
+        val destination = File(conversationDir, "${UUID.randomUUID()}-$safeName")
+        source.copyTo(destination, overwrite = true)
+        if (!destination.isFile || destination.length() != source.length()) {
+            destination.delete()
+            return null
+        }
+        return AgentFileReference(
+            displayName = safeName,
+            absolutePath = destination.absolutePath,
+            kind = AgentFileReferenceKind.File,
+        )
+    }
+
+    private fun conversationDir(conversationId: String): File? {
+        val directory = File(root, sanitize(conversationId)).apply { mkdirs() }
+        return directory.takeIf { it.isDirectory }
     }
 
     fun copyConversation(fromId: String, toId: String) {

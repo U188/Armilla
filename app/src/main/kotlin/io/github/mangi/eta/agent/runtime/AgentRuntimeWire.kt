@@ -116,6 +116,7 @@ internal object AgentRuntimeWire {
     private const val KEY_DEVICE_SENSITIVE_READ_TOOLS = "device_sensitive_read_tools"
     private const val KEY_DEVICE_SENSITIVE_ACTION_TOOLS = "device_sensitive_action_tools"
     private const val KEY_THINKING_ENABLED = "thinking_enabled"
+    private const val KEY_SUPPORTS_VIDEO = "supports_video"
     private const val KEY_REASONING_EFFORT = "reasoning_effort"
     private const val KEY_REASONING_CAPABILITIES_JSON = "reasoning_capabilities_json"
     private const val KEY_EXTRA_BODY_JSON = "extra_body_json"
@@ -297,6 +298,7 @@ internal object AgentRuntimeWire {
         putBoolean(KEY_DEVICE_SENSITIVE_READ_TOOLS, request.config.deviceSensitiveReadTools)
         putBoolean(KEY_DEVICE_SENSITIVE_ACTION_TOOLS, request.config.deviceSensitiveActionTools)
         putBoolean(KEY_THINKING_ENABLED, request.config.effectiveReasoningEffort.enablesReasoning)
+        putBoolean(KEY_SUPPORTS_VIDEO, request.config.supportsVideo)
         putString(KEY_REASONING_EFFORT, request.config.effectiveReasoningEffort.wireValue)
         request.config.reasoningCapabilities?.let {
             putString(KEY_REASONING_CAPABILITIES_JSON, json.encodeToString(it))
@@ -412,6 +414,7 @@ internal object AgentRuntimeWire {
                 deviceSensitiveActionTools =
                     bundle.getBoolean(KEY_DEVICE_SENSITIVE_ACTION_TOOLS, false),
                 thinkingEnabled = bundle.getBoolean(KEY_THINKING_ENABLED),
+                supportsVideo = bundle.getBoolean(KEY_SUPPORTS_VIDEO, false),
                 reasoningEffort = if (bundle.containsKey(KEY_REASONING_EFFORT)) {
                     ReasoningEffort.fromWireValue(bundle.getString(KEY_REASONING_EFFORT))
                         ?: ReasoningEffort.DEFAULT

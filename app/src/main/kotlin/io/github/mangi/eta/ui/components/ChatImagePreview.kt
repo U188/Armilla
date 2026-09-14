@@ -1,6 +1,10 @@
 package io.github.mangi.eta.ui.components
 
 import android.widget.Toast
+import android.net.Uri
+import android.widget.VideoView
+import androidx.compose.ui.viewinterop.AndroidView
+import io.github.mangi.eta.agent.media.AgentVideoCodec
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -24,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -182,22 +188,63 @@ private fun ChatRemoteClickableImage(
     compactLoading: Boolean = false,
 ) {
     val context = LocalContext.current
+    val openPreview = LocalOpenChatImagePreview.current
+    val view = LocalView.current
+    val isVideo = AgentVideoCodec.isVideoSource(source)
     var bitmap by remember(source) { mutableStateOf<ImageBitmap?>(null) }
     var failed by remember(source) { mutableStateOf(false) }
     LaunchedEffect(source) {
-        val loaded = withContext(Dispatchers.IO) { ChatImageBytes.load(context, source) }
+        val loaded = withContext(Dispatchers.IO) {
+            if (isVideo) {
+                val file = AgentVideoCodec.fileFromSource(source) ?: return@withContext null
+                ChatImageBytes.load(context, AgentVideoCodec.previewThumbnail(file, source).reference)
+            } else {
+                ChatImageBytes.load(context, source)
+            }
+        }
         bitmap = loaded?.bitmap
         failed = loaded == null
     }
     val image = bitmap
     when {
-        image != null -> ChatClickableImage(
-            source = source,
-            bitmap = image,
-            contentDescription = stringResource(R.string.chat_image_preview),
-            modifier = modifier,
-            contentScale = contentScale,
-        )
+        image != null -> Box(modifier = modifier) {
+            ChatClickableImage(
+                source = source,
+                bitmap = image,
+                contentDescription = stringResource(
+                    if (isVideo) R.string.chat_video_preview else R.string.chat_image_preview,
+                ),
+                modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale,
+            )
+            if (isVideo) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = stringResource(R.string.chat_video_preview),
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(36.dp),
+                )
+            }
+        }
+        isVideo && failed -> Box(
+            modifier = modifier
+                .heightIn(min = 180.dp)
+                .background(Color.Black)
+                .clickable {
+                    TouchHaptics.click(view)
+                    openPreview(source)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PlayArrow,
+                contentDescription = stringResource(R.string.chat_video_preview),
+                tint = Color.White,
+                modifier = Modifier.size(36.dp),
+            )
+        }
         failed -> Unit
         else -> Box(
             modifier = if (compactLoading) {
@@ -235,8 +282,9 @@ private fun ChatImagePreviewDialog(
     var scale by remember(pagerState.currentPage) { mutableFloatStateOf(MIN_ZOOM) }
     var offset by remember(pagerState.currentPage) { mutableStateOf(Offset.Zero) }
 
+    val isVideo = AgentVideoCodec.isVideoSource(source)
     LaunchedEffect(source) {
-        if (source.isBlank()) {
+        if (source.isBlank() || isVideo) {
             loaded = null
             return@LaunchedEffect
         }
@@ -274,7 +322,7 @@ private fun ChatImagePreviewDialog(
             }
             val image = loaded
             IconButton(
-                enabled = image != null && !saving,
+                enabled = image != null && !saving && !isVideo,
                 onClick = {
                     val payload = loaded ?: return@IconButton
                     TouchHaptics.click(view)
@@ -336,10 +384,11 @@ private fun ChatImagePreviewPage(
     val currentTransform = rememberUpdatedState(onTransform)
     var loaded by remember(source) { mutableStateOf<LoadedChatImage?>(null) }
     var failed by remember(source) { mutableStateOf(false) }
+    val isVideo = AgentVideoCodec.isVideoSource(source)
     LaunchedEffect(source) {
-        if (source.isBlank()) {
+        if (source.isBlank() || isVideo) {
             loaded = null
-            failed = true
+            failed = source.isBlank()
             return@LaunchedEffect
         }
         val result = withContext(Dispatchers.IO) { ChatImageBytes.load(context, source) }
@@ -347,6 +396,13 @@ private fun ChatImagePreviewPage(
         failed = result == null
     }
     Box(modifier = Modifier.fillMaxSize()) {
+        if (isVideo) {
+            ChatVideoPreviewPlayer(
+                source = source,
+                active = active,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
         val image = loaded
         when {
             image != null -> {
@@ -392,6 +448,7 @@ private fun ChatImagePreviewPage(
                 )
             }
         }
+        }
     }
 }
 
@@ -421,4 +478,40 @@ private suspend fun PointerInputScope.detectPreviewGestures(
             }
         } while (event.changes.any { it.pressed })
     }
+}
+
+
+@Composable
+private fun ChatVideoPreviewPlayer(
+    source: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            VideoView(context).apply {
+                setOnPreparedListener { player ->
+                    player.isLooping = true
+                    if (active) start()
+                }
+            }
+        },
+        update = { view ->
+            val uri = when {
+                source.startsWith("content://") || source.startsWith("file://") -> Uri.parse(source)
+                source.startsWith("/") -> Uri.fromFile(java.io.File(source))
+                else -> Uri.parse(source)
+            }
+            if (view.tag != source) {
+                view.tag = source
+                view.setVideoURI(uri)
+            }
+            if (active) {
+                if (!view.isPlaying) view.start()
+            } else if (view.isPlaying) {
+                view.pause()
+            }
+        },
+    )
 }

@@ -84,6 +84,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -146,6 +147,7 @@ internal fun AgentChatInputBar(
     onAbortPausedRun: () -> Unit = {},
     isPaused: Boolean = false,
     onAttachImage: (String) -> Unit,
+    onAttachVideo: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
     onAttachFiles: (List<String>) -> Unit,
     onAttachFolder: (String) -> Unit,
@@ -380,6 +382,7 @@ internal fun AgentChatInputBar(
                         } else {
                             AgentAttachmentPickerButton(
                                 onAttachImage = onAttachImage,
+                                onAttachVideo = onAttachVideo,
                                 onAttachFiles = onAttachFiles,
                                 onAttachFolder = onAttachFolder,
                                 onAttachFilePath = onAttachFilePath,
@@ -726,9 +729,35 @@ private fun PendingImageStrip(
                     ChatClickableImage(
                         source = image.uri,
                         bitmap = bitmap,
-                        contentDescription = stringResource(R.string.chat_image_preview),
+                        contentDescription = stringResource(
+                            if (image.isVideo) R.string.chat_video_preview else R.string.chat_image_preview,
+                        ),
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
+                    )
+                }
+                if (image.isVideo) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(4.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.62f))
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = AgentVideoCodec.formatDuration(image.durationMs ?: 0L),
+                            style = MiuixTheme.textStyles.body2,
+                            color = Color.White,
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(22.dp),
                     )
                 }
                 Box(

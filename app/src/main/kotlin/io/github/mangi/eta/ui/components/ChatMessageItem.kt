@@ -48,6 +48,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import io.github.mangi.eta.ui.haptics.HapticSelectionContainer
 import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CallSplit
@@ -157,6 +158,9 @@ import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityStatusUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.isVideoAt
+import io.github.mangi.eta.ui.model.durationMsAt
+import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.ui.model.fullImageSourceAt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -562,15 +566,41 @@ private fun UserMessageBubble(
                     message.images.forEachIndexed { index, dataUrl ->
                         val bitmap = rememberDataUrlBitmap(dataUrl)
                         if (bitmap != null) {
-                            ChatClickableImage(
-                                source = message.fullImageSourceAt(index),
-                                bitmap = bitmap,
-                                contentDescription = stringResource(R.string.chat_image_preview),
-                                modifier = Modifier
-                                    .size(100.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
-                                contentScale = ContentScale.Crop,
-                            )
+                            Box {
+                                ChatClickableImage(
+                                    source = message.fullImageSourceAt(index),
+                                    bitmap = bitmap,
+                                    contentDescription = stringResource(
+                                        if (message.isVideoAt(index)) {
+                                            R.string.chat_video_preview
+                                        } else {
+                                            R.string.chat_image_preview
+                                        },
+                                    ),
+                                    modifier = Modifier
+                                        .size(100.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                                if (message.isVideoAt(index)) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .size(28.dp),
+                                    )
+                                    Text(
+                                        text = AgentVideoCodec.formatDuration(message.durationMsAt(index) ?: 0L),
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = Color.White,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(6.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }

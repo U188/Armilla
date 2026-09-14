@@ -167,4 +167,24 @@ class AgentConversationCodecTest {
         assertFalse(encoded.contains("opaque-secret"))
         assertFalse(encoded.contains("_eta_responses_output_items"))
     }
+
+    @Test
+    fun durableUserAttachmentKeepsVideoFilePathWithoutBase64() {
+        val message = AgentConversationCodec.durableMessage(
+            AgentConversationCodec.userPersistedImageMessage(
+                text = "看这段视频",
+                images = listOf(
+                    AgentConversationCodec.PersistedImage(
+                        path = "/data/user/0/io.github.mangi.eta/cache/eta-chat-images/c1/a.mp4",
+                        mimeType = "video/mp4",
+                        displayName = "chat-video-1.mp4",
+                    ),
+                ),
+            )
+        )
+        assertTrue(message.contentJson.contains("video_file"))
+        assertTrue(message.contentJson.contains("/data/user/0/io.github.mangi.eta/cache/eta-chat-images/c1/a.mp4"))
+        assertFalse(message.contentJson.contains("base64"))
+        assertFalse(message.contentJson.contains("未写入持久会话"))
+    }
 }

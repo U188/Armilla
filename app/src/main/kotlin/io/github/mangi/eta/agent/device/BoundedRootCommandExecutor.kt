@@ -30,7 +30,7 @@ internal class BoundedRootCommandExecutor(
         if (!rootAvailable()) return Result.failed("ROOT_REQUIRED")
         val envelope = RootCommandEnvelope(command)
         val process = runCatching {
-            ProcessBuilder("su", "-c", envelope.script)
+            RootSu.process(envelope.script)
                 .redirectErrorStream(false)
                 .start()
         }.getOrElse {

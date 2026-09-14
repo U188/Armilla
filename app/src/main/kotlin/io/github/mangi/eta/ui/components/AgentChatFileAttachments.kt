@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
@@ -68,6 +69,7 @@ internal val ChatInputActionIconSize = 24.dp
 @Composable
 internal fun AgentAttachmentPickerButton(
     onAttachImage: (String) -> Unit,
+    onAttachVideo: (String) -> Unit,
     onAttachFiles: (List<String>) -> Unit,
     onAttachFolder: (String) -> Unit,
     onAttachFilePath: (String) -> Unit,
@@ -89,6 +91,19 @@ internal fun AgentAttachmentPickerButton(
                 )
             }
             onAttachImage(uri.toString())
+        }
+    }
+    val videoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            onAttachVideo(uri.toString())
         }
     }
     val filePicker = rememberLauncherForActivityResult(
@@ -127,9 +142,10 @@ internal fun AgentAttachmentPickerButton(
         ) {
             val options = listOf(
                 Triple(stringResource(R.string.attachment_image), Icons.Outlined.Image, 0),
-                Triple(stringResource(R.string.attachment_file), Icons.Rounded.Description, 1),
-                Triple(stringResource(R.string.attachment_folder), Icons.Rounded.FolderOpen, 2),
-                Triple(stringResource(R.string.attachment_enter_path), Icons.Outlined.Link, 3),
+                Triple(stringResource(R.string.attachment_video), Icons.Outlined.Videocam, 1),
+                Triple(stringResource(R.string.attachment_file), Icons.Rounded.Description, 2),
+                Triple(stringResource(R.string.attachment_folder), Icons.Rounded.FolderOpen, 3),
+                Triple(stringResource(R.string.attachment_enter_path), Icons.Outlined.Link, 4),
             )
             options.forEach { (option, icon, index) ->
                 DropdownMenuItem(
@@ -152,9 +168,14 @@ internal fun AgentAttachmentPickerButton(
                                     ActivityResultContracts.PickVisualMedia.ImageOnly
                                 )
                             )
-                            1 -> filePicker.launch(arrayOf("*/*"))
-                            2 -> folderPicker.launch(null)
-                            3 -> {
+                            1 -> videoPicker.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.VideoOnly
+                                )
+                            )
+                            2 -> filePicker.launch(arrayOf("*/*"))
+                            3 -> folderPicker.launch(null)
+                            4 -> {
                                 pathInput = ""
                                 showPathDialog = true
                             }

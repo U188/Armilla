@@ -13,7 +13,9 @@ class UserMessageImagesTest {
             previews = listOf("data:image/jpeg;base64,aaa"),
             sources = listOf("data:image/jpeg;base64,aaa"),
         )
-        val (previews, sources) = decodeUserMessageImages(encoded)
+        val decoded = decodeUserMessageImages(encoded)
+        val previews = decoded.previews
+        val sources = decoded.sources
         assertEquals(listOf("data:image/jpeg;base64,aaa"), previews)
         assertEquals(emptyList<String>(), sources)
         assertTrue(encoded.contains("data:image/jpeg;base64,aaa"))
@@ -26,14 +28,18 @@ class UserMessageImagesTest {
             previews = listOf("data:image/jpeg;base64,thumb"),
             sources = listOf("/cache/eta-chat-images/c1/photo.jpg"),
         )
-        val (previews, sources) = decodeUserMessageImages(encoded)
+        val decoded = decodeUserMessageImages(encoded)
+        val previews = decoded.previews
+        val sources = decoded.sources
         assertEquals(listOf("data:image/jpeg;base64,thumb"), previews)
         assertEquals(listOf("/cache/eta-chat-images/c1/photo.jpg"), sources)
     }
 
     @Test
     fun decodeLegacyStringArrayLeavesSourcesEmpty() {
-        val (previews, sources) = decodeUserMessageImages("""["data:image/jpeg;base64,thumb"]""")
+        val decoded = decodeUserMessageImages("""["data:image/jpeg;base64,thumb"]""")
+        val previews = decoded.previews
+        val sources = decoded.sources
         assertEquals(listOf("data:image/jpeg;base64,thumb"), previews)
         assertEquals(emptyList<String>(), sources)
         assertEquals(
@@ -101,5 +107,21 @@ class UserMessageImagesTest {
             listOf("/already/original.jpg"),
             (attached.single() as UserMessageUi).imageSources,
         )
+    }
+
+    @Test
+    fun encodeStoresVideoKindAndDuration() {
+        val encoded = encodeUserMessageImages(
+            previews = listOf("data:image/jpeg;base64,thumb"),
+            sources = listOf("/cache/eta-chat-images/c1/clip.mp4"),
+            videoFlags = listOf(true),
+            durationsMs = listOf(12_500L),
+        )
+        val decoded = decodeUserMessageImages(encoded)
+        assertEquals(listOf("data:image/jpeg;base64,thumb"), decoded.previews)
+        assertEquals(listOf("/cache/eta-chat-images/c1/clip.mp4"), decoded.sources)
+        assertEquals(listOf(true), decoded.videoFlags)
+        assertEquals(listOf(12_500L), decoded.durationsMs)
+        assertTrue(encoded.contains("\"kind\":\"video\""))
     }
 }

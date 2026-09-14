@@ -18,6 +18,7 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 internal const val MAX_AGENT_IMAGE_BYTES = 12 * 1024 * 1024
+internal const val MAX_AGENT_VIDEO_BYTES = 32 * 1024 * 1024
 
 /** 仅负责为工具截图和聊天预览生成独立的图片副本。 */
 internal object AgentModelImageEncoder {

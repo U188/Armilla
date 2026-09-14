@@ -140,6 +140,7 @@ internal object RuntimeConfigRepository {
             customHeaders = provider.customHeaders + model.customHeaders,
             customBody = provider.customBody + model.customBody,
             supportsVision = model.supportsVision,
+            supportsVideo = model.supportsVideo,
         )
     }
 

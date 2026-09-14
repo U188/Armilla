@@ -49,6 +49,8 @@ class AgentRuntimeWireTest {
             ),
         )
         val bundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor())
+        bundle.remove(AgentRuntimeWire.KEY_HISTORY_FD)
+        bundle.putParcelableArrayList(AgentRuntimeWire.KEY_HISTORY, java.util.ArrayList())
         assertEquals(request, AgentRuntimeWire.runRequestFromBundle(bundle))
         bundle.remove("model_session_id")
         assertEquals("conversation-1", AgentRuntimeWire.runRequestFromBundle(bundle).effectiveModelSessionId)

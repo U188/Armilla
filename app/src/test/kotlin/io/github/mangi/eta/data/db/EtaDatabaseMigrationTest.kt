@@ -60,6 +60,11 @@ class EtaDatabaseMigrationTest {
             )
             .build()
         } catch (error: Throwable) {
+            throw AssertionError("Room 构建失败：${error.message}", error)
+        }
+        try {
+            database.openHelper.writableDatabase
+        } catch (error: Throwable) {
             throw AssertionError("Room 打开迁移后的数据库失败：${error.message}", error)
         }
         try {

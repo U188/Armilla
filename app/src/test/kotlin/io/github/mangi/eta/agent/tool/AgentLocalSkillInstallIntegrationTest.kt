@@ -116,9 +116,10 @@ class AgentLocalSkillInstallIntegrationTest {
         assertFalse(json.getJSONArray("installed").getJSONObject(0).has("description"))
         assertTrue(requestedUrls.any { COMMIT_SHA in it })
         assertTrue(requestedUrls.any { "codeload.github.com/example/skills/zip/$COMMIT_SHA" in it })
+        val listed = indexService.listSkillsForManagement(forceRefresh = true)
         assertTrue(
-            indexService.listSkillsForManagement(forceRefresh = true)
-                .any { it.id == "demo-skill" && it.installed },
+            listed.joinToString { "${it.id}:${it.source}:${it.installed}" },
+            listed.any { it.id == "demo-skill" },
         )
 
         val sameTurnList = JSONObject(

@@ -333,6 +333,7 @@ internal object AgentBrowserSession {
      */
     fun capturePreview(): BrowserImage? {
         if (Looper.myLooper() == Looper.getMainLooper()) return null
+        if (userControlActive) return null
         val view = webView ?: return null
         if (currentUrl.isBlank()) return null
         return runCatching {
@@ -821,10 +822,13 @@ internal object AgentBrowserSession {
             publishSnapshotOnMain()
             if (reloadUrl != null) {
                 view.stopLoading()
-                view.loadUrl(reloadUrl)
+                view.loadUrl(
+                    BrowserUserAgent.reloadUrl(reloadUrl, profile),
+                    mapOf("Cache-Control" to "max-age=0"),
+                )
             }
         }
-        if (reloadUrl != null) {
+        if (reloadUrl != null && !userControlActive) {
             runCatching { waitForPostAction() }
         }
         return toolResult(

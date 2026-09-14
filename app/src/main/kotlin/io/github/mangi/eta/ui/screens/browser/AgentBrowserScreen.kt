@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.GppMaybe
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -399,13 +400,13 @@ private fun BrowserToolbar(
         }
 
         BrowserControlButton(
-            icon = Icons.Rounded.Computer,
+            icon = if (snapshot.desktopMode) Icons.Rounded.Computer else Icons.Rounded.Smartphone,
             description = stringResource(
                 if (snapshot.desktopMode) R.string.browser_desktop_mode else R.string.browser_mobile_mode,
             ),
             enabled = !actionPending,
             onClick = onToggleDesktop,
-            active = snapshot.desktopMode,
+            active = true,
         )
         BrowserControlButton(
             icon = Icons.AutoMirrored.Rounded.OpenInNew,

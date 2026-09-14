@@ -18,4 +18,20 @@ class BrowserUserAgentTest {
         assertEquals(BrowserUserAgent.MOBILE_CHROME, BrowserUserAgent.fromWire("mobile_chrome"))
         assertEquals(null, BrowserUserAgent.fromWire("safari"))
     }
+
+    @Test
+    fun reloadUrlSwitchesBilibiliHosts() {
+        assertEquals(
+            "https://m.bilibili.com/",
+            BrowserUserAgent.reloadUrl("https://www.bilibili.com/", BrowserUserAgent.MOBILE_CHROME),
+        )
+        assertEquals(
+            "https://www.bilibili.com/video/BV1",
+            BrowserUserAgent.reloadUrl("https://m.bilibili.com/video/BV1", BrowserUserAgent.DESKTOP_CHROME),
+        )
+        assertEquals(
+            "https://github.com/",
+            BrowserUserAgent.reloadUrl("https://github.com/", BrowserUserAgent.MOBILE_CHROME),
+        )
+    }
 }

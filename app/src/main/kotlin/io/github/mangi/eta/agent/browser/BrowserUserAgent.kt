@@ -41,5 +41,26 @@ internal enum class BrowserUserAgent(
         ) {
             preferences?.edit()?.putString(PREF_KEY, profile.wireName)?.apply()
         }
+
+        /**
+         * 部分站点用独立 m. 域名，只改 UA 仍会停在桌面页。
+         * 仅对明确的桌面/移动主机对做替换，避免误伤普通 www 站点。
+         */
+        fun reloadUrl(url: String, profile: BrowserUserAgent): String {
+            val trimmed = url.trim()
+            if (trimmed.isEmpty()) return trimmed
+            MOBILE_HOSTS.forEach { (desktopHost, mobileHost) ->
+                val from = if (profile.desktop) mobileHost else desktopHost
+                val to = if (profile.desktop) desktopHost else mobileHost
+                if ("://$from" in trimmed) return trimmed.replace("://$from", "://$to")
+            }
+            return trimmed
+        }
+
+        private val MOBILE_HOSTS = listOf(
+            "www.bilibili.com" to "m.bilibili.com",
+            "www.xiaohongshu.com" to "m.xiaohongshu.com",
+            "www.weibo.com" to "m.weibo.cn",
+        )
     }
 }

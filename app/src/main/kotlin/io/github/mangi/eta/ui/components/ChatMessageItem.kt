@@ -2582,7 +2582,8 @@ private fun BrowserPagePreview(
     modifier: Modifier = Modifier,
 ) {
     var preview by remember(snapshot.url) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(snapshot.url, snapshot.isLoading) {
+    LaunchedEffect(snapshot.url, snapshot.isLoading, snapshot.isUserControlling) {
+        if (snapshot.isUserControlling) return@LaunchedEffect
         while (true) {
             val image = withContext(Dispatchers.IO) {
                 AgentBrowserSession.capturePreview()?.let { decodeDataUrlBitmap(it.dataUrl) }

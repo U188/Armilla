@@ -43,6 +43,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import io.github.mangi.eta.EtaApp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.device.BoundedRootCommandExecutor
@@ -216,6 +219,15 @@ fun AgentAppRoot(
             Toast.LENGTH_SHORT,
         ).show()
     }
+
+    // NavDisplay 只在还能出栈时拦截返回；根页面必须自己接住，否则系统会直接 finish Activity。
+    val interceptExitBack = backStack.size <= 1 && !conversationPaneOpen
+    val exitBackState = rememberNavigationEventState(NavigationEventInfo.None)
+    NavigationBackHandler(
+        state = exitBackState,
+        isBackEnabled = interceptExitBack,
+        onBackCompleted = { popRoute() },
+    )
 
     fun selectConversation(conversationId: String) {
         focusManager.clearFocus(force = true)

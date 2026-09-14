@@ -24,7 +24,7 @@ import androidx.room.migration.Migration
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -61,6 +61,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_18_19,
                         MIGRATION_19_20,
                         MIGRATION_20_21,
+                        MIGRATION_21_22,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -136,6 +137,13 @@ internal abstract class EtaDatabase : RoomDatabase() {
             )
             database.execSQL(
                 "ALTER TABLE conversations ADD COLUMN model_id TEXT NOT NULL DEFAULT ''"
+            )
+        }
+
+        internal val MIGRATION_21_22 = Migration(21, 22) { database ->
+            database.execSQL(
+                "ALTER TABLE model_providers ADD COLUMN " +
+                    "balance_option_json TEXT NOT NULL DEFAULT '{}'"
             )
         }
 

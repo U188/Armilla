@@ -57,6 +57,7 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_18_19,
                 EtaDatabase.MIGRATION_19_20,
                 EtaDatabase.MIGRATION_20_21,
+                EtaDatabase.MIGRATION_21_22,
             )
             .build()
         } catch (error: Throwable) {

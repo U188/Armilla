@@ -45,7 +45,8 @@ internal data class ProviderEntity(
     @ColumnInfo(name = "hosted_web_search_enabled", defaultValue = "0")
     val hostedWebSearchEnabled: Boolean,
     @ColumnInfo(name = "anthropic_version") val anthropicVersion: String,
-    @ColumnInfo(name = "balance_option_json") val balanceOptionJson: String,
+    @ColumnInfo(name = "balance_option_json", defaultValue = "'{}'")
+    val balanceOptionJson: String = "{}",
 )
 
 @Serializable

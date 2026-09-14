@@ -880,11 +880,13 @@ internal class AgentLocalTools(
             indexService.listSkillsForManagement()
                 .filter { it.installed && it.id in enabled }
                 .filter { SkillCompatibilityChecker.evaluate(it).available }
+        } else if (runSkillEntries.isNotEmpty()) {
+            runSkillEntries
+        } else if (indexService != null && runAvailableSkillIds.isNotEmpty()) {
+            indexService.listInstalledSkills()
+                .filter { it.id in runAvailableSkillIds }
         } else {
-            runSkillEntries.takeIf { it.isNotEmpty() }
-                ?: indexService?.listInstalledSkills()
-                    ?.filter { runAvailableSkillIds.isEmpty() || it.id in runAvailableSkillIds }
-                    .orEmpty()
+            emptyList()
         }
         liveSkillCache.set(now to entries)
         return entries

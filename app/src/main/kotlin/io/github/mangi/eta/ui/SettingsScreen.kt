@@ -108,16 +108,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.WindowSpinnerPreference
+import io.github.mangi.eta.ui.components.ArrowPreference
+import io.github.mangi.eta.ui.components.HapticBasicComponent
+import io.github.mangi.eta.ui.components.SwitchPreference
+import io.github.mangi.eta.ui.components.WindowSpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -947,7 +947,7 @@ internal fun SettingsScreen(
                             context.startActivity(intent)
                         },
                     )
-                    BasicComponent(
+                    HapticBasicComponent(
                         title = stringResource(R.string.about_relay_station),
                         startAction = {
                             PreferenceIcon(
@@ -1155,7 +1155,6 @@ private fun SwitchPref(
     icon: ImageVector,
 ) {
     val enabled = prefs != null
-    val view = LocalView.current
     val history = remember(context.applicationContext) { EnhancementSettingsHistory(context) }
     val default = Prefs.Keys.BOOLEAN_DEFAULTS[key] ?: true
     var checked by remember(prefs, key) {
@@ -1180,7 +1179,6 @@ private fun SwitchPref(
             // 避免 UI 显示已切换而 hook 进程实际未收到。
             val targetPrefs = prefs ?: return@SwitchPreference
             if (putBooleanSync(targetPrefs, key, value)) {
-                TouchHaptics.click(view)
                 checked = value
                 history.recordCommittedBoolean(key, value)
                 if (key in Prefs.Keys.LOCAL_AGENT_KEYS) {
@@ -1265,7 +1263,10 @@ private fun DonateQrDialog(onDismiss: () -> Unit) {
                     stringResource(R.string.about_donate_alipay),
                 ),
                 selectedTabIndex = if (wechatSelected) 0 else 1,
-                onTabSelected = { wechatSelected = it == 0 },
+                onTabSelected = {
+                    TouchHaptics.click(LocalView.current)
+                    wechatSelected = it == 0
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 12.dp),

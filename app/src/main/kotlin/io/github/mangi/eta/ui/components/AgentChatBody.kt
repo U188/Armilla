@@ -450,6 +450,7 @@ private fun AgentChatScaffold(
                 messageActionsEnabled = (!isStreaming || isPaused) &&
                     !isCompressingContext &&
                     messageEdit == null,
+                branchEnabled = !isCompressingContext && messageEdit == null,
                 editTargetMessageId = messageEdit?.targetMessageId,
                 currentBrowserMessageId = currentBrowserMessageId,
                 scrollToMessageId = scrollToMessageId,
@@ -481,6 +482,7 @@ internal fun AgentConversationMessages(
     onRegenerateMessage: (String) -> Unit = {},
     onBranchMessage: (String) -> Unit = {},
     messageActionsEnabled: Boolean = false,
+    branchEnabled: Boolean = false,
     editTargetMessageId: String? = null,
     currentBrowserMessageId: String? = null,
     scrollToMessageId: String? = null,
@@ -747,6 +749,7 @@ internal fun AgentConversationMessages(
                                 message.id in finalResultMessageIds,
                             showMessageActions = message.id in finalResultMessageIds,
                             messageActionsEnabled = messageActionsEnabled,
+                            branchEnabled = branchEnabled,
                             isEditing = message.id == editTargetMessageId,
                             onEditMessage = onEditMessage,
                             onDeleteMessage = onDeleteMessage,

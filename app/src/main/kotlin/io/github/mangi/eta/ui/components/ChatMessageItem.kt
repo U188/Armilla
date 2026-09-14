@@ -248,6 +248,7 @@ internal fun ChatMessageItem(
     showCopyAction: Boolean = true,
     showMessageActions: Boolean = false,
     messageActionsEnabled: Boolean = true,
+    branchEnabled: Boolean = true,
     isEditing: Boolean = false,
     onEditMessage: (String) -> Unit = {},
     onDeleteMessage: (String) -> Unit = {},
@@ -259,6 +260,7 @@ internal fun ChatMessageItem(
         is UserMessageUi -> UserMessageBubble(
             message = message,
             actionsEnabled = messageActionsEnabled,
+            branchEnabled = branchEnabled,
             isEditing = isEditing,
             onEdit = { onEditMessage(message.id) },
             onDelete = { onDeleteMessage(message.id) },
@@ -271,6 +273,7 @@ internal fun ChatMessageItem(
             showCopyAction = showCopyAction,
             showMessageActions = showMessageActions,
             messageActionsEnabled = messageActionsEnabled,
+            branchEnabled = branchEnabled,
             isPaused = isPaused,
             onDelete = { onDeleteMessage(message.id) },
             onRegenerate = { onRegenerateMessage(message.id) },
@@ -303,6 +306,7 @@ internal fun ChatMessageItem(
             showCopyAction = showCopyAction,
             showMessageActions = showMessageActions,
             messageActionsEnabled = messageActionsEnabled,
+            branchEnabled = branchEnabled,
             isPaused = isPaused,
             onDelete = { onDeleteMessage(message.id) },
             onRegenerate = { onRegenerateMessage(message.id) },
@@ -508,6 +512,7 @@ internal fun AgentWorkProcess(
 private fun UserMessageBubble(
     message: UserMessageUi,
     actionsEnabled: Boolean,
+    branchEnabled: Boolean,
     isEditing: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -679,13 +684,13 @@ private fun UserMessageBubble(
                     )
                 }
             }
-            TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = actionsEnabled) {
+            TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = branchEnabled) {
                 IconButton(
                     onClick = {
                         TouchHaptics.click(view)
                         onBranch()
                     },
-                    enabled = actionsEnabled,
+                    enabled = branchEnabled,
                     minWidth = 30.dp,
                     minHeight = 30.dp,
                 ) {
@@ -728,6 +733,7 @@ private fun AgentMessageBlock(
     showCopyAction: Boolean,
     showMessageActions: Boolean,
     messageActionsEnabled: Boolean,
+    branchEnabled: Boolean,
     onDelete: () -> Unit,
     onRegenerate: () -> Unit,
     onBranch: () -> Unit = {},
@@ -837,13 +843,13 @@ private fun AgentMessageBlock(
                     )
                 }
                 if (showMessageActions) {
-                    TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = messageActionsEnabled) {
+                    TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = branchEnabled) {
                         IconButton(
                             onClick = {
                                 TouchHaptics.click(view)
                                 onBranch()
                             },
-                            enabled = messageActionsEnabled,
+                            enabled = branchEnabled,
                             minWidth = 30.dp,
                             minHeight = 30.dp,
                         ) {

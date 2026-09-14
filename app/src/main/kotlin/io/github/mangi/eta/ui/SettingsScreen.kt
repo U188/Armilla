@@ -7,16 +7,20 @@ import android.content.SharedPreferences
 import android.provider.Settings
 import android.service.voice.VoiceInteractionService
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Folder
@@ -24,6 +28,7 @@ import androidx.compose.material.icons.rounded.GppMaybe
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.Inventory
 import androidx.compose.material.icons.rounded.Inventory2
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Lock
@@ -65,7 +70,10 @@ import io.github.mangi.eta.agent.accessibility.AgentAccessibilityService
 import io.github.mangi.eta.agent.voice.EtaVoiceInteractionService
 import io.github.mangi.eta.config.PowerAssistantTarget
 import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.core.AppFileLogger
+import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.model.AppUpdateOffer
+import io.github.mangi.eta.data.model.Settings
 import io.github.mangi.eta.data.repository.AppUpdateRepository
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
@@ -80,6 +88,10 @@ import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.components.PreferenceIcon
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.navigation.AppRoute
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -115,6 +127,42 @@ internal fun SettingsScreen(
     val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
+    val appSettings by SettingsDataStore.settingsFlow().collectAsState(initial = Settings())
+    var exportingLogs by remember { mutableStateOf(false) }
+    var clearingLogs by remember { mutableStateOf(false) }
+    var showClearLogsDialog by remember { mutableStateOf(false) }
+    val exportLogsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            exportingLogs = true
+            try {
+                val output = withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)
+                        ?: error(context.getString(R.string.settings_export_logs_open_failed))
+                }
+                val count = withContext(Dispatchers.IO) {
+                    output.use { AppFileLogger.export(it) }
+                }
+                Toast.makeText(
+                    context.applicationContext,
+                    context.getString(R.string.settings_export_logs_success, count),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } catch (throwable: Throwable) {
+                if (throwable is CancellationException) throw throwable
+                Toast.makeText(
+                    context.applicationContext,
+                    throwable.message?.takeIf { it.isNotBlank() }
+                        ?: context.getString(R.string.settings_export_logs_failed),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } finally {
+                exportingLogs = false
+            }
+        }
+    }
 
     // 悬浮窗权限状态：授权后从系统设置返回时（ON_RESUME）刷新。
     var overlayGranted by remember {
@@ -579,6 +627,63 @@ internal fun SettingsScreen(
                 }
             }
 
+            item(key = "section_diagnostics") {
+                SmallTitle(stringResource(R.string.settings_diagnostics))
+                Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                    SwitchPreference(
+                        title = stringResource(R.string.settings_file_logging),
+                        summary = stringResource(R.string.settings_file_logging_summary),
+                        checked = appSettings.fileLoggingEnabled,
+                        onCheckedChange = { enabled ->
+                            coroutineScope.launch {
+                                SettingsDataStore.setFileLoggingEnabled(enabled)
+                            }
+                        },
+                        startAction = {
+                            PreferenceIcon(icon = Icons.Rounded.BugReport)
+                        },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.settings_export_logs),
+                        summary = stringResource(
+                            if (exportingLogs) {
+                                R.string.settings_export_logs_working
+                            } else {
+                                R.string.settings_export_logs_summary
+                            },
+                        ),
+                        enabled = !exportingLogs && !clearingLogs,
+                        startAction = {
+                            PreferenceIcon(icon = Icons.Rounded.Share)
+                        },
+                        onClick = {
+                            if (exportingLogs || clearingLogs) return@ArrowPreference
+                            if (!AppFileLogger.hasLogs()) {
+                                Toast.makeText(
+                                    context.applicationContext,
+                                    context.getString(R.string.settings_export_logs_empty),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                return@ArrowPreference
+                            }
+                            exportLogsLauncher.launch(defaultDiagnosticLogFileName())
+                        },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.settings_clear_logs),
+                        summary = stringResource(R.string.settings_clear_logs_summary),
+                        enabled = !exportingLogs && !clearingLogs,
+                        startAction = {
+                            PreferenceIcon(icon = Icons.Rounded.DeleteSweep)
+                        },
+                        onClick = {
+                            if (exportingLogs || clearingLogs) return@ArrowPreference
+                            showClearLogsDialog = true
+                        },
+                    )
+                }
+            }
+
             // ── 权限 ────────────────────────────────────────────────────
             item(key = "section_permissions") {
                 SmallTitle(stringResource(R.string.ui_permissions_560165))
@@ -799,6 +904,54 @@ internal fun SettingsScreen(
             onDismiss = { updateOffer = null },
         )
 
+        if (showClearLogsDialog) {
+            WindowDialog(
+                show = true,
+                title = stringResource(R.string.settings_clear_logs_confirm_title),
+                summary = stringResource(R.string.settings_clear_logs_confirm_summary),
+                onDismissRequest = {
+                    if (!clearingLogs) showClearLogsDialog = false
+                },
+            ) {
+                MiuixDialogActions(
+                    confirmText = if (clearingLogs) {
+                        stringResource(R.string.settings_export_logs_working)
+                    } else {
+                        stringResource(R.string.settings_clear_logs)
+                    },
+                    destructive = true,
+                    cancelEnabled = !clearingLogs,
+                    confirmEnabled = !clearingLogs,
+                    onCancel = { showClearLogsDialog = false },
+                    onConfirm = {
+                        if (clearingLogs) return@MiuixDialogActions
+                        clearingLogs = true
+                        coroutineScope.launch {
+                            try {
+                                withContext(Dispatchers.IO) { AppFileLogger.clear() }
+                                Toast.makeText(
+                                    context.applicationContext,
+                                    context.getString(R.string.settings_clear_logs_done),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                showClearLogsDialog = false
+                            } catch (throwable: Throwable) {
+                                if (throwable is CancellationException) throw throwable
+                                Toast.makeText(
+                                    context.applicationContext,
+                                    throwable.message?.takeIf { it.isNotBlank() }
+                                        ?: context.getString(R.string.settings_export_logs_failed),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } finally {
+                                clearingLogs = false
+                            }
+                        }
+                    },
+                )
+            }
+        }
+
         SystemizerConfirmDialog(
             show = showSystemizerDialog,
             installing = installingSystemizer,
@@ -963,6 +1116,9 @@ private fun isAgentAccessibilityEnabled(context: Context): Boolean {
     ).orEmpty()
     return enabledServices.split(':').any { it.equals(expected, ignoreCase = true) }
 }
+
+private fun defaultDiagnosticLogFileName(): String =
+    "代鱼-诊断日志-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}.zip"
 
 private fun isEtaAssistantActive(context: Context): Boolean =
     VoiceInteractionService.isActiveService(

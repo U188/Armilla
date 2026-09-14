@@ -11,6 +11,11 @@ class SettingsTest {
     }
 
     @Test
+    fun fileLoggingIsDisabledByDefault() {
+        assertEquals(false, Settings().fileLoggingEnabled)
+    }
+
+    @Test
     fun appearanceUsesBackwardCompatibleDefaults() {
         assertEquals(AppearanceSettings(), Settings().appearance)
     }

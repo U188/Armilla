@@ -8,6 +8,7 @@ import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.terminal.TerminalRuntime
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AndroidAgentLogger
+import io.github.mangi.eta.core.AppFileLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
@@ -51,8 +52,14 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         TerminalRuntime.initialize(this)
         RootAccess.initialize(this)
         SettingsDataStore.init(this)
+        AppFileLogger.install(this)
         applicationScope.launch {
             runCatching { SettingsDataStore.incrementLaunchCount() }
+            runCatching {
+                SettingsDataStore.fileLoggingEnabledFlow().collect { enabled ->
+                    AppFileLogger.setEnabled(enabled)
+                }
+            }
         }
         val predictiveBackEnabled = runBlocking(Dispatchers.IO) {
             AppearanceSettingsRepository.settings().predictiveBackEnabled

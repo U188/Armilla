@@ -32,6 +32,7 @@ internal object SettingsDataStore {
     private val SELECTED_PROVIDER_ID = stringPreferencesKey("selected_provider_id")
     private val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
     private val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled")
+    private val FILE_LOGGING_ENABLED = booleanPreferencesKey("file_logging_enabled")
     private val LINUX_DISTRIBUTION = stringPreferencesKey("linux_distribution")
     private val APPEARANCE_THEME_MODE = stringPreferencesKey("appearance_theme_mode")
     private val APPEARANCE_MONET_ENABLED = booleanPreferencesKey("appearance_monet_enabled")
@@ -95,6 +96,7 @@ internal object SettingsDataStore {
             prefs.putOrRemove(SELECTED_PROVIDER_ID, updated.selectedProviderId)
             prefs.putOrRemove(SELECTED_MODEL_ID, updated.selectedModelId)
             prefs[MEMORY_ENABLED] = updated.memoryEnabled
+            prefs[FILE_LOGGING_ENABLED] = updated.fileLoggingEnabled
             prefs.putAppearance(updated.appearance.normalized())
         }
     }
@@ -121,6 +123,13 @@ internal object SettingsDataStore {
 
     fun memoryEnabledFlow(): Flow<Boolean> =
         settingsFlow().map { it.memoryEnabled }
+
+    fun fileLoggingEnabledFlow(): Flow<Boolean> =
+        settingsFlow().map { it.fileLoggingEnabled }
+
+    suspend fun setFileLoggingEnabled(enabled: Boolean) {
+        updateSettings { it.copy(fileLoggingEnabled = enabled) }
+    }
 
     fun linuxDistributionFlow(): Flow<String?> {
         ensureInitialized()
@@ -383,6 +392,7 @@ internal object SettingsDataStore {
         selectedProviderId = this[SELECTED_PROVIDER_ID],
         selectedModelId = this[SELECTED_MODEL_ID],
         memoryEnabled = this[MEMORY_ENABLED] ?: true,
+        fileLoggingEnabled = this[FILE_LOGGING_ENABLED] ?: false,
         appearance = AppearanceSettings(
             themeMode = AppearanceThemeMode.fromPersistedValue(this[APPEARANCE_THEME_MODE]),
             monetEnabled = true,

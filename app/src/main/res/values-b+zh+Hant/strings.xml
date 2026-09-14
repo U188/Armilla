@@ -452,7 +452,7 @@
   <string name="ui_server_side_web_search_ddb8e0">Provider 代管網頁搜尋</string>
   <string name="ui_permissions_560165">權限</string>
   <string name="ui_permissions_and_status_35f368">權限與狀態</string>
-  <string name="ui_permission_health_3048bb">權限健康</string>
+  <string name="ui_permission_health_3048bb">權限檢查</string>
   <string name="ui_check_memory_pressure_2d9600">查看記憶體壓力</string>
   <string name="ui_core_memory_injection_budget_48b5d5">核心記憶注入預算</string>
   <string name="ui_model_provider_e8c7f5">模型供應商</string>

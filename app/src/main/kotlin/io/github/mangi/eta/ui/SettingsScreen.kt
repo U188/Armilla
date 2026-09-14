@@ -87,7 +87,6 @@ import io.github.mangi.eta.systemizer.GoogleAppSystemizerInstaller
 import io.github.mangi.eta.systemizer.RootManager
 import io.github.mangi.eta.systemizer.SystemizerInstallResult
 import io.github.mangi.eta.ui.app.EnhancementSettingsHistory
-import io.github.mangi.eta.ui.app.description
 import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
 import io.github.mangi.eta.ui.components.AppUpdateDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
@@ -425,17 +424,6 @@ internal fun SettingsScreen(
                 }
             }
 
-            item(key = "system_enhancements") {
-                Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                    ArrowPreference(
-                        title = stringResource(R.string.capability_enhancements),
-                        summary = stringResource(R.string.capability_enhancements_summary),
-                        startAction = { PreferenceIcon(Icons.Rounded.Security) },
-                        onClick = { onNavigate(AppRoute.SystemEnhance) },
-                    )
-                }
-            }
-
             // ── 系统助手接管 ──────────────────────────────────────────────
             item(key = "section_assistant_takeover") {
                 SmallTitle(stringResource(R.string.ui_system_assistant_takes_over_f46043))
@@ -712,7 +700,7 @@ internal fun SettingsScreen(
                     )
                     ArrowPreference(
                         title = stringResource(R.string.capability_enhancements),
-                        summary = capabilities.root.description(context),
+                        summary = stringResource(R.string.capability_enhancements_summary),
                         startAction = {
                             PreferenceIcon(icon = Icons.Rounded.Security)
                         },

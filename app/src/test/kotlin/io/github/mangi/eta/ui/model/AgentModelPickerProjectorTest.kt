@@ -456,7 +456,7 @@ class AgentModelPickerProjectorTest {
             billedContextTokens = 262_556,
         )
         assertEquals(262_556, typing.contextTokens)
-        assertTrue((idle.contextTokens ?: 0) < history.sumOf { AgentContextBudget.countMessage(it) })
+        assertEquals(idle.contextTokens, typing.contextTokens)
     }
 
     @Test

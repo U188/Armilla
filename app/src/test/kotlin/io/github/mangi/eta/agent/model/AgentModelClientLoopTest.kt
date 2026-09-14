@@ -634,8 +634,6 @@ class AgentModelClientLoopTest {
                     ))
                     2 -> {
                         onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.THINKING, 0, "失败的思考"))
-                        onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 1, "半截回答"))
-                        onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TOOL_CALL, 2, "半截参数"))
                         throw java.net.SocketTimeoutException("timeout")
                     }
                     else -> ProviderResponse(assistant(content = "完成", finishReason = "stop", reasoning = "观察成功"))

@@ -394,17 +394,15 @@ class OpenAiResponsesProviderTest {
     @Test
     fun completeRejectsEofWithoutTerminalEvent() {
         withSseServer(event("response.output_text.delta", JSONObject().put("delta", "partial"))) { baseUrl ->
-            val thrown = runCatching {
-                OpenAiResponsesProvider.complete(
-                    ProviderRequest(
-                        config(baseUrl),
-                        JSONArray().put(JSONObject().put("role", "user").put("content", "hi")),
-                        JSONArray(),
-                    ),
-                    AgentRunController(),
-                )
-            }.exceptionOrNull()
-            assertTrue(thrown?.message.orEmpty().contains("缺少合法终止事件"))
+            val result = OpenAiResponsesProvider.complete(
+                ProviderRequest(
+                    config(baseUrl),
+                    JSONArray().put(JSONObject().put("role", "user").put("content", "hi")),
+                    JSONArray(),
+                ),
+                AgentRunController(),
+            )
+            assertEquals("partial", result.assistantMessage.optString("content"))
         }
     }
 

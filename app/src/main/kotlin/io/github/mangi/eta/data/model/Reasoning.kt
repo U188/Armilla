@@ -68,7 +68,7 @@ object ReasoningEffortSerializer : KSerializer<ReasoningEffort> {
     }
 
     override fun deserialize(decoder: Decoder): ReasoningEffort =
-        ReasoningEffort.fromWireValue(decoder.decodeString()) ?: ReasoningEffort.OFF
+        ReasoningEffort.fromWireValue(decoder.decodeString()) ?: ReasoningEffort.DEFAULT
 }
 
 @Serializable

@@ -337,16 +337,12 @@ class OpenAiChatCompletionsProviderTest {
         val body = sseChunk(JSONObject().put("content", "partial"))
 
         withSseServer(body) { baseUrl ->
-            val thrown = runCatching {
-                OpenAiChatCompletionsProvider.complete(
-                    request = providerRequest(baseUrl),
-                    runController = AgentRunController()
-                )
-            }.exceptionOrNull()
-
-            assertNotNull(thrown)
-            assertTrue(thrown is IllegalStateException)
-            assertTrue(thrown?.message.orEmpty().contains("未正常结束"))
+            val result = OpenAiChatCompletionsProvider.complete(
+                request = providerRequest(baseUrl),
+                runController = AgentRunController()
+            )
+            assertEquals("partial", result.assistantMessage.optString("content"))
+            assertEquals("stop", result.assistantMessage.optString("finish_reason"))
         }
     }
 

@@ -224,7 +224,7 @@ internal object AgentConversationStore {
         }
 
     private val ConversationMetadata.reasoningEffortValue: ReasoningEffort
-        get() = ReasoningEffort.fromWireValue(reasoningEffort) ?: ReasoningEffort.OFF
+        get() = ReasoningEffort.fromWireValue(reasoningEffort) ?: ReasoningEffort.DEFAULT
 
     private suspend fun defaultSelection(): Pair<String, String> {
         val settings = runCatching { SettingsDataStore.settings() }.getOrNull()

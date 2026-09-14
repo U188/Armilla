@@ -12,7 +12,6 @@ internal object VideoGenerationModels {
         "sora-",
         "sora2",
         "seedance",
-        "kling-v",
         "kling-video",
         "runway",
         "hailuo",

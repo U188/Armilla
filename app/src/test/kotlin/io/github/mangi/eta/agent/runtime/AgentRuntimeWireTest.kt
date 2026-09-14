@@ -25,10 +25,12 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class AgentRuntimeWireTest {
     private fun emptyHistoryDescriptor(): android.os.ParcelFileDescriptor {
-        val context = RuntimeEnvironment.getApplication()
-        val file = java.io.File(context.cacheDir, "test-empty-history-${System.nanoTime()}.json")
-        file.writeText("[]", Charsets.UTF_8)
-        return android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+        val pipe = android.os.ParcelFileDescriptor.createPipe()
+        java.io.FileOutputStream(pipe[1].fileDescriptor).use { output ->
+            output.write("[]".toByteArray(Charsets.UTF_8))
+        }
+        pipe[1].close()
+        return pipe[0]
     }
 
     @Test
@@ -307,10 +309,18 @@ class AgentRuntimeWireTest {
             ),
         )
 
-        val bundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor())
-        assertEquals(true, bundle.containsKey("browser_tools"))
-        assertEquals(true, bundle.getBoolean("browser_tools"))
-        val roundTripped = AgentRuntimeWire.runRequestFromBundle(bundle)
+        val prepared = AgentRuntimeHistoryTransfer.prepare(
+            RuntimeEnvironment.getApplication(),
+            request.history,
+        )
+        val roundTripped = try {
+            val bundle = AgentRuntimeWire.toLegacyBundle(request, prepared.descriptor)
+            assertEquals(true, bundle.containsKey("browser_tools"))
+            assertEquals(true, bundle.getBoolean("browser_tools"))
+            AgentRuntimeWire.runRequestFromBundle(bundle)
+        } finally {
+            prepared.close()
+        }
 
         assertEquals(request, roundTripped)
         assertEquals(262_144, roundTripped.config.contextWindow)

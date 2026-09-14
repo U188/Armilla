@@ -133,10 +133,10 @@ internal fun decodeModelUsageSnapshot(raw: String?): ModelUsageSnapshot {
                             } else {
                                 conversations.size
                             },
-                            activeDays = if (events.isNotEmpty()) {
-                                events.map { eventDay(it.atMillis) }.toSet().size
-                            } else {
-                                days.size
+                            activeDays = when {
+                                days.isNotEmpty() -> days.size
+                                events.isNotEmpty() -> events.map { eventDay(it.atMillis) }.toSet().size
+                                else -> 0
                             },
                             events = events,
                             cachedTokens = cached,

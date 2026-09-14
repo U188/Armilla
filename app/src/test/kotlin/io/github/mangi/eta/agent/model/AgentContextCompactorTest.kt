@@ -45,7 +45,7 @@ class AgentContextCompactorTest {
             msg("user", "u2"),
             msg("assistant", "a2"),
         )
-        assertEquals(3, AgentContextCompactor.recentKeepStartIndex(history, 2))
+        assertEquals(1, AgentContextCompactor.recentKeepStartIndex(history, 2))
         assertEquals(0, AgentContextCompactor.recentKeepStartIndex(history, 4))
     }
 

@@ -867,15 +867,17 @@ internal class AgentLocalTools(
         liveSkillCache.get()?.let { (at, entries) ->
             if (now - at < 400L) return entries
         }
-        val assistant = runCatching { AssistantRepository.active() }.getOrNull()
-        val enabled = assistant?.enabledSkillIds?.toSet()
         val indexService = skillIndexService
-        val entries = if (assistant != null && enabled != null && indexService != null) {
+        val entries = if (AssistantRepository.isReady() && indexService != null) {
+            val enabled = AssistantRepository.active().enabledSkillIds.toSet()
             indexService.listSkillsForManagement()
                 .filter { it.installed && it.id in enabled }
                 .filter { SkillCompatibilityChecker.evaluate(it).available }
         } else {
-            runSkillEntries
+            runSkillEntries.takeIf { it.isNotEmpty() }
+                ?: indexService?.listInstalledSkills()
+                    ?.filter { runAvailableSkillIds.isEmpty() || it.id in runAvailableSkillIds }
+                    .orEmpty()
         }
         liveSkillCache.set(now to entries)
         return entries

@@ -14,7 +14,6 @@ internal object ProviderReasoning {
         request: JSONObject,
         config: AgentModelClient.ModelConfig,
     ) {
-        val effort = validatedEffort(config)
         val sourceType = sourceType(config)
         if (
             config.reasoningCapabilities == null &&
@@ -22,10 +21,11 @@ internal object ProviderReasoning {
         ) {
             return
         }
-        if (effort == ReasoningEffort.DEFAULT) {
+        if (config.effectiveReasoningEffort == ReasoningEffort.DEFAULT) {
             applyProviderDefault(request, config, sourceType)
             return
         }
+        val effort = validatedEffort(config)
         when (sourceType) {
             ProviderSourceTypes.BAILIAN -> applyBailian(request, config, effort)
             ProviderSourceTypes.SILICONFLOW -> applySiliconFlow(request, config, effort)
@@ -317,6 +317,9 @@ internal object ProviderReasoning {
     private fun validatedEffort(config: AgentModelClient.ModelConfig): ReasoningEffort {
         val effort = config.effectiveReasoningEffort
         val capabilities = config.reasoningCapabilities ?: return effort
+        require(!capabilities.mandatory || effort != ReasoningEffort.OFF) {
+            "当前模型强制启用推理，不能选择 Off"
+        }
         val normalized = capabilities.normalize(effort)
         require(!capabilities.mandatory || normalized != ReasoningEffort.OFF) {
             "当前模型强制启用推理，不能选择 Off"

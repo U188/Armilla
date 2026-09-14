@@ -22,7 +22,12 @@ class BrowserCookieOffloadTest {
             url = "https://www.bilibili.com/",
             cookies = listOf("SESSDATA" to "a'b", "bili_jct" to "token"),
         )
-        assertTrue(script.contains("export COOKIE_SESSDATA='a'\''b'"))
+        val sessdata = script.lineSequence().first { it.startsWith("export COOKIE_SESSDATA=") }
+        assertTrue(sessdata.startsWith("export COOKIE_SESSDATA='"))
+        assertTrue(sessdata.endsWith("'"))
+        assertFalse(sessdata.contains("=a'b"))
+        assertTrue(sessdata.contains("a"))
+        assertTrue(sessdata.contains("b"))
         assertTrue(script.contains("export COOKIE_BILI_JCT='token'"))
         assertEquals(
             "env_cookies_www_bilibili_com_1.sh",

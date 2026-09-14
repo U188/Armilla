@@ -181,6 +181,9 @@ internal object AgentBrowserSession {
     @Volatile
     private var pendingAsyncJs: CompletableFuture<String>? = null
 
+    @Volatile
+    private var pendingUserAgentReload: String? = null
+
     private val pageBridge = PageBridge()
 
     fun initialize(context: Context) {
@@ -456,6 +459,7 @@ internal object AgentBrowserSession {
             }
             currentError = null
             currentHttpStatus = null
+            pendingUserAgentReload = null
             currentUrl = rawUrl
             currentHost = hostOf(rawUrl)
             currentLoading = true
@@ -821,11 +825,7 @@ internal object AgentBrowserSession {
             }
             publishSnapshotOnMain()
             if (reloadUrl != null) {
-                view.stopLoading()
-                view.loadUrl(
-                    BrowserUserAgent.reloadUrl(reloadUrl, profile),
-                    mapOf("Cache-Control" to "max-age=0"),
-                )
+                forceReloadWithUserAgentOnMain(view, profile, reloadUrl)
             }
         }
         if (reloadUrl != null && !userControlActive) {
@@ -1148,8 +1148,20 @@ internal object AgentBrowserSession {
         view.settings.builtInZoomControls = true
         view.settings.displayZoomControls = false
         view.settings.useWideViewPort = true
-        view.settings.loadWithOverviewMode = true
+        view.settings.loadWithOverviewMode = userAgentProfile.desktop
         view.settings.setUserAgentString(userAgentProfile.userAgent)
+    }
+
+    private fun forceReloadWithUserAgentOnMain(
+        view: WebView,
+        profile: BrowserUserAgent,
+        reloadUrl: String,
+    ) {
+        val target = BrowserUserAgent.reloadUrl(reloadUrl, profile)
+        pendingUserAgentReload = target
+        view.stopLoading()
+        // 同一 URL 的 loadUrl 往往会走缓存，新 UA 不生效。先 about:blank 再加载。
+        view.loadUrl("about:blank")
     }
 
     private fun attachWebViewOnMain(view: WebView, container: ViewGroup) {
@@ -1412,6 +1424,11 @@ internal object AgentBrowserSession {
     private fun hostOf(url: String): String =
         runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
 
+    private fun isBlankNavigation(url: String?): Boolean {
+        val value = url.orEmpty()
+        return value.isBlank() || value == "about:blank"
+    }
+
     private fun setNavigationErrorOnMain(code: String, message: String) {
         navigationGeneration.incrementAndGet()
         currentLoading = false
@@ -1457,6 +1474,18 @@ internal object AgentBrowserSession {
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
+            val pending = pendingUserAgentReload
+            if (pending != null && isBlankNavigation(url)) {
+                pendingUserAgentReload = null
+                view.loadUrl(
+                    pending,
+                    mapOf(
+                        "Cache-Control" to "no-cache",
+                        "Pragma" to "no-cache",
+                    ),
+                )
+                return
+            }
             currentUrl = url.orEmpty()
             currentHost = hostOf(currentUrl)
             committedMainFrameUrl = currentUrl

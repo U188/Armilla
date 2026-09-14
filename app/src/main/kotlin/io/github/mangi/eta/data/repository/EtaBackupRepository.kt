@@ -644,7 +644,7 @@ private fun referencedImportedFiles(
     }
     val matches = Regex("""(/data/(?:user/\d+|data)/[^\s"']+/files/(?:terminal-user|terminal)/workspace/imports/[^\s"']+)""")
         .findAll(text)
-    return matches.map { File(it.groupValues[1]) }.filter { it.isFile }.distinctBy { it.absolutePath }
+    return matches.map { File(it.groupValues[1]) }.filter { it.isFile }.distinctBy { it.absolutePath }.toList()
 }
 
 private fun importedRelativePath(context: Context, file: File): String? {

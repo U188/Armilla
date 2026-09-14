@@ -249,7 +249,7 @@ internal fun ModelProviderListScreen(
                                     checked = provider.id in selectedProviderIds,
                                     onOpen = { onNavigate(AppRoute.ModelProviderDetail(provider.id)) },
                                     onToggleChecked = {
-                                        if (provider.isBuiltIn) return@onToggleChecked
+                                        if (provider.isBuiltIn) return
                                         selectedProviderIds = if (provider.id in selectedProviderIds) {
                                             selectedProviderIds - provider.id
                                         } else {
@@ -257,7 +257,7 @@ internal fun ModelProviderListScreen(
                                         }
                                     },
                                     onEnterSelection = {
-                                        if (provider.isBuiltIn) return@onEnterSelection
+                                        if (provider.isBuiltIn) return
                                         selectionMode = true
                                         selectedProviderIds = setOf(provider.id)
                                     },

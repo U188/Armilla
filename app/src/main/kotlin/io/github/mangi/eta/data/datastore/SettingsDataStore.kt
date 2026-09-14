@@ -219,7 +219,7 @@ internal object SettingsDataStore {
     suspend fun restoreBackup(snapshot: EtaSettingsBackup) {
         ensureInitialized()
         dataStore.edit { prefs ->
-            prefs.keys
+            prefs.asMap().keys
                 .filter { key ->
                     key.name.startsWith(LINUX_BACKEND_PREFIX) ||
                         key.name.startsWith(SELECTED_MODEL_BY_PROVIDER_PREFIX)

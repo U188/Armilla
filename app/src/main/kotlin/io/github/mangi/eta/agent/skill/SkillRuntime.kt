@@ -262,7 +262,7 @@ class SkillIndexService(
         listSkillsForManagement().filter { it.installed }
 
     fun findInstalledSkill(identifier: String): SkillIndexEntry? {
-                    val normalized = relative.replace('\\', '/').trim().trimStart('/')
+        val normalized = SkillParser.normalizeSkillLookup(identifier)
         if (normalized.isBlank()) return null
         val entries = listSkillsForManagement().filter { it.installed }
         return entries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }

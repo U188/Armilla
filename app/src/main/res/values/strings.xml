@@ -154,6 +154,7 @@
   <string name="route_provider_details">Provider details</string>
   <string name="route_new_provider">New provider</string>
   <string name="settings_general">General</string>
+  <string name="app_press_back_again_to_exit">Press back again to exit</string>
   <string name="settings_diagnostics">Diagnostics</string>
   <string name="settings_file_logging">Record diagnostic logs</string>
   <string name="settings_file_logging_summary">When enabled, app logs and this process’s logcat are saved locally for troubleshooting</string>

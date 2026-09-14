@@ -199,10 +199,22 @@ fun AgentAppRoot(
         pushRoute(route)
     }
 
+    val exitGuard = remember { DoublePressExitGuard() }
+
     fun popRoute() {
-        if (!navigator.pop()) {
-            (context as? Activity)?.finish()
+        if (navigator.pop()) {
+            exitGuard.reset()
+            return
         }
+        if (exitGuard.consume()) {
+            (context as? Activity)?.finish()
+            return
+        }
+        Toast.makeText(
+            context.applicationContext,
+            context.getString(R.string.app_press_back_again_to_exit),
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 
     fun selectConversation(conversationId: String) {

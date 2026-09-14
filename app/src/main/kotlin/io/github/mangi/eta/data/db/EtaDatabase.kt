@@ -141,10 +141,17 @@ internal abstract class EtaDatabase : RoomDatabase() {
         }
 
         internal val MIGRATION_21_22 = Migration(21, 22) { database ->
-            database.execSQL(
-                "ALTER TABLE model_providers ADD COLUMN " +
-                    "balance_option_json TEXT NOT NULL DEFAULT '{}'"
-            )
+            val hasColumn = database.query("PRAGMA table_info(model_providers)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                generateSequence { if (cursor.moveToNext()) cursor else null }
+                    .any { it.getString(nameIndex) == "balance_option_json" }
+            }
+            if (!hasColumn) {
+                database.execSQL(
+                    "ALTER TABLE model_providers ADD COLUMN " +
+                        "balance_option_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            }
         }
 
         internal val MIGRATION_7_8 = Migration(7, 8) { database ->

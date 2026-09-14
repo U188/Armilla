@@ -1282,6 +1282,10 @@ internal class AgentLocalTools(
                         .put("name", skill.name),
                 )
             }
+            liveSkillCache.set(null)
+            runCatching {
+                AssistantRepository.enableSkills(result.installed.map { it.id })
+            }
             JSONObject()
                 .put("ok", true)
                 .put("repository", repository)

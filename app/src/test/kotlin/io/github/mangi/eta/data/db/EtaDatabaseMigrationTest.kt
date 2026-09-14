@@ -11,6 +11,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -143,6 +144,58 @@ class EtaDatabaseMigrationTest {
         } finally {
             database.close()
             context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun migration21To22AddsOrKeepsBalanceOptionColumn() {
+        val context = RuntimeEnvironment.getApplication() as Context
+        listOf(false, true).forEach { alreadyPresent ->
+            val databaseName = "migration-21-22-${alreadyPresent}-${UUID.randomUUID()}.db"
+            val helper = FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(databaseName)
+                    .callback(
+                        object : SupportSQLiteOpenHelper.Callback(21) {
+                            override fun onCreate(db: SupportSQLiteDatabase) {
+                                db.execSQL(
+                                    "CREATE TABLE model_providers (" +
+                                        "id TEXT NOT NULL PRIMARY KEY, " +
+                                        "type TEXT NOT NULL, name TEXT NOT NULL, " +
+                                        "base_url TEXT NOT NULL, api_key TEXT NOT NULL, " +
+                                        "is_enabled INTEGER NOT NULL, is_built_in INTEGER NOT NULL, " +
+                                        "sort_order INTEGER NOT NULL, system_prompt TEXT, " +
+                                        "custom_headers_json TEXT NOT NULL, custom_body_json TEXT NOT NULL, " +
+                                        "created_at INTEGER NOT NULL, endpoint_mode TEXT NOT NULL, " +
+                                        "anthropic_version TEXT NOT NULL, " +
+                                        "hosted_web_search_enabled INTEGER NOT NULL" +
+                                        (if (alreadyPresent) ", balance_option_json TEXT NOT NULL DEFAULT '{}'" else "") +
+                                        ")",
+                                )
+                            }
+
+                            override fun onUpgrade(
+                                db: SupportSQLiteDatabase,
+                                oldVersion: Int,
+                                newVersion: Int,
+                            ) = Unit
+                        },
+                    )
+                    .build(),
+            )
+            val database = helper.writableDatabase
+            try {
+                EtaDatabase.MIGRATION_21_22.migrate(database)
+                val names = database.query("PRAGMA table_info(model_providers)").use { cursor ->
+                    val index = cursor.getColumnIndex("name")
+                    buildList {
+                        while (cursor.moveToNext()) add(cursor.getString(index))
+                    }
+                }
+                assertTrue(alreadyPresent.toString(), "balance_option_json" in names)
+            } finally {
+                helper.close()
+            }
         }
     }
 

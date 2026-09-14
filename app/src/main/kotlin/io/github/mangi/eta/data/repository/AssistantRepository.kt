@@ -119,6 +119,15 @@ internal object AssistantRepository {
     }
 
     @Synchronized
+    fun enableSkills(skillIds: Collection<String>) {
+        if (!isReady() || skillIds.isEmpty()) return
+        val current = active()
+        val merged = (current.enabledSkillIds + skillIds).distinct()
+        if (merged == current.enabledSkillIds) return
+        update(current.copy(enabledSkillIds = merged))
+    }
+
+    @Synchronized
     fun update(profile: AssistantProfile): AssistantProfile {
         ensureReady()
         require(profiles.value.any { it.id == profile.id }) { "助手不存在" }

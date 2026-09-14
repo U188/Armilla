@@ -65,7 +65,10 @@ class EtaDatabaseMigrationTest {
         try {
             database.openHelper.writableDatabase
         } catch (error: Throwable) {
-            throw AssertionError("Room 打开迁移后的数据库失败：${error.message}", error)
+            throw AssertionError(
+                "Room 打开迁移后的数据库失败：${error}\n${error.stackTraceToString().take(2500)}",
+                error,
+            )
         }
         try {
             val result = runBlocking(Dispatchers.IO) {

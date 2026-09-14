@@ -96,7 +96,7 @@ internal class AgentRuntimeRunExecutor(
             val assistant = AssistantRepository.active()
             val enabledSkillIds = assistant.enabledSkillIds.toSet()
             val skillContext = SkillContext(
-                installedSkills = SkillRuntime.bindSkillsToAssistant(
+                installedSkills = SkillRuntime.publishVisibleSkills(
                     context = appContext,
                     assistantId = assistant.id,
                     entries = skillIndexService.listSkillsForManagement()

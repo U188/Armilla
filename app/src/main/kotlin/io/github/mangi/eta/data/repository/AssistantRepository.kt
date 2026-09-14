@@ -45,6 +45,7 @@ internal object AssistantRepository {
         avatarsDirectory().mkdirs()
         val snapshot = migrateDefaultPrompt(readIndex() ?: seedDefault())
         publish(snapshot)
+        refreshAssistantSkills(snapshot.activeId, publishVisible = true)
     }
 
     fun active(): AssistantProfile =
@@ -129,11 +130,7 @@ internal object AssistantRepository {
         writeIndex(snapshot)
         publish(snapshot)
         if (::applicationContext.isInitialized) {
-            val enabled = updated.enabledSkillIds.toSet()
-            val entries = SkillRuntime.createIndexService(applicationContext)
-                .listSkillsForManagement()
-                .filter { it.installed && it.id in enabled }
-            SkillRuntime.bindSkillsToAssistant(applicationContext, updated.id, entries)
+            refreshAssistantSkills(updated.id, publishVisible = updated.id == snapshot.activeId)
         }
         return updated
     }
@@ -152,6 +149,9 @@ internal object AssistantRepository {
         val snapshot = Snapshot(nextActive, remaining)
         writeIndex(snapshot)
         publish(snapshot)
+        if (nextActive != id) {
+            refreshAssistantSkills(nextActive, publishVisible = true)
+        }
     }
 
     @Synchronized
@@ -162,6 +162,20 @@ internal object AssistantRepository {
         val snapshot = Snapshot(id, profiles.value)
         writeIndex(snapshot)
         publish(snapshot)
+        refreshAssistantSkills(id, publishVisible = true)
+    }
+
+    private fun refreshAssistantSkills(assistantId: String, publishVisible: Boolean) {
+        if (!::applicationContext.isInitialized) return
+        val enabled = profile(assistantId)?.enabledSkillIds?.toSet().orEmpty()
+        val entries = SkillRuntime.createIndexService(applicationContext)
+            .listSkillsForManagement()
+            .filter { it.installed && it.id in enabled }
+        if (publishVisible) {
+            SkillRuntime.publishVisibleSkills(applicationContext, assistantId, entries)
+        } else {
+            SkillRuntime.bindSkillsToAssistant(applicationContext, assistantId, entries)
+        }
     }
 
     @Synchronized

@@ -470,6 +470,8 @@
   <string name="about_telegram_open_failed">无法打开 Telegram</string>
   <string name="about_relay_station">自用中转站</string>
   <string name="about_relay_station_open_failed">无法打开中转站</string>
+  <string name="about_relay_station_st_api">ST API</string>
+  <string name="about_relay_station_moyu">摸鱼</string>
   <string name="update_checking">正在检查…</string>
   <string name="update_current_version">当前版本 %1$s</string>
   <string name="update_unknown_version">未知</string>

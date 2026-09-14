@@ -897,8 +897,8 @@ internal class AgentLocalTools(
                     .put("description", entry.description)
                     .put("enabled", entry.enabled)
                     .put("source", entry.source)
-                    .put("rootPath", entry.rootPath)
-                    .put("skillFilePath", entry.skillFilePath)
+                    .put("rootPath", "/var/minis/skills/${entry.id}")
+                    .put("skillFilePath", "/var/minis/skills/${entry.id}/SKILL.md")
                     .put("capabilities", capabilities)
             )
         }

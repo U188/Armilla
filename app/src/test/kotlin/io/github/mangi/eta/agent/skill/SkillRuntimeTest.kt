@@ -225,4 +225,47 @@ class SkillRuntimeTest {
         assertTrue(File(bound, "alpha/SKILL.md").isFile)
         assertFalse(File(bound, "beta").exists())
     }
+
+    @Test
+    fun publishVisibleSkillsRemovesDisabledCopies() {
+        val context = RuntimeEnvironment.getApplication()
+        val skillsRoot = File(context.filesDir, "skills").apply { mkdirs() }
+        fun writeSkill(id: String): SkillIndexEntry {
+            val dir = File(skillsRoot, id).apply { mkdirs() }
+            File(dir, "SKILL.md").writeText(
+                """
+                ---
+                name: $id
+                description: Test skill $id.
+                ---
+
+                # $id
+                """.trimIndent(),
+            )
+            return SkillIndexEntry(
+                id = id,
+                name = id,
+                description = "Test skill $id.",
+                rootPath = dir.absolutePath,
+                skillFilePath = File(dir, "SKILL.md").absolutePath,
+                hasScripts = false,
+                hasReferences = false,
+                hasAssets = false,
+                hasEvals = false,
+                installed = true,
+            )
+        }
+        val alpha = writeSkill("alpha")
+        val beta = writeSkill("beta")
+        SkillRuntime.publishVisibleSkills(context, "asst-1", listOf(alpha, beta))
+        val visible = SkillRuntime.visibleSkillsDirectory(context)
+        assertTrue(File(visible, "alpha/SKILL.md").isFile)
+        assertTrue(File(visible, "beta/SKILL.md").isFile)
+        assertTrue(File(skillsRoot, "beta/SKILL.md").isFile)
+
+        SkillRuntime.publishVisibleSkills(context, "asst-1", listOf(alpha))
+        assertTrue(File(visible, "alpha/SKILL.md").isFile)
+        assertFalse(File(visible, "beta").exists())
+        assertTrue(File(skillsRoot, "beta/SKILL.md").isFile)
+    }
 }

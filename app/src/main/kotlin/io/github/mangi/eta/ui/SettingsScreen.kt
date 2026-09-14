@@ -940,7 +940,7 @@ internal fun SettingsScreen(
                             {
                                 Column {
                                     ArrowPreference(
-                                        title = "https://api.123336.xyz/sign-up?aff=Wd45",
+                                        title = stringResource(R.string.about_relay_station_st_api),
                                         insideMargin = PaddingValues(0.dp),
                                         onClick = {
                                             openExternalUrl(
@@ -951,7 +951,7 @@ internal fun SettingsScreen(
                                         },
                                     )
                                     ArrowPreference(
-                                        title = "https://www.u354483.nyat.app:35119/register?aff=5U8U292F5RG6",
+                                        title = stringResource(R.string.about_relay_station_moyu),
                                         insideMargin = PaddingValues(0.dp),
                                         onClick = {
                                             openExternalUrl(

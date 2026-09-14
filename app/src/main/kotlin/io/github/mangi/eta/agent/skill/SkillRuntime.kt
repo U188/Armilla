@@ -623,6 +623,7 @@ class SkillLoader(private val skillsRoot: File) {
 // =====================================================================================
 
 internal const val ASSISTANT_SKILL_DIR = ".assistant"
+internal const val VISIBLE_SKILL_DIR = ".visible"
 
 object SkillRuntime {
     @Volatile
@@ -632,6 +633,38 @@ object SkillRuntime {
 
     fun assistantSkillsDirectory(context: Context, assistantId: String): File =
         File(skillsRoot(context), "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(assistantId)}")
+
+    fun visibleSkillsDirectory(context: Context): File =
+        File(skillsRoot(context), VISIBLE_SKILL_DIR)
+
+    /**
+     * 把该助手已启用的技能同步到固定目录，供 Linux `/var/minis/skills` 挂载。
+     * 使用固定路径，这样已打开的终端会话也能立刻看不到被关掉的技能。
+     */
+    fun publishVisibleSkills(context: Context, assistantId: String, entries: List<SkillIndexEntry>): List<SkillIndexEntry> {
+        val bound = bindSkillsToAssistant(context, assistantId, entries)
+        val destRoot = visibleSkillsDirectory(context)
+        destRoot.mkdirs()
+        val keep = bound.mapTo(linkedSetOf()) { it.id }
+        destRoot.listFiles().orEmpty().forEach { child ->
+            if (child.isDirectory && child.name !in keep) child.deleteRecursively()
+        }
+        val sourceRoot = assistantSkillsDirectory(context, assistantId)
+        bound.forEach { entry ->
+            val source = File(sourceRoot, entry.id)
+            if (source.isDirectory) {
+                syncSkillPackage(source, File(destRoot, entry.id))
+            }
+        }
+        return bound.map { entry ->
+            val dest = File(destRoot, entry.id)
+            val skillFile = File(dest, "SKILL.md")
+            entry.copy(
+                rootPath = dest.canonicalFile.absolutePath,
+                skillFilePath = skillFile.canonicalFile.absolutePath,
+            )
+        }
+    }
 
     fun bindSkillsToAssistant(
         context: Context,

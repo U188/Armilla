@@ -47,11 +47,8 @@ internal object TerminalRuntime {
     fun skillsDirectory(): File? = appContext?.let { File(it.filesDir, "skills") }
 
     fun visibleSkillsDirectory(): File? {
-        val context = appContext ?: return skillsDirectory()
-        val assistantId = runCatching {
-            io.github.mangi.eta.data.repository.AssistantRepository.active().id
-        }.getOrNull() ?: return skillsDirectory()
-        return SkillRuntime.assistantSkillsDirectory(context, assistantId).apply { mkdirs() }
+        val context = appContext ?: return null
+        return SkillRuntime.visibleSkillsDirectory(context).apply { mkdirs() }
     }
 
     fun minisOffloadsDirectory(): File? = appContext?.let { minisSubdirectory(it.filesDir, "offloads") }

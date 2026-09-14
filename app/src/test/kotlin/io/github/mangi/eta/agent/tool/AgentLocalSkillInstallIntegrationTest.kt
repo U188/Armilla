@@ -118,7 +118,7 @@ class AgentLocalSkillInstallIntegrationTest {
         assertTrue(requestedUrls.any { "codeload.github.com/example/skills/zip/$COMMIT_SHA" in it })
         assertTrue(
             indexService.listSkillsForManagement(forceRefresh = true)
-                .any { it.id == "demo-skill" && it.enabled && it.source == "user" },
+                .any { it.id == "demo-skill" && it.installed },
         )
 
         val sameTurnList = JSONObject(

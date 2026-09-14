@@ -37,8 +37,10 @@ class EtaDatabaseMigrationTest {
             )
         }
 
-        val database = Room.databaseBuilder(context, EtaDatabase::class.java, databaseName)
+        val database = try {
+            Room.databaseBuilder(context, EtaDatabase::class.java, databaseName)
             .allowMainThreadQueries()
+            .openHelperFactory(FrameworkSQLiteOpenHelperFactory())
             .addMigrations(
                 EtaDatabase.MIGRATION_6_7,
                 EtaDatabase.MIGRATION_7_8,
@@ -57,6 +59,9 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_20_21,
             )
             .build()
+        } catch (error: Throwable) {
+            throw AssertionError("Room 打开迁移后的数据库失败：${error.message}", error)
+        }
         try {
             val result = runBlocking(Dispatchers.IO) {
                 database.runtimeRunDao().runtimeResults().single()

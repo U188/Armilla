@@ -292,4 +292,47 @@ class SmoothTextRevealPolicyTest {
     private companion object {
         const val FLOAT_TOLERANCE = 0.0001f
     }
+
+    @Test
+    fun streamingMarkdownHidesFutureBlocksUntilTheirRevealStarts() {
+        val current = RevealBlockKey(0)
+        val next = RevealBlockKey(40)
+        assertEquals(
+            true,
+            streamingMarkdownBlockVisible(
+                coordinatorActive = true,
+                firstRevealKey = current,
+                startedRevealKeys = setOf(current),
+                nextRevealKey = next,
+            ),
+        )
+        assertEquals(
+            true,
+            streamingMarkdownBlockVisible(
+                coordinatorActive = true,
+                firstRevealKey = next,
+                startedRevealKeys = setOf(current),
+                nextRevealKey = next,
+            ),
+        )
+        assertEquals(
+            false,
+            streamingMarkdownBlockVisible(
+                coordinatorActive = true,
+                firstRevealKey = RevealBlockKey(80),
+                startedRevealKeys = setOf(current),
+                nextRevealKey = next,
+            ),
+        )
+        assertEquals(
+            true,
+            streamingMarkdownBlockVisible(
+                coordinatorActive = false,
+                firstRevealKey = RevealBlockKey(80),
+                startedRevealKeys = emptySet(),
+                nextRevealKey = next,
+            ),
+        )
+    }
+
 }

@@ -1138,6 +1138,7 @@ private fun StreamingGfmSuccess(
         root = state.node,
         content = state.content,
         components = components,
+        revealCoordinator = revealCoordinator,
         modifier = modifier,
     )
 }
@@ -1152,16 +1153,31 @@ private fun ChatMarkdownDocument(
     content: String,
     components: MarkdownComponents,
     modifier: Modifier = Modifier,
+    revealCoordinator: SmoothTextRevealCoordinator? = null,
 ) {
     val blocks = remember(root) { topLevelMarkdownBlocks(root) }
+    val startedRevealKeys = rememberStartedRevealKeys(revealCoordinator)
+    val nextRevealKey = remember(blocks, startedRevealKeys) {
+        blocks.mapNotNull { it.firstRevealBlockKey() }
+            .firstOrNull { it !in startedRevealKeys }
+    }
     val density = LocalDensity.current
+    var previousVisibleType: IElementType? = null
     Column(modifier) {
-        blocks.forEachIndexed { index, node ->
-            val previousType = blocks.getOrNull(index - 1)?.type
+        blocks.forEach { node ->
+            val revealKey = node.firstRevealBlockKey()
+            val visible = streamingMarkdownBlockVisible(
+                coordinatorActive = revealCoordinator != null,
+                firstRevealKey = revealKey,
+                startedRevealKeys = startedRevealKeys,
+                nextRevealKey = nextRevealKey,
+            )
+            if (!visible) return@forEach
             val gap = with(density) {
-                markdownBlockSpacing(previousType, node.type).toDp()
+                markdownBlockSpacing(previousVisibleType, node.type).toDp()
             }
             if (gap > 0.dp) Spacer(Modifier.height(gap))
+            previousVisibleType = node.type
             key(node.startOffset, node.type.name) {
                 MarkdownElement(
                     node = node,
@@ -1172,6 +1188,18 @@ private fun ChatMarkdownDocument(
             }
         }
     }
+}
+
+internal fun streamingMarkdownBlockVisible(
+    coordinatorActive: Boolean,
+    firstRevealKey: RevealBlockKey?,
+    startedRevealKeys: Set<RevealBlockKey>,
+    nextRevealKey: RevealBlockKey?,
+): Boolean {
+    if (!coordinatorActive) return true
+    if (firstRevealKey == null) return true
+    if (firstRevealKey in startedRevealKeys) return true
+    return firstRevealKey == nextRevealKey
 }
 
 internal fun topLevelMarkdownBlocks(root: ASTNode): List<ASTNode> =
@@ -1466,12 +1494,15 @@ private fun chatMarkdownComponents(
         } else {
             null
         }
+        val startedKeys = rememberStartedRevealKeys(revealCoordinator)
         MarkdownCodeFence(model.content, model.node, style = model.typography.code) { code, language, style ->
             ChatCodeBlock(
                 code = code,
                 language = language,
                 style = style,
                 revealState = revealState,
+                showChrome = revealCoordinator == null ||
+                    RevealBlockKey(model.node.startOffset) in startedKeys,
             )
         }
     },
@@ -1484,12 +1515,15 @@ private fun chatMarkdownComponents(
         } else {
             null
         }
+        val startedKeys = rememberStartedRevealKeys(revealCoordinator)
         MarkdownCodeBlock(model.content, model.node, style = model.typography.code) { code, language, style ->
             ChatCodeBlock(
                 code = code,
                 language = language,
                 style = style,
                 revealState = revealState,
+                showChrome = revealCoordinator == null ||
+                    RevealBlockKey(model.node.startOffset) in startedKeys,
             )
         }
     },
@@ -1788,6 +1822,7 @@ private fun ChatCodeBlock(
     language: String?,
     style: TextStyle,
     revealState: SmoothTextRevealState? = null,
+    showChrome: Boolean = true,
 ) {
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
@@ -1802,16 +1837,23 @@ private fun ChatCodeBlock(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 5.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MiuixTheme.colorScheme.surface)
-            .border(
-                0.5.dp,
-                MiuixTheme.colorScheme.outline.copy(alpha = 0.5f),
-                RoundedCornerShape(10.dp),
+            .then(
+                if (showChrome) {
+                    Modifier
+                        .padding(vertical = 5.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MiuixTheme.colorScheme.surface)
+                        .border(
+                            0.5.dp,
+                            MiuixTheme.colorScheme.outline.copy(alpha = 0.5f),
+                            RoundedCornerShape(10.dp),
+                        )
+                } else {
+                    Modifier
+                }
             ),
     ) {
-        Row(
+        if (showChrome) Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 13.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
@@ -1854,10 +1896,14 @@ private fun ChatCodeBlock(
                 .height(0.5.dp)
                 .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.45f)),
         )
+        }
         val codeModifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 13.dp, vertical = 11.dp)
+            .then(
+                if (showChrome) Modifier.padding(horizontal = 13.dp, vertical = 11.dp)
+                else Modifier,
+            )
             .let { base ->
                 if (revealState != null) base.smoothTextReveal(revealState) else base
             }
@@ -2102,11 +2148,9 @@ private fun ASTNode.firstRevealBlockKey(): RevealBlockKey? = when (type) {
     MarkdownElementTypes.SETEXT_2,
     -> if (!containsMarkdownImage()) RevealBlockKey(startOffset) else null
 
-    MarkdownElementTypes.CODE_FENCE ->
-        if (children.size >= 3) RevealBlockKey(startOffset) else null
-
-    MarkdownElementTypes.CODE_BLOCK ->
-        if (children.isNotEmpty()) RevealBlockKey(startOffset) else null
+    MarkdownElementTypes.CODE_FENCE,
+    MarkdownElementTypes.CODE_BLOCK,
+    -> RevealBlockKey(startOffset)
 
     TABLE -> children.asSequence()
         .flatMap { it.depthFirstSequence() }
@@ -2145,13 +2189,9 @@ private fun MutableSet<RevealBlockKey>.collectRevealBlockKeys(node: ASTNode) {
         MarkdownElementTypes.SETEXT_2,
         -> if (!node.containsMarkdownImage()) add(RevealBlockKey(node.startOffset))
 
-        MarkdownElementTypes.CODE_FENCE -> {
-            if (node.children.size >= 3) add(RevealBlockKey(node.startOffset))
-        }
-
-        MarkdownElementTypes.CODE_BLOCK -> {
-            if (node.children.isNotEmpty()) add(RevealBlockKey(node.startOffset))
-        }
+        MarkdownElementTypes.CODE_FENCE,
+        MarkdownElementTypes.CODE_BLOCK,
+        -> add(RevealBlockKey(node.startOffset))
 
         TABLE -> collectTableCellRevealKeys(node)
 

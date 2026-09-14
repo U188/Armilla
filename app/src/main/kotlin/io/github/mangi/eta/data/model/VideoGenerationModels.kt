@@ -22,6 +22,8 @@ internal object VideoGenerationModels {
         "luma-video",
         "dream-machine",
         "grok-video",
+        "grok-imagine-video",
+        "imagine-video",
         "minimax-video",
         "ltx-video",
         "vidu-",

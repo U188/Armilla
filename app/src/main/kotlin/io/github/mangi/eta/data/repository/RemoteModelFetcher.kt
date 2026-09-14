@@ -112,10 +112,9 @@ internal object RemoteModelFetcher {
     /**
      * 判断远端目录中的模型是否应进入本地模型列表。
      *
-     * 对话模型、专门生图和专门生视频都会保留；ASR / TTS / embedding / OCR 等仍过滤。
+     * 远端 /models 返回的条目全部保留，由用户在列表里自行选择。
      */
-    internal fun isCatalogModel(model: Model): Boolean =
-        model.supportsImageGeneration || model.supportsVideoGeneration || isChatCapableModel(model)
+    internal fun isCatalogModel(model: Model): Boolean = true
 
     /**
      * 判断远端目录中的模型是否可用于 Agent 对话。
@@ -123,7 +122,7 @@ internal object RemoteModelFetcher {
      * OpenAI 兼容平台的 /models 会混入语音识别、语音合成、图像/视频生成、
      * embedding、rerank 等非对话模型（例如阿里百炼一次返回数百个）。这些模型
      * 无法参与 Agent 的文本工具调用循环，拉取时按 id 命名特征与输出模态过滤掉。
-     * 生图、生视频模型由 [isCatalogModel] 单独放行。
+     * 生图、生视频模型不进入对话循环，由发送路径单独处理。
      */
     internal fun isChatCapableModel(model: Model): Boolean {
         if (model.supportsImageGeneration || model.supportsVideoGeneration) return false

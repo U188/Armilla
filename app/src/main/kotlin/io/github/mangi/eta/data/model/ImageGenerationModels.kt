@@ -55,6 +55,7 @@ internal object ImageGenerationModels {
         val id = modelId.lowercase()
         if (id.isBlank()) return false
         if (VIDEO_MARKERS.any { it in id }) return false
+        if (VideoGenerationModels.matches(modelId, outputModalities)) return false
         if (NON_IMAGE_SPECIALTY_MARKERS.any { it in id }) return false
         val outputs = outputModalities.map { it.lowercase() }
         if (outputs.any { it == Model.IMAGE_MODALITY } && outputs.none { it == Model.TEXT_MODALITY }) {

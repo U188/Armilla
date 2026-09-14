@@ -409,7 +409,7 @@ class RemoteModelFetcherTest {
         assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("dall-e-3")))
         assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("gpt-image-1")))
         assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("wanx2.1-t2v-turbo")))
-        assertFalse(RemoteModelFetcher.isCatalogModel(modelWithId("qwen-tts-2026-05-20")))
+        assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("qwen-tts-2026-05-20")))
         assertTrue(RemoteModelFetcher.isCatalogModel(modelWithId("qwen3.7-plus")))
     }
 
@@ -420,6 +420,7 @@ class RemoteModelFetcherTest {
             "veo-3.0-generate",
             "sora-2",
             "kling-v1",
+            "grok-imagine-video-2.0",
         ).forEach { id ->
             assertTrue(id, RemoteModelFetcher.isCatalogModel(modelWithId(id)))
             assertFalse(id, RemoteModelFetcher.isChatCapableModel(modelWithId(id)))

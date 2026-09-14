@@ -17,6 +17,8 @@ class VideoGenerationModelsTest {
             "kwaivgi/kling-v2-master",
             "seedance-1.0",
             "vidu-q1",
+            "grok-imagine-video-2.0",
+            "grok-video",
         ).forEach { id ->
             assertTrue(id, VideoGenerationModels.matches(id))
             assertTrue(id, model(id).supportsVideoGeneration)
@@ -32,6 +34,7 @@ class VideoGenerationModelsTest {
             "gemini-2.5-flash",
             "dall-e-3",
             "qwen-image-2.0-pro-2026-06-22",
+            "grok-imagine-image-2.0",
             "sparkling-v1",
         ).forEach { id ->
             assertFalse(id, VideoGenerationModels.matches(id))

@@ -9,7 +9,9 @@ import android.service.voice.VoiceInteractionService
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Smartphone
@@ -62,9 +65,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -107,6 +112,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -136,6 +142,7 @@ internal fun SettingsScreen(
     val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var relayStationExpanded by remember { mutableStateOf(false) }
+    var showDonateDialog by remember { mutableStateOf(false) }
     var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
     val appSettings by SettingsDataStore.settingsFlow().collectAsState(
         initial = io.github.mangi.eta.data.model.Settings(),
@@ -967,10 +974,23 @@ internal fun SettingsScreen(
                             null
                         },
                     )
+                    ArrowPreference(
+                        title = stringResource(R.string.about_donate),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.Restaurant,
+                            )
+                        },
+                        onClick = { showDonateDialog = true },
+                    )
                 }
             }
         }
     }
+
+        if (showDonateDialog) {
+            DonateQrDialog(onDismiss = { showDonateDialog = false })
+        }
 
         AppUpdateDialog(
             offer = updateOffer,
@@ -1200,6 +1220,45 @@ private fun isEtaAssistantActive(context: Context): Boolean =
         ComponentName(context, EtaVoiceInteractionService::class.java),
     )
 
+
+
+@Composable
+private fun DonateQrDialog(onDismiss: () -> Unit) {
+    var wechatSelected by remember { mutableStateOf(true) }
+    WindowDialog(
+        show = true,
+        title = stringResource(R.string.about_donate),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            TabRow(
+                tabs = listOf(
+                    stringResource(R.string.about_donate_wechat),
+                    stringResource(R.string.about_donate_alipay),
+                ),
+                selectedTabIndex = if (wechatSelected) 0 else 1,
+                onTabSelected = { wechatSelected = it == 0 },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+            )
+            Image(
+                painter = painterResource(
+                    if (wechatSelected) R.drawable.donate_wechat else R.drawable.donate_alipay,
+                ),
+                contentDescription = if (wechatSelected) {
+                    stringResource(R.string.about_donate_wechat)
+                } else {
+                    stringResource(R.string.about_donate_alipay)
+                },
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+            )
+        }
+    }
+}
 
 private fun openExternalUrl(context: Context, url: String, failureMessage: String) {
     val intent = android.content.Intent(

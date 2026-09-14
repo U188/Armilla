@@ -472,6 +472,9 @@
   <string name="about_relay_station_open_failed">無法開啟中轉站</string>
   <string name="about_relay_station_st_api">ST API</string>
   <string name="about_relay_station_moyu">摸魚</string>
+  <string name="about_donate">給煮波恰飯🍚</string>
+  <string name="about_donate_wechat">微信</string>
+  <string name="about_donate_alipay">支付寶</string>
   <string name="update_checking">正在檢查…</string>
   <string name="update_current_version">目前版本 %1$s</string>
   <string name="update_unknown_version">未知</string>

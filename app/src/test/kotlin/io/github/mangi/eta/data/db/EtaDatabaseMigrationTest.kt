@@ -59,6 +59,7 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_19_20,
                 EtaDatabase.MIGRATION_20_21,
                 EtaDatabase.MIGRATION_21_22,
+                EtaDatabase.MIGRATION_22_23,
             )
             .build()
         } catch (error: Throwable) {
@@ -186,13 +187,17 @@ class EtaDatabaseMigrationTest {
             val database = helper.writableDatabase
             try {
                 EtaDatabase.MIGRATION_21_22.migrate(database)
-                val names = database.query("PRAGMA table_info(model_providers)").use { cursor ->
-                    val index = cursor.getColumnIndex("name")
-                    buildList {
-                        while (cursor.moveToNext()) add(cursor.getString(index))
+                val info = database.query("PRAGMA table_info(model_providers)").use { cursor ->
+                    val nameIndex = cursor.getColumnIndex("name")
+                    val defaultIndex = cursor.getColumnIndex("dflt_value")
+                    buildMap {
+                        while (cursor.moveToNext()) {
+                            put(cursor.getString(nameIndex), cursor.getString(defaultIndex))
+                        }
                     }
                 }
-                assertTrue(alreadyPresent.toString(), "balance_option_json" in names)
+                assertTrue(alreadyPresent.toString(), "balance_option_json" in info)
+                assertEquals("'{}'", info.getValue("balance_option_json"))
             } finally {
                 helper.close()
             }

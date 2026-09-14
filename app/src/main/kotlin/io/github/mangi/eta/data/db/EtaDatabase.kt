@@ -6,6 +6,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -24,7 +25,7 @@ import androidx.room.migration.Migration
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -62,6 +63,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_19_20,
                         MIGRATION_20_21,
                         MIGRATION_21_22,
+                        MIGRATION_22_23,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -141,17 +143,70 @@ internal abstract class EtaDatabase : RoomDatabase() {
         }
 
         internal val MIGRATION_21_22 = Migration(21, 22) { database ->
-            val hasColumn = database.query("PRAGMA table_info(model_providers)").use { cursor ->
+            rebuildModelProvidersWithBalanceOption(database)
+        }
+
+        internal val MIGRATION_22_23 = Migration(22, 23) { database ->
+            rebuildModelProvidersWithBalanceOption(database)
+        }
+
+        private fun tableHasColumn(database: SupportSQLiteDatabase, table: String, column: String): Boolean =
+            database.query("PRAGMA table_info($table)").use { cursor ->
                 val nameIndex = cursor.getColumnIndex("name")
                 generateSequence { if (cursor.moveToNext()) cursor else null }
-                    .any { it.getString(nameIndex) == "balance_option_json" }
+                    .any { it.getString(nameIndex) == column }
             }
-            if (!hasColumn) {
+
+        private fun rebuildModelProvidersWithBalanceOption(database: SupportSQLiteDatabase) {
+            val hasBalance = tableHasColumn(database, "model_providers", "balance_option_json")
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS model_providers_new (" +
+                    "id TEXT NOT NULL, " +
+                    "type TEXT NOT NULL, " +
+                    "name TEXT NOT NULL, " +
+                    "base_url TEXT NOT NULL, " +
+                    "api_key TEXT NOT NULL, " +
+                    "is_enabled INTEGER NOT NULL, " +
+                    "is_built_in INTEGER NOT NULL, " +
+                    "sort_order INTEGER NOT NULL, " +
+                    "system_prompt TEXT, " +
+                    "custom_headers_json TEXT NOT NULL, " +
+                    "custom_body_json TEXT NOT NULL, " +
+                    "created_at INTEGER NOT NULL, " +
+                    "endpoint_mode TEXT NOT NULL, " +
+                    "hosted_web_search_enabled INTEGER NOT NULL DEFAULT 0, " +
+                    "anthropic_version TEXT NOT NULL, " +
+                    "balance_option_json TEXT NOT NULL DEFAULT '{}', " +
+                    "PRIMARY KEY(id))"
+            )
+            if (hasBalance) {
                 database.execSQL(
-                    "ALTER TABLE model_providers ADD COLUMN " +
-                        "balance_option_json TEXT NOT NULL DEFAULT '{}'"
+                    "INSERT INTO model_providers_new (" +
+                        "id, type, name, base_url, api_key, is_enabled, is_built_in, " +
+                        "sort_order, system_prompt, custom_headers_json, custom_body_json, " +
+                        "created_at, endpoint_mode, hosted_web_search_enabled, " +
+                        "anthropic_version, balance_option_json) " +
+                        "SELECT id, type, name, base_url, api_key, is_enabled, is_built_in, " +
+                        "sort_order, system_prompt, custom_headers_json, custom_body_json, " +
+                        "created_at, endpoint_mode, hosted_web_search_enabled, " +
+                        "anthropic_version, COALESCE(NULLIF(balance_option_json, ''), '{}') " +
+                        "FROM model_providers"
+                )
+            } else {
+                database.execSQL(
+                    "INSERT INTO model_providers_new (" +
+                        "id, type, name, base_url, api_key, is_enabled, is_built_in, " +
+                        "sort_order, system_prompt, custom_headers_json, custom_body_json, " +
+                        "created_at, endpoint_mode, hosted_web_search_enabled, " +
+                        "anthropic_version, balance_option_json) " +
+                        "SELECT id, type, name, base_url, api_key, is_enabled, is_built_in, " +
+                        "sort_order, system_prompt, custom_headers_json, custom_body_json, " +
+                        "created_at, endpoint_mode, hosted_web_search_enabled, " +
+                        "anthropic_version, '{}' FROM model_providers"
                 )
             }
+            database.execSQL("DROP TABLE model_providers")
+            database.execSQL("ALTER TABLE model_providers_new RENAME TO model_providers")
         }
 
         internal val MIGRATION_7_8 = Migration(7, 8) { database ->

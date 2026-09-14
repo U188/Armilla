@@ -590,7 +590,10 @@ class SkillLoader(private val skillsRoot: File) {
     private val resourceReader = SkillResourceReader(skillsRoot)
 
     fun load(entry: SkillIndexEntry, triggerReason: String): ResolvedSkillContext? =
-        SkillMutationLock.withLock(skillsRoot) {
+        SkillMutationLock.withLock(
+            skillsRoot = skillsRoot,
+            recoveryHandler = { },
+        ) {
             loadAfterRecovery(entry, triggerReason)
         }
 

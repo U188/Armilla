@@ -1248,6 +1248,14 @@ internal class AgentLocalTools(
     private fun isVisibleInCurrentRun(skillId: String): Boolean {
         val normalized = SkillParser.normalizeSkillLookup(skillId)
         if (normalized in mutatedSkillIds) return false
+        val snapshotIds = when {
+            runSkillEntries.isNotEmpty() ->
+                runSkillEntries.map { SkillParser.normalizeSkillLookup(it.id) }.toSet()
+            runAvailableSkillIds.isNotEmpty() ->
+                runAvailableSkillIds.map(SkillParser::normalizeSkillLookup).toSet()
+            else -> emptySet()
+        }
+        if (snapshotIds.isNotEmpty()) return normalized in snapshotIds
         return liveSkillEntries().any { SkillParser.normalizeSkillLookup(it.id) == normalized }
     }
 

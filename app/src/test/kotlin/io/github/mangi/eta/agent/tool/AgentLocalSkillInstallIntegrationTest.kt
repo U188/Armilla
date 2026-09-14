@@ -149,6 +149,8 @@ class AgentLocalSkillInstallIntegrationTest {
         assertEquals("NEXT_TURN_REQUIRED", sameTurnResource.getString("code"))
         tools.close()
 
+        val nextTurnEntries = indexService.listSkillsForManagement(forceRefresh = true)
+            .filter { it.id == "demo-skill" && it.installed }
         val nextTurnTools = AgentLocalTools(
             context = context,
             logger = NoOpLogger,
@@ -156,6 +158,7 @@ class AgentLocalSkillInstallIntegrationTest {
             skillLoader = SkillLoader(skillsRoot),
             skillResourceReader = SkillResourceReader(skillsRoot),
             runAvailableSkillIds = setOf("demo-skill"),
+            runSkillEntries = nextTurnEntries,
         )
         val nextTurnRead = JSONObject(
             nextTurnTools.execute(

@@ -20,7 +20,6 @@ internal data class ProviderConfigDraft(
     val name: String,
     val baseUrl: String,
     val apiKey: String,
-    val systemPrompt: String,
     val isEnabled: Boolean,
     val endpointMode: String,
     val hostedWebSearchEnabled: Boolean,
@@ -34,7 +33,6 @@ internal data class ProviderConfigDraft(
             name = provider.name,
             baseUrl = provider.baseUrl,
             apiKey = provider.apiKey,
-            systemPrompt = provider.systemPrompt.orEmpty(),
             isEnabled = provider.isEnabled,
             endpointMode = when (provider) {
                 is OpenAiCompatibleProviderSetting -> provider.endpointMode
@@ -56,7 +54,6 @@ internal val ProviderConfigDraftSaver = mapSaver(
             "name" to draft.name,
             "baseUrl" to draft.baseUrl,
             "apiKey" to draft.apiKey,
-            "systemPrompt" to draft.systemPrompt,
             "isEnabled" to draft.isEnabled,
             "endpointMode" to draft.endpointMode,
             "hostedWebSearchEnabled" to draft.hostedWebSearchEnabled,
@@ -77,7 +74,6 @@ internal val ProviderConfigDraftSaver = mapSaver(
             name = state.getValue("name") as String,
             baseUrl = state.getValue("baseUrl") as String,
             apiKey = state.getValue("apiKey") as String,
-            systemPrompt = state.getValue("systemPrompt") as String,
             isEnabled = state.getValue("isEnabled") as Boolean,
             endpointMode = state.getValue("endpointMode") as String,
             hostedWebSearchEnabled = state.getValue("hostedWebSearchEnabled") as Boolean,
@@ -99,7 +95,6 @@ internal fun buildUpdatedProvider(
     name: String,
     baseUrl: String,
     apiKey: String,
-    systemPrompt: String,
     isEnabled: Boolean,
     endpointMode: String,
     hostedWebSearchEnabled: Boolean,
@@ -107,7 +102,6 @@ internal fun buildUpdatedProvider(
     customHeaders: List<CustomHeader>,
     balanceOption: BalanceOption,
 ): ProviderSetting {
-    val prompt = systemPrompt.trim().takeIf { it.isNotBlank() }
     return when (source) {
         is OpenAiCompatibleProviderSetting -> source.copy(
             customHeaders = customHeaders.map { it.copy(name = it.name.trim()) },
@@ -115,7 +109,6 @@ internal fun buildUpdatedProvider(
             name = name.trim(),
             baseUrl = baseUrl.trim(),
             apiKey = apiKey.trim(),
-            systemPrompt = prompt,
             isEnabled = isEnabled,
             endpointMode = endpointMode,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
@@ -126,7 +119,6 @@ internal fun buildUpdatedProvider(
             name = name.trim(),
             baseUrl = baseUrl.trim(),
             apiKey = apiKey.trim(),
-            systemPrompt = prompt,
             isEnabled = isEnabled,
             endpointMode = endpointMode,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
@@ -137,7 +129,6 @@ internal fun buildUpdatedProvider(
             name = name.trim(),
             baseUrl = baseUrl.trim(),
             apiKey = apiKey.trim(),
-            systemPrompt = prompt,
             isEnabled = isEnabled,
             anthropicVersion = anthropicVersion.trim().ifBlank { AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
         )

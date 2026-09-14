@@ -494,14 +494,12 @@
   <string name="ui_user_skills_748e7f">用户安装</string>
   <string name="ui_determined_by_model_or_provider_06c326">由模型或 Provider 决定</string>
   <string name="ui_long_press_the_power_button_1958d0">电源键长按</string>
-  <string name="ui_leave_blank_to_use_the_default_mobile_agent_prompt_w_21e7c8">留空使用默认手机 Agent 提示词</string>
   <string name="ui_knew_cb63c6">知道了</string>
   <string name="ui_remove_image_089db3">移除图片</string>
   <string name="ui_remove_file_reference_04bbfc">移除文件引用</string>
   <string name="ui_system_assistant_takes_over_f46043">系统助手接管</string>
   <string name="ui_system_enhancement_dcd4ad">系统增强</string>
   <string name="ui_system_applications_have_voice_wake_up_permissions_f_0190f2">系统应用享有语音唤醒权限、更少的自启限制，体验接近原生。将通过 Magisk / KernelSU 模块安装，重启后生效。</string>
-  <string name="ui_system_prompt_word_193981">系统提示词</string>
   <string name="ui_result_0a2c91">结果</string>
   <string name="ui_absolute_path_9ac6fc">绝对路径</string>
   <string name="ui_edit_a7f814">编辑</string>

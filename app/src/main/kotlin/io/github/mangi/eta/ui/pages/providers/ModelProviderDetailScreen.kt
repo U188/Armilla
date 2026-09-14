@@ -332,7 +332,6 @@ private fun ProviderConfigTab(
                                         name = draft.name,
                                         baseUrl = draft.baseUrl,
                                         apiKey = draft.apiKey,
-                                        systemPrompt = draft.systemPrompt,
                                         isEnabled = draft.isEnabled,
                                         endpointMode = draft.endpointMode,
                                         hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
@@ -377,7 +376,6 @@ private fun ProviderConfigTab(
                         name = draft.name,
                         baseUrl = draft.baseUrl,
                         apiKey = draft.apiKey,
-                        systemPrompt = draft.systemPrompt,
                         isEnabled = draft.isEnabled,
                         endpointMode = draft.endpointMode,
                         hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
@@ -386,29 +384,6 @@ private fun ProviderConfigTab(
                         balanceOption = draft.balanceOption,
                     ),
                 )
-            }
-        }
-
-        item(key = "system_prompt") {
-            ProviderSection(title = stringResource(R.string.ui_system_prompt_word_193981)) {
-                HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                Column(modifier = Modifier.padding(16.dp)) {
-                    TextField(
-                        value = draft.systemPrompt,
-                        onValueChange = { onDraftChange(draft.copy(systemPrompt = it)) },
-                        label = stringResource(R.string.ui_system_prompt_word_193981),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                        singleLine = false,
-                    )
-                    Text(
-                        text = stringResource(R.string.ui_leave_blank_to_use_the_default_mobile_agent_prompt_w_21e7c8),
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
             }
         }
 
@@ -444,7 +419,6 @@ private fun ProviderConfigTab(
                                 name = draft.name,
                                 baseUrl = draft.baseUrl,
                                 apiKey = draft.apiKey,
-                                systemPrompt = draft.systemPrompt,
                                 isEnabled = draft.isEnabled,
                                 endpointMode = draft.endpointMode,
                                 hostedWebSearchEnabled = draft.hostedWebSearchEnabled,

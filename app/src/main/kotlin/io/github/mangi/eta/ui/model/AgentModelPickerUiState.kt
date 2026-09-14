@@ -245,8 +245,8 @@ internal fun messageRoundFromId(id: String): Int? {
 
 internal fun windowTokensFromUsage(usage: TokenUsageUi?): Int? {
     if (usage == null || usage.isEmpty) return null
-    usage.contextTokens?.takeIf { it > 0 }?.let { return it }
-    return usage.inputTokens?.takeIf { it > 0 }
+    usage.inputTokens?.takeIf { it > 0 }?.let { return it }
+    return usage.contextTokens?.takeIf { it > 0 }
 }
 
 @Suppress("UNUSED_PARAMETER")

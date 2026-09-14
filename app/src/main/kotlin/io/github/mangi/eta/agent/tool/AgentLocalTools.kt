@@ -868,7 +868,14 @@ internal class AgentLocalTools(
             if (now - at < 400L) return entries
         }
         val indexService = skillIndexService
-        val entries = if (AssistantRepository.isReady() && indexService != null) {
+        val appSkillsRoot = runCatching { SkillRuntime.skillsRoot(context).canonicalFile }.getOrNull()
+        val indexRoot = runCatching { indexService?.skillsRoot?.canonicalFile }.getOrNull()
+        val entries = if (
+            AssistantRepository.isReady() &&
+            indexService != null &&
+            appSkillsRoot != null &&
+            indexRoot == appSkillsRoot
+        ) {
             val enabled = AssistantRepository.active().enabledSkillIds.toSet()
             indexService.listSkillsForManagement()
                 .filter { it.installed && it.id in enabled }

@@ -215,7 +215,7 @@ private class BuiltinSkillAssetStore(
 
 class SkillIndexService(
     private val context: Context,
-    private val skillsRoot: File,
+    internal val skillsRoot: File,
 ) {
     private val indexLock = Any()
     private val registryStore = SkillRegistryStore(context.applicationContext)

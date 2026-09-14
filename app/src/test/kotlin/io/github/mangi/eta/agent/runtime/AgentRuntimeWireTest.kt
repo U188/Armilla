@@ -25,12 +25,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class AgentRuntimeWireTest {
     private fun emptyHistoryDescriptor(): android.os.ParcelFileDescriptor {
-        val pipe = android.os.ParcelFileDescriptor.createPipe()
-        java.io.FileOutputStream(pipe[1].fileDescriptor).use { output ->
-            output.write("[]".toByteArray(Charsets.UTF_8))
-        }
-        pipe[1].close()
-        return pipe[0]
+        val prepared = AgentRuntimeHistoryTransfer.prepare(
+            RuntimeEnvironment.getApplication(),
+            emptyList(),
+        )
+        return prepared.descriptor
     }
 
     @Test

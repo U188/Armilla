@@ -12,6 +12,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RuntimeConfigRepositoryTest {
@@ -50,13 +51,9 @@ class RuntimeConfigRepositoryTest {
         assertEquals(listOf("x-provider", "x-model"), config.customHeaders.map { it.name })
         assertEquals(ReasoningEffort.OFF, config.reasoningEffort)
         assertEquals(false, config.thinkingEnabled)
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.MINIMAL,
-            ),
-            config.reasoningCapabilities?.selectableEfforts,
-        )
+        assertEquals(true, config.reasoningCapabilities?.canDisable)
+        assertTrue(config.reasoningCapabilities?.selectableEfforts?.contains(ReasoningEffort.OFF) == true)
+        assertTrue(config.reasoningCapabilities?.selectableEfforts?.contains(ReasoningEffort.MINIMAL) == true)
         assertEquals(config, Json.decodeFromString<AgentModelClient.ModelConfig>(raw))
     }
 

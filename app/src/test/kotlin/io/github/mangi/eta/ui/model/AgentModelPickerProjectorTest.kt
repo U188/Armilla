@@ -574,7 +574,7 @@ class AgentModelPickerProjectorTest {
         )
         val streaming = AgentMessageUi(id = "a2", content = "partial reply", isStreaming = true)
         val live = billed + thinking + tool + streaming
-        assertEquals(1000, latestBilledContextTokens(live))
+        assertEquals(900, latestBilledContextTokens(live))
     }
 
     @Test

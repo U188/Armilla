@@ -9,10 +9,12 @@ import android.service.voice.VoiceInteractionService
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessibilityNew
-import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
@@ -20,7 +22,9 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Extension
@@ -57,6 +61,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -98,7 +103,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -129,6 +136,7 @@ internal fun SettingsScreen(
     var installingSystemizer by remember { mutableStateOf(false) }
     val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
     var checkingUpdate by remember { mutableStateOf(false) }
+    var relayStationExpanded by remember { mutableStateOf(false) }
     var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
     val appSettings by SettingsDataStore.settingsFlow().collectAsState(
         initial = io.github.mangi.eta.data.model.Settings(),
@@ -703,16 +711,8 @@ internal fun SettingsScreen(
                         onClick = { onNavigate(AppRoute.Permissions) },
                     )
                     ArrowPreference(
-                        title = "Root",
+                        title = stringResource(R.string.capability_enhancements),
                         summary = capabilities.root.description(context),
-                        startAction = {
-                            PreferenceIcon(icon = Icons.Rounded.AdminPanelSettings)
-                        },
-                        onClick = { onNavigate(AppRoute.SystemEnhance) },
-                    )
-                    ArrowPreference(
-                        title = stringResource(R.string.route_system_enhancements),
-                        summary = stringResource(R.string.capability_enhancements_summary),
                         startAction = {
                             PreferenceIcon(icon = Icons.Rounded.Security)
                         },
@@ -924,26 +924,59 @@ internal fun SettingsScreen(
                             context.startActivity(intent)
                         },
                     )
-                    ArrowPreference(
+                    BasicComponent(
                         title = stringResource(R.string.about_relay_station),
-                        summary = "api.123336.xyz",
                         startAction = {
                             PreferenceIcon(
                                 icon = Icons.Rounded.Language,
                             )
                         },
-                        onClick = {
-                            val intent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse("https://api.123336.xyz/sign-up?aff=Wd45"),
+                        endActions = {
+                            Icon(
+                                imageVector = if (relayStationExpanded) {
+                                    Icons.Rounded.ExpandMore
+                                } else {
+                                    Icons.Rounded.ChevronRight
+                                },
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .align(Alignment.CenterVertically)
+                                    .padding(end = 6.dp)
+                                    .size(16.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
                             )
-                            runCatching { context.startActivity(intent) }.onFailure {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.about_relay_station_open_failed),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                        },
+                        holdDownState = relayStationExpanded,
+                        onClick = { relayStationExpanded = !relayStationExpanded },
+                        bottomAction = if (relayStationExpanded) {
+                            {
+                                Column {
+                                    ArrowPreference(
+                                        title = "https://api.123336.xyz/sign-up?aff=Wd45",
+                                        insideMargin = PaddingValues(0.dp),
+                                        onClick = {
+                                            openExternalUrl(
+                                                context,
+                                                "https://api.123336.xyz/sign-up?aff=Wd45",
+                                                context.getString(R.string.about_relay_station_open_failed),
+                                            )
+                                        },
+                                    )
+                                    ArrowPreference(
+                                        title = "https://www.u354483.nyat.app:35119/register?aff=5U8U292F5RG6",
+                                        insideMargin = PaddingValues(0.dp),
+                                        onClick = {
+                                            openExternalUrl(
+                                                context,
+                                                "https://www.u354483.nyat.app:35119/register?aff=5U8U292F5RG6",
+                                                context.getString(R.string.about_relay_station_open_failed),
+                                            )
+                                        },
+                                    )
+                                }
                             }
+                        } else {
+                            null
                         },
                     )
                 }
@@ -1178,6 +1211,17 @@ private fun isEtaAssistantActive(context: Context): Boolean =
         context,
         ComponentName(context, EtaVoiceInteractionService::class.java),
     )
+
+
+private fun openExternalUrl(context: Context, url: String, failureMessage: String) {
+    val intent = android.content.Intent(
+        android.content.Intent.ACTION_VIEW,
+        android.net.Uri.parse(url),
+    )
+    runCatching { context.startActivity(intent) }.onFailure {
+        Toast.makeText(context, failureMessage, Toast.LENGTH_SHORT).show()
+    }
+}
 
 private fun SystemizerInstallResult.toToastMessage(context: Context): String =
     when (this) {

@@ -41,6 +41,7 @@ fun MiuixScaffoldPage(
     val backdrop = rememberTopBarBackdrop()
     val topBarColor = topBarContainerColor(backdrop)
 
+    WithoutPressRipple {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -78,6 +79,7 @@ fun MiuixScaffoldPage(
                 }
             }
         }
+    }
     }
 }
 

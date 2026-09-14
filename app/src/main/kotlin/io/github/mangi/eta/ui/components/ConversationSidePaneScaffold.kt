@@ -38,7 +38,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Mood
+import androidx.compose.material.icons.rounded.HealthAndSafety
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.History
@@ -445,7 +445,7 @@ private fun ConversationPanePanel(
             )
             Spacer(modifier = Modifier.height(DrawerMetrics.DockTopGap))
             PaneDock(
-                onOpenAssistants = onOpenAssistants,
+                onOpenPermissions = onOpenPermissions,
                 onOpenSettings = onOpenSettings,
                 onOpenModelProviders = onOpenModelProviders,
                 onOpenUsageStats = onOpenUsageStats,
@@ -1036,7 +1036,7 @@ private fun PaneAssistantBar(
 
 @Composable
 private fun PaneDock(
-    onOpenAssistants: () -> Unit,
+    onOpenPermissions: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModelProviders: () -> Unit,
     onOpenUsageStats: () -> Unit,
@@ -1047,9 +1047,9 @@ private fun PaneDock(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         DrawerCircleButton(
-            icon = Icons.Outlined.Mood,
-            label = stringResource(R.string.assistant_list_title),
-            onClick = onOpenAssistants,
+            icon = Icons.Rounded.HealthAndSafety,
+            label = stringResource(R.string.ui_permission_health_3048bb),
+            onClick = onOpenPermissions,
         )
         Spacer(modifier = Modifier.width(10.dp))
         DrawerCircleButton(

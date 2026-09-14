@@ -29,10 +29,8 @@ import io.github.mangi.eta.ui.model.AgentToolsAction
 import io.github.mangi.eta.ui.model.AgentToolsUiState
 import io.github.mangi.eta.ui.model.ToolItemUi
 import io.github.mangi.eta.ui.model.projectToolGroups
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 
 private object ToolsMetrics {
     val GridHorizontalPadding = 20.dp
@@ -77,15 +75,6 @@ fun AgentToolsScreen(
                     rootGranted = capabilities.root.isGranted,
                     capabilities = capabilities.tools,
                     onAction = onAction,
-                )
-            }
-        }
-        item(key = "capability-discovery") {
-            Card(modifier = Modifier.padding(horizontal = 20.dp).padding(top = 4.dp, bottom = 12.dp)) {
-                ArrowPreference(
-                    title = stringResource(R.string.capability_enhancements),
-                    summary = stringResource(R.string.capability_enhancements_summary),
-                    onClick = { onAction(AgentToolsAction.OpenEnhancements) },
                 )
             }
         }

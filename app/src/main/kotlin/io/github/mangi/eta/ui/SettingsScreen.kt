@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessibilityNew
+import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GppMaybe
+import androidx.compose.material.icons.rounded.HealthAndSafety
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.Inventory
 import androidx.compose.material.icons.rounded.Inventory2
@@ -84,6 +86,7 @@ import io.github.mangi.eta.ui.app.rememberDeviceCapabilities
 import io.github.mangi.eta.ui.components.AppUpdateDialog
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
+import io.github.mangi.eta.ui.components.WithoutPressRipple
 import io.github.mangi.eta.ui.components.PreferenceIcon
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.navigation.AppRoute
@@ -257,6 +260,7 @@ internal fun SettingsScreen(
         DropdownItem(text = target.displayName(context))
     }
 
+    WithoutPressRipple {
     MiuixScaffoldPage(
         title = stringResource(R.string.ui_set_up_7debf9),
         onBack = onBack,
@@ -690,6 +694,30 @@ internal fun SettingsScreen(
                 SmallTitle(stringResource(R.string.ui_permissions_560165))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                     ArrowPreference(
+                        title = stringResource(R.string.ui_permission_health_3048bb),
+                        summary = stringResource(R.string.ui_permissions_and_status_35f368),
+                        startAction = {
+                            PreferenceIcon(icon = Icons.Rounded.HealthAndSafety)
+                        },
+                        onClick = { onNavigate(AppRoute.Permissions) },
+                    )
+                    ArrowPreference(
+                        title = "Root",
+                        summary = capabilities.root.description(context),
+                        startAction = {
+                            PreferenceIcon(icon = Icons.Rounded.AdminPanelSettings)
+                        },
+                        onClick = { onNavigate(AppRoute.SystemEnhance) },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.route_system_enhancements),
+                        summary = stringResource(R.string.capability_enhancements_summary),
+                        startAction = {
+                            PreferenceIcon(icon = Icons.Rounded.Security)
+                        },
+                        onClick = { onNavigate(AppRoute.SystemEnhance) },
+                    )
+                    ArrowPreference(
                         title = stringResource(R.string.ui_floating_window_permissions_076b77),
                         startAction = {
                             PreferenceIcon(
@@ -895,9 +923,32 @@ internal fun SettingsScreen(
                             context.startActivity(intent)
                         },
                     )
+                    ArrowPreference(
+                        title = stringResource(R.string.about_relay_station),
+                        summary = "api.123336.xyz",
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.Language,
+                            )
+                        },
+                        onClick = {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://api.123336.xyz/sign-up?aff=Wd45"),
+                            )
+                            runCatching { context.startActivity(intent) }.onFailure {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.about_relay_station_open_failed),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                    )
                 }
             }
         }
+    }
 
         AppUpdateDialog(
             offer = updateOffer,

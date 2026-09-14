@@ -472,6 +472,8 @@
   <string name="update_check_title">Check for updates</string>
   <string name="about_telegram_channel">Telegram channel</string>
   <string name="about_telegram_open_failed">Couldn\'t open Telegram</string>
+  <string name="about_relay_station">Personal relay</string>
+  <string name="about_relay_station_open_failed">Couldn\'t open the relay site</string>
   <string name="update_checking">Checking…</string>
   <string name="update_current_version">Current version %1$s</string>
   <string name="update_unknown_version">Unknown</string>

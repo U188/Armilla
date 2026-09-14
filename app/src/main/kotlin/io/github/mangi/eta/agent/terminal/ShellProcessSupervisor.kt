@@ -301,6 +301,10 @@ internal class ShellProcessSupervisor(
         val payload = shellQuote(command.orEmpty())
         // name 经 SharedFolderMounts 校验只含 [A-Za-z0-9._-]，可安全拼进双引号路径。
         val skillsDir = TerminalRuntime.skillsDirectory()?.takeIf { it.isDirectory }?.absolutePath
+        val offloadsDir = TerminalRuntime.minisOffloadsDirectory()?.absolutePath
+            ?: "/data/local/tmp/eta/offloads"
+        val browserDir = TerminalRuntime.minisBrowserDirectory()?.absolutePath
+            ?: "/data/local/tmp/eta/browser"
         val mountsBlock = buildList {
             sharedMounts.forEach { mount ->
                 add(
@@ -310,6 +314,12 @@ internal class ShellProcessSupervisor(
             }
             if (!skillsDir.isNullOrBlank()) {
                 add("eta_mount_optional ${shellQuote(skillsDir)} \"\$eta_rootfs/var/minis/skills\" bind")
+            }
+            if (!offloadsDir.isNullOrBlank()) {
+                add("eta_mount_optional ${shellQuote(offloadsDir)} \"\$eta_rootfs/var/minis/offloads\" bind")
+            }
+            if (!browserDir.isNullOrBlank()) {
+                add("eta_mount_optional ${shellQuote(browserDir)} \"\$eta_rootfs/var/minis/browser\" bind")
             }
         }.joinToString("\n")
 
@@ -340,11 +350,9 @@ internal class ShellProcessSupervisor(
             fi
             [ -d /data/local/tmp ] || exit 125
             eta_mount_required /data/local/tmp "${'$'}eta_rootfs/data/local/tmp" bind
-            "${'$'}eta_busybox" mkdir -p /data/local/tmp/eta /data/local/tmp/eta/offloads /data/local/tmp/eta/browser || exit 125
+            "${'$'}eta_busybox" mkdir -p /data/local/tmp/eta || exit 125
             eta_mount_required /data/local/tmp/eta "${'$'}eta_rootfs/workspace" bind
             eta_mount_optional /data/local/tmp/eta "${'$'}eta_rootfs/var/minis/workspace" bind
-            eta_mount_optional /data/local/tmp/eta/offloads "${'$'}eta_rootfs/var/minis/offloads" bind
-            eta_mount_optional /data/local/tmp/eta/browser "${'$'}eta_rootfs/var/minis/browser" bind
         """.trimIndent()
         val innerScriptTail = """
             if [ "${'$'}eta_mode" = command ]; then

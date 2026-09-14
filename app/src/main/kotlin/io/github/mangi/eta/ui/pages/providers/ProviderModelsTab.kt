@@ -30,9 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -363,7 +361,36 @@ internal fun ProviderModelsTab(
                 }
             } else {
                 item(key = "models_title", contentType = "section_title") {
-                    SmallTitle(modelListTitle)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            SmallTitle(modelListTitle)
+                        }
+                        if (selectionMode) {
+                            Text(
+                                text = stringResource(R.string.page_select_all_3e44b2),
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .clickable(
+                                        enabled = !isFetching && !isMutatingModel,
+                                        onClick = {
+                                            selectedModelIds = if (
+                                                filteredModels.isNotEmpty() &&
+                                                selectedModelIds.containsAll(filteredModels.map { it.id })
+                                            ) {
+                                                emptySet()
+                                            } else {
+                                                filteredModels.mapTo(mutableSetOf()) { it.id }
+                                            }
+                                        },
+                                    )
+                                    .padding(end = 16.dp),
+                            )
+                        }
+                    }
                 }
                 itemsIndexed(
                     items = filteredModels,
@@ -428,15 +455,7 @@ internal fun ProviderModelsTab(
         ) {
             ModelSelectionBar(
                 selectedCount = selectedModelIds.size,
-                totalCount = provider.models.size,
                 enabled = !isFetching && !isMutatingModel,
-                onToggleAll = {
-                    selectedModelIds = if (selectedModelIds.size == provider.models.size) {
-                        emptySet()
-                    } else {
-                        provider.models.mapTo(mutableSetOf()) { it.id }
-                    }
-                },
                 onDelete = { showBatchDeleteDialog = true },
                 onExit = {
                     selectionMode = false
@@ -608,13 +627,10 @@ private fun ModelListGroupItem(
 @Composable
 private fun ModelSelectionBar(
     selectedCount: Int,
-    totalCount: Int,
     enabled: Boolean,
-    onToggleAll: () -> Unit,
     onDelete: () -> Unit,
     onExit: () -> Unit,
 ) {
-    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -625,39 +641,26 @@ private fun ModelSelectionBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            IconButton(onClick = onExit, enabled = enabled) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = stringResource(R.string.ui_exit_multiple_selection_c194fd),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                )
-            }
-            Text(
-                text = pluralStringResource(
-                    R.plurals.provider_models_selected,
-                    selectedCount,
-                    selectedCount,
-                ),
-                style = MiuixTheme.textStyles.body2,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(
-                text = if (selectedCount == totalCount) context.getString(R.string.page_select_none_ba20eb) else context.getString(R.string.page_select_all_3e44b2),
-                enabled = enabled,
-                onClick = onToggleAll,
-            )
             TextButton(
                 text = stringResource(R.string.ui_delete_3755f5),
                 enabled = selectedCount > 0 && enabled,
+                modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.textButtonColorsPrimary(
                     color = MiuixTheme.colorScheme.error,
                     textColor = MiuixTheme.colorScheme.onError,
                 ),
                 onClick = onDelete,
+            )
+            TextButton(
+                text = stringResource(R.string.action_cancel),
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                onClick = onExit,
             )
         }
     }
@@ -733,17 +736,14 @@ private fun ModelListItem(
                         tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
                     )
                 }
-                IconButton(onClick = onSetCurrent, enabled = enabled) {
-                    Icon(
-                        imageVector = if (isSelected) Icons.Rounded.Check
-                            else Icons.Rounded.RadioButtonUnchecked,
-                        contentDescription = if (isSelected) context.getString(R.string.page_current_model_a0af8f) else context.getString(R.string.page_set_as_current_model_183d7d),
-                        tint = if (isSelected) {
-                            MiuixTheme.colorScheme.primary
-                        } else {
-                            MiuixTheme.colorScheme.onSurfaceVariantActions
-                        },
-                    )
+                if (isSelected) {
+                    IconButton(onClick = onSetCurrent, enabled = enabled) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = context.getString(R.string.page_current_model_a0af8f),
+                            tint = MiuixTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
         }

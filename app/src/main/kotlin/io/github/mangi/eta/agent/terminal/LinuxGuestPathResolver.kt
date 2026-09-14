@@ -40,6 +40,8 @@ internal object LinuxGuestPathResolver {
             path = path,
             workspaceHost = workspaceHostForApp(context).path,
             skillsHost = File(context.filesDir, "skills").path,
+            offloadsHost = File(context.filesDir, "minis/offloads").path,
+            browserHost = File(context.filesDir, "minis/browser").path,
             sharedMounts = SharedFolderMounts.current(),
         )
     }
@@ -49,9 +51,11 @@ internal object LinuxGuestPathResolver {
         workspaceHost: String,
         sharedMounts: List<SharedFolderMount> = emptyList(),
         skillsHost: String? = null,
+        offloadsHost: String? = null,
+        browserHost: String? = null,
     ): String {
         val guest = guestPath(path) ?: return path
-        minisHostPath(guest, workspaceHost, skillsHost)?.let { return it }
+        minisHostPath(guest, workspaceHost, skillsHost, offloadsHost, browserHost)?.let { return it }
         if (guest != "/workspace" && !guest.startsWith("/workspace/")) return path
         val relative = guest.removePrefix("/workspace").trim('/')
         sharedMountAndroidPath(relative, sharedMounts)?.let { return it }
@@ -70,7 +74,13 @@ internal object LinuxGuestPathResolver {
         return LinuxFileExplorer.normalizeLinuxPath(trimmed)
     }
 
-    private fun minisHostPath(guest: String, workspaceHost: String, skillsHost: String?): String? {
+    private fun minisHostPath(
+        guest: String,
+        workspaceHost: String,
+        skillsHost: String?,
+        offloadsHost: String?,
+        browserHost: String?,
+    ): String? {
         if (guest != MINIS_ROOT && !guest.startsWith("$MINIS_ROOT/")) return null
         val relative = guest.removePrefix(MINIS_ROOT).trim('/')
         if (relative.isEmpty()) return workspaceHost
@@ -78,8 +88,8 @@ internal object LinuxGuestPathResolver {
         val child = relative.substringAfter('/', missingDelimiterValue = "")
         return when (namespace) {
             "workspace" -> joinHost(workspaceHost, child)
-            "offloads" -> joinHost(workspaceHost, "offloads/$child".trimEnd('/'))
-            "browser" -> joinHost(workspaceHost, "browser/$child".trimEnd('/'))
+            "offloads" -> joinHost(offloadsHost ?: "$workspaceHost/offloads", child)
+            "browser" -> joinHost(browserHost ?: "$workspaceHost/browser", child)
             "skills" -> skillsHost?.let { joinHost(it, child) } ?: joinHost(workspaceHost, "skills/$child".trimEnd('/'))
             "attachments", "shared", "memory", "mounts" -> joinHost(workspaceHost, relative)
             else -> joinHost(workspaceHost, relative)

@@ -723,7 +723,7 @@ internal object AgentBrowserSession {
         val base64 = payload.optString("base64")
         val data = if (base64.isNotBlank()) Base64.decode(base64, Base64.DEFAULT) else ByteArray(0)
         if (data.size > FETCH_MAX_BYTES) throw BrowserFailure("FETCH_TOO_LARGE", "下载内容超过大小限制")
-        val directory = File(TerminalRuntime.workspace("root"), "browser").apply { mkdirs() }
+        val directory = (TerminalRuntime.minisBrowserDirectory() ?: File(TerminalRuntime.workspace("root"), "browser")).apply { mkdirs() }
         val extension = extensionForMime(payload.optString("contentType"))
         val file = File(directory, "fetch_${System.currentTimeMillis()}.$extension")
         file.writeBytes(data)
@@ -753,7 +753,8 @@ internal object AgentBrowserSession {
             .take(80)
         val context = appContext
             ?: throw BrowserFailure("BROWSER_NOT_INITIALIZED", "浏览器尚未初始化")
-        val offloadDir = File(LinuxGuestPathResolver.workspaceHostForApp(context), "offloads")
+        val offloadDir = TerminalRuntime.minisOffloadsDirectory()
+            ?: File(context.filesDir, "minis/offloads").apply { mkdirs() }
         val file = runCatching {
             BrowserCookieOffload.write(
                 directory = offloadDir,
@@ -768,13 +769,12 @@ internal object AgentBrowserSession {
             baseEnvelope("get_cookies", true, "ok")
                 .put("cookie_count", cookies.size)
                 .put("cookie_names", BrowserCookieOffload.namesArray(cookies))
-                .put("env_path", "/workspace/offloads/${file.name}")
+                .put("env_path", "/var/minis/offloads/${file.name}")
                 .put("minis_env_path", "/var/minis/offloads/${file.name}")
                 .put(
                     "note",
                     "明文 cookie 已写入 env 文件，未包含在此结果中。" +
-                        "Linux 中执行: . /var/minis/offloads/${file.name}" +
-                        " 或 . /workspace/offloads/${file.name}。" +
+                        "Linux 中执行: . /var/minis/offloads/${file.name}。" +
                         "变量名为 COOKIE_<NAME>，例如 COOKIE_SESSDATA。",
                 ),
         )
@@ -809,7 +809,7 @@ internal object AgentBrowserSession {
         val profile = BrowserUserAgent.fromWire(args.optString("user_agent"))
             ?: throw BrowserFailure("INVALID_ARGUMENT", "user_agent 仅支持 desktop_chrome 或 mobile_chrome")
         val view = ensureWebView()
-        val reloadNeeded = currentUrl.isNotBlank()
+        val reloadUrl = currentUrl.takeIf { it.isNotBlank() }
         callOnMain {
             userAgentProfile = profile
             sessionViewport = null
@@ -819,9 +819,14 @@ internal object AgentBrowserSession {
                 layoutOffscreenOnMain(view, profile.viewportWidth, profile.viewportHeight)
             }
             publishSnapshotOnMain()
-            if (reloadNeeded) view.reload()
+            if (reloadUrl != null) {
+                view.stopLoading()
+                view.loadUrl(reloadUrl)
+            }
         }
-        if (reloadNeeded) waitForPostAction()
+        if (reloadUrl != null) {
+            runCatching { waitForPostAction() }
+        }
         return toolResult(
             baseEnvelope("set_user_agent", true, "ok")
                 .put("user_agent", profile.wireName)
@@ -1140,7 +1145,7 @@ internal object AgentBrowserSession {
         view.settings.displayZoomControls = false
         view.settings.useWideViewPort = true
         view.settings.loadWithOverviewMode = true
-        view.settings.userAgentString = userAgentProfile.userAgent
+        view.settings.setUserAgentString(userAgentProfile.userAgent)
     }
 
     private fun attachWebViewOnMain(view: WebView, container: ViewGroup) {

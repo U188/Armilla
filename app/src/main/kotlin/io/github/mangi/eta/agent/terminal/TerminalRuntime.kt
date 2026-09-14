@@ -45,11 +45,20 @@ internal object TerminalRuntime {
 
     fun skillsDirectory(): File? = appContext?.let { File(it.filesDir, "skills") }
 
+    fun minisOffloadsDirectory(): File? = appContext?.let { minisSubdirectory(it.filesDir, "offloads") }
+
+    fun minisBrowserDirectory(): File? = appContext?.let { minisSubdirectory(it.filesDir, "browser") }
+
     fun ensureLinuxWorkspaceLayout(hostWorkspace: String) {
         File(hostWorkspace).mkdirs()
         File(hostWorkspace, "offloads").mkdirs()
         File(hostWorkspace, "browser").mkdirs()
+        minisOffloadsDirectory()
+        minisBrowserDirectory()
     }
+
+    private fun minisSubdirectory(filesDir: File, name: String): File =
+        File(filesDir, "minis/$name").apply { mkdirs() }
 
     fun nativeExecutable(name: String): File? = nativeLibraryDir?.let { File(it, name) }
         ?.takeIf { it.isFile && it.canExecute() }

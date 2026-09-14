@@ -81,6 +81,14 @@ class LinuxGuestPathResolverTest {
         assertEquals("$host/offloads/env.sh", resolve("/var/minis/offloads/env.sh"))
         assertEquals("$host/browser/a.jpg", resolve("/var/minis/browser/a.jpg"))
         assertEquals(
+            "/data/data/app/files/minis/offloads/env.sh",
+            LinuxGuestPathResolver.resolveAndroidPath(
+                path = "/var/minis/offloads/env.sh",
+                workspaceHost = host,
+                offloadsHost = "/data/data/app/files/minis/offloads",
+            ),
+        )
+        assertEquals(
             "/data/data/app/files/skills/bilibili-hub/SKILL.md",
             LinuxGuestPathResolver.resolveAndroidPath(
                 path = "/var/minis/skills/bilibili-hub/SKILL.md",

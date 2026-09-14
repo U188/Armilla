@@ -1853,7 +1853,8 @@ private fun ChatCodeBlock(
                 }
             ),
     ) {
-        if (showChrome) Row(
+        if (showChrome) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 13.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),

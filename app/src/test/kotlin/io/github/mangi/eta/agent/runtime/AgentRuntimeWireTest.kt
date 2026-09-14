@@ -24,11 +24,14 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class AgentRuntimeWireTest {
+    private val retainedHistoryTransfers = mutableListOf<AgentRuntimeHistoryTransfer.PreparedHistory>()
+
     private fun emptyHistoryDescriptor(): android.os.ParcelFileDescriptor {
         val prepared = AgentRuntimeHistoryTransfer.prepare(
             RuntimeEnvironment.getApplication(),
             emptyList(),
         )
+        retainedHistoryTransfers += prepared
         return prepared.descriptor
     }
 

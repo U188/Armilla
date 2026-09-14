@@ -38,6 +38,7 @@ class EtaDatabaseMigrationTest {
         }
 
         val database = Room.databaseBuilder(context, EtaDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
             .addMigrations(
                 EtaDatabase.MIGRATION_6_7,
                 EtaDatabase.MIGRATION_7_8,

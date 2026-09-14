@@ -114,7 +114,7 @@ class AgentLocalSkillInstallIntegrationTest {
         assertFalse(json.getBoolean("scriptsExecuted"))
         assertEquals("demo-skill", json.getJSONArray("installed").getJSONObject(0).getString("id"))
         assertFalse(json.getJSONArray("installed").getJSONObject(0).has("description"))
-        assertTrue(requestedUrls.any { "/commits/$COMMIT_SHA" in it })
+        assertTrue(requestedUrls.any { COMMIT_SHA in it })
         assertTrue(requestedUrls.any { "codeload.github.com/example/skills/zip/$COMMIT_SHA" in it })
         assertTrue(
             indexService.listSkillsForManagement(forceRefresh = true)

@@ -95,7 +95,7 @@ internal object AgentConversationCodec {
                 contentValue.toString()
             },
             toolCallId = message.optString("tool_call_id"),
-            reasoningContent = message.optString("reasoning_content"),
+            reasoningContent = message.optReasoningContent(),
             toolCallsJson = message.optJSONArray("tool_calls")?.toString().orEmpty(),
         )
     }
@@ -231,8 +231,8 @@ internal object AgentConversationCodec {
                         },
                     )
                 }
-                if (source.has("reasoning_content") && !source.isNull("reasoning_content")) {
-                    message.put("reasoning_content", source.optString("reasoning_content"))
+                source.optReasoningContent().takeIf { it.isNotEmpty() }?.let { reasoning ->
+                    message.put("reasoning_content", reasoning)
                 }
                 ResponsesEphemeralState.copyOutputItems(source, message)
             }
@@ -458,4 +458,16 @@ internal object AgentConversationCodec {
         }
         return target.toString()
     }
+}
+
+internal fun JSONObject.optReasoningContent(): String {
+    optString("reasoning_content").takeIf { it.isNotBlank() && it != "null" }?.let { return it }
+    when (val reasoning = opt("reasoning")) {
+        is String -> if (reasoning.isNotBlank() && reasoning != "null") return reasoning
+        is JSONObject -> {
+            reasoning.optString("content").takeIf { it.isNotBlank() && it != "null" }?.let { return it }
+            reasoning.optString("text").takeIf { it.isNotBlank() && it != "null" }?.let { return it }
+        }
+    }
+    return ""
 }

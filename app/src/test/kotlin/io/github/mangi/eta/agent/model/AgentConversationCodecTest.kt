@@ -9,6 +9,35 @@ import org.junit.Test
 
 class AgentConversationCodecTest {
     @Test
+    fun fromJsonObjectReadsReasoningAliasUsedBySomeGateways() {
+        val message = JSONObject()
+            .put("role", "assistant")
+            .put("content", "I will list it.")
+            .put("reasoning", "先确认路径")
+            .put(
+                "tool_calls",
+                JSONArray().put(
+                    JSONObject()
+                        .put("id", "call-1")
+                        .put("type", "function")
+                        .put(
+                            "function",
+                            JSONObject()
+                                .put("name", "list_directory")
+                                .put("arguments", "{}"),
+                        ),
+                ),
+            )
+
+        val durable = AgentConversationCodec.fromJsonObject(message)
+        val replayed = AgentConversationCodec.toJsonObject(durable)
+
+        assertEquals("先确认路径", durable.reasoningContent)
+        assertEquals("先确认路径", replayed.getString("reasoning_content"))
+        assertFalse(replayed.has("reasoning"))
+    }
+
+    @Test
     fun toolRoundTripPreservesReasoningContentForCompatibleProviders() {
         val assistant = JSONObject()
             .put("role", "assistant")

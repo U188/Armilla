@@ -126,6 +126,10 @@ class AgentModelClientLoopTest {
         )
         assertEquals("call-1", provider.requests[1].getJSONObjectFromEnd(2).getString("tool_call_id"))
         assertEquals("call-2", provider.requests[1].getJSONObjectFromEnd(1).getString("tool_call_id"))
+        assertEquals(
+            "需要两个结果",
+            provider.requests[1].getJSONObjectFromEnd(3).getString("reasoning_content"),
+        )
     }
 
     @Test

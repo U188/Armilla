@@ -284,7 +284,8 @@ internal class AgentRuntimeRunExecutor(
                 AndroidAgentLogger.error(
                     "Agent runtime failed: type=${throwable.safeLogType()}, " +
                         "model_code=${requestFailure?.code.orEmpty()}, " +
-                        "cause_type=${requestFailure?.cause?.safeLogType().orEmpty()}"
+                        "cause_type=${requestFailure?.cause?.safeLogType().orEmpty()}, " +
+                        "detail=${(requestFailure?.message ?: throwable.message).orEmpty().take(600)}"
                 )
                 val event = AgentEvent.RunFailed(message)
                 runCatching {

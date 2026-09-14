@@ -208,6 +208,103 @@ class OpenAiChatCompletionsProviderTest {
     }
 
     @Test
+    fun completeParsesReasoningAliasAndFinalMessageSnapshot() {
+        val body = buildString {
+            append(sseChunk(JSONObject().put("reasoning", "先确认目录。")))
+            append(
+                sseChunk(
+                    JSONObject().put(
+                        "tool_calls",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("index", 0)
+                                .put("id", "call_1")
+                                .put("type", "function")
+                                .put(
+                                    "function",
+                                    JSONObject()
+                                        .put("name", "list_directory")
+                                        .put("arguments", "{}")
+                                )
+                        )
+                    ),
+                    finishReason = "tool_calls",
+                    message = JSONObject()
+                        .put("role", "assistant")
+                        .put("content", "")
+                        .put("reasoning_content", "先确认目录。")
+                )
+            )
+            append("data: [DONE]\n\n")
+        }
+
+        withSseServer(body) { baseUrl ->
+            val response = OpenAiChatCompletionsProvider.complete(
+                request = providerRequest(baseUrl),
+                runController = AgentRunController(),
+            )
+            assertEquals("先确认目录。", response.assistantMessage.getString("reasoning_content"))
+            assertEquals(
+                "call_1",
+                response.assistantMessage.getJSONArray("tool_calls").getJSONObject(0).getString("id"),
+            )
+        }
+    }
+
+    @Test
+    fun requestReplaysAssistantReasoningWhenSendingToolResults() {
+        val requestBody = AtomicReference<String>()
+        val body = buildString {
+            append(sseChunk(JSONObject().put("content", "ok"), finishReason = "stop"))
+            append("data: [DONE]\n\n")
+        }
+
+        withSseServer(body, onRequest = requestBody::set) { baseUrl ->
+            OpenAiChatCompletionsProvider.complete(
+                request = providerRequest(baseUrl).copy(
+                    messages = JSONArray()
+                        .put(JSONObject().put("role", "user").put("content", "列出目录"))
+                        .put(
+                            JSONObject()
+                                .put("role", "assistant")
+                                .put("content", "I will read it.")
+                                .put("reasoning_content", "需要先列目录")
+                                .put(
+                                    "tool_calls",
+                                    JSONArray().put(
+                                        JSONObject()
+                                            .put("id", "call_00_test")
+                                            .put("type", "function")
+                                            .put(
+                                                "function",
+                                                JSONObject()
+                                                    .put("name", "list_directory")
+                                                    .put("arguments", "{\"path\":\"/tmp\"}"),
+                                            ),
+                                    ),
+                                ),
+                        )
+                        .put(
+                            JSONObject()
+                                .put("role", "tool")
+                                .put("tool_call_id", "call_00_test")
+                                .put("content", "{\"ok\":true}"),
+                        ),
+                    tools = JSONArray().put(JSONObject().put("type", "function")),
+                ),
+                runController = AgentRunController(),
+            )
+        }
+
+        val sent = JSONObject(requestBody.get()).getJSONArray("messages")
+        val assistant = (0 until sent.length())
+            .map { sent.getJSONObject(it) }
+            .first { it.optString("role") == "assistant" }
+        assertEquals("需要先列目录", assistant.getString("reasoning_content"))
+        assertTrue(assistant.has("tool_calls"))
+    }
+
+    @Test
     fun completeAccumulatesChunkedToolCalls() {
         val body = buildString {
             append(sseChunk(JSONObject().put("reasoning_content", "需要调用工具。")))
@@ -418,10 +515,17 @@ class OpenAiChatCompletionsProviderTest {
             tools = JSONArray()
         )
 
-    private fun sseChunk(delta: JSONObject?, finishReason: String? = null): String {
+    private fun sseChunk(
+        delta: JSONObject?,
+        finishReason: String? = null,
+        message: JSONObject? = null,
+    ): String {
         val choice = JSONObject()
             .put("delta", delta ?: JSONObject.NULL)
             .put("finish_reason", finishReason ?: JSONObject.NULL)
+        if (message != null) {
+            choice.put("message", message)
+        }
         return "data: ${JSONObject().put("choices", JSONArray().put(choice))}\n\n"
     }
 

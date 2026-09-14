@@ -85,6 +85,16 @@ class AgentModelRetryTest {
         assertTrue(AgentModelFailure.stream(JSONObject().put("type", "overloaded_error"), "过载").retryable)
         assertFalse(AgentModelFailure.stream(JSONObject().put("type", "authentication_error"), "认证失败").retryable)
         assertFalse(AgentModelFailure.http(503, "secret request text").message.orEmpty().contains("secret"))
+        assertTrue(
+            AgentModelFailure.http(
+                400,
+                """{"error":{"message":"The `reasoning_content` in the thinking mode must be passed back to the API."}}""",
+            ).message.orEmpty().contains("reasoning_content"),
+        )
+        assertEquals(
+            "模型请求参数无效（HTTP 400），请检查模型配置。",
+            AgentModelFailure.http(400, "").message,
+        )
     }
 
     private fun complete(

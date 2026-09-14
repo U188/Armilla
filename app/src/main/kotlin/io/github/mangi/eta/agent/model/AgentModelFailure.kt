@@ -30,12 +30,22 @@ internal class AgentModelFailure(
                 null
             }
             val permanent = isPermanent(error, body)
+            val providerMessage = error?.optString("message")
+                ?.replace('\n', ' ')
+                ?.replace('\r', ' ')
+                ?.trim()
+                .orEmpty()
+                .take(400)
             return AgentModelFailure(
                 code = "HTTP_$status",
                 retryable = status in transientStatus && !permanent,
                 message = if (permanent) "模型接口额度或计费受限（HTTP $status），请检查服务商账户。"
                 else when (status) {
-                    400 -> "模型请求参数无效（HTTP 400），请检查模型配置。"
+                    400 -> {
+                        val detail = providerMessage.takeIf { it.isNotBlank() }
+                        if (detail != null) "模型请求参数无效（HTTP 400）：$detail"
+                        else "模型请求参数无效（HTTP 400），请检查模型配置。"
+                    }
                     401 -> "模型接口认证失败（HTTP 401），请检查 API Key。"
                     403 -> "模型接口拒绝访问（HTTP 403），请检查账户与模型权限。"
                     404 -> "模型接口或模型不存在（HTTP 404），请检查接口地址与模型名称。"

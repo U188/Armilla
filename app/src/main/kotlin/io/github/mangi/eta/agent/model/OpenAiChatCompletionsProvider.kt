@@ -172,42 +172,57 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 if (reason == "error") {
                     error("模型接口 SSE 以 error 结束")
                 }
-                val delta = choice.optJSONObject("delta") ?: return@sseEvent
-                if (delta.has("reasoning_content") && !delta.isNull("reasoning_content")) {
-                    val text = delta.optString("reasoning_content")
-                    if (text.isNotEmpty()) {
-                        val already = reasoningContent.toString()
-                        when {
-                            already.isEmpty() -> {
-                                reasoningContent.append(text)
-                                appendVisibleDelta(AssistantBlockKind.THINKING, text)
+                val delta = choice.optJSONObject("delta")
+                val snapshot = choice.optJSONObject("message")
+                if (delta == null && snapshot == null) return@sseEvent
+                fun appendReasoning(text: String) {
+                    if (text.isEmpty()) return
+                    val already = reasoningContent.toString()
+                    when {
+                        already.isEmpty() -> {
+                            reasoningContent.append(text)
+                            appendVisibleDelta(AssistantBlockKind.THINKING, text)
+                        }
+                        text == already || already.startsWith(text) -> Unit
+                        text.startsWith(already) -> {
+                            val suffix = text.substring(already.length)
+                            if (suffix.isNotEmpty()) {
+                                reasoningContent.append(suffix)
+                                appendVisibleDelta(AssistantBlockKind.THINKING, suffix)
                             }
-                            text == already || already.startsWith(text) -> Unit
-                            text.startsWith(already) -> {
-                                val suffix = text.substring(already.length)
-                                if (suffix.isNotEmpty()) {
-                                    reasoningContent.append(suffix)
-                                    appendVisibleDelta(AssistantBlockKind.THINKING, suffix)
-                                }
-                            }
-                            else -> {
-                                reasoningContent.append(text)
-                                appendVisibleDelta(AssistantBlockKind.THINKING, text)
-                            }
+                        }
+                        else -> {
+                            reasoningContent.append(text)
+                            appendVisibleDelta(AssistantBlockKind.THINKING, text)
                         }
                     }
                 }
-                if (delta.has("content") && !delta.isNull("content")) {
-                    val text = delta.optString("content")
-                    if (text.isNotEmpty()) {
-                        content.append(text)
-                        appendVisibleDelta(AssistantBlockKind.TEXT, text)
+                if (delta != null) {
+                    appendReasoning(delta.optReasoningContent())
+                    if (delta.has("content") && !delta.isNull("content")) {
+                        val text = delta.optString("content")
+                        if (text.isNotEmpty()) {
+                            content.append(text)
+                            appendVisibleDelta(AssistantBlockKind.TEXT, text)
+                        }
                     }
                 }
-                val deltaToolCalls = delta.optJSONArray("tool_calls") ?: return@sseEvent
-                if (deltaToolCalls.length() > 0) finishActiveVisibleBlock()
-                for (i in 0 until deltaToolCalls.length()) {
-                    val item = deltaToolCalls.optJSONObject(i) ?: continue
+                if (snapshot != null) {
+                    appendReasoning(snapshot.optReasoningContent())
+                    if (content.isEmpty() && snapshot.has("content") && !snapshot.isNull("content")) {
+                        val text = snapshot.optString("content")
+                        if (text.isNotEmpty()) {
+                            content.append(text)
+                            appendVisibleDelta(AssistantBlockKind.TEXT, text)
+                        }
+                    }
+                }
+                val incomingToolCalls = delta?.optJSONArray("tool_calls")?.takeIf { it.length() > 0 }
+                    ?: snapshot?.optJSONArray("tool_calls")?.takeIf { delta == null || toolCalls.isEmpty() }
+                    ?: return@sseEvent
+                if (incomingToolCalls.length() > 0) finishActiveVisibleBlock()
+                for (i in 0 until incomingToolCalls.length()) {
+                    val item = incomingToolCalls.optJSONObject(i) ?: continue
                     val index = item.optInt("index", i)
                     val call = toolCalls.getOrPut(index) {
                         StreamingToolCall(

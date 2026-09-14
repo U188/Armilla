@@ -26,6 +26,7 @@ import io.github.mangi.eta.agent.skill.SkillLoader
 import io.github.mangi.eta.agent.skill.SkillPackageInstaller
 import io.github.mangi.eta.agent.skill.SkillParser
 import io.github.mangi.eta.agent.skill.SkillResourceReader
+import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.agent.skill.SkillResourceReadResult
 import io.github.mangi.eta.agent.skill.GitHubSkillRepositoryParser
 import io.github.mangi.eta.agent.skill.GitHubSkillInspection
@@ -859,11 +860,33 @@ internal class AgentLocalTools(
     }
 
 
+    private val liveSkillCache = AtomicReference<Pair<Long, List<SkillIndexEntry>>?>(null)
+
+    private fun liveSkillEntries(): List<SkillIndexEntry> {
+        val now = SystemClock.uptimeMillis()
+        liveSkillCache.get()?.let { (at, entries) ->
+            if (now - at < 400L) return entries
+        }
+        val assistant = runCatching { AssistantRepository.active() }.getOrNull()
+        val enabled = assistant?.enabledSkillIds?.toSet()
+        val indexService = skillIndexService
+        val entries = if (assistant != null && enabled != null && indexService != null) {
+            indexService.listSkillsForManagement()
+                .filter { it.installed && it.id in enabled }
+                .filter { SkillCompatibilityChecker.evaluate(it).available }
+        } else {
+            runSkillEntries
+        }
+        liveSkillCache.set(now to entries)
+        return entries
+    }
+
     private fun resolveRunSkill(skillId: String): SkillIndexEntry? {
         val normalized = SkillParser.normalizeSkillLookup(skillId)
         if (normalized.isBlank()) return null
-        return runSkillEntries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }
-            ?: runSkillEntries.firstOrNull { SkillParser.normalizeSkillLookup(it.name) == normalized }
+        val entries = liveSkillEntries()
+        return entries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }
+            ?: entries.firstOrNull { SkillParser.normalizeSkillLookup(it.name) == normalized }
     }
 
     // ==================== Skills tools ====================
@@ -874,8 +897,7 @@ internal class AgentLocalTools(
             ?: return errorResult("SKILLS_UNAVAILABLE", "技能服务未初始化")
         val query = args.optString("query").trim().lowercase()
         val limit = args.optInt("limit", 50).coerceIn(1, 200)
-        val entries = (runSkillEntries.takeIf { it.isNotEmpty() } ?: indexService.listInstalledSkills())
-            .filter { entry -> SkillCompatibilityChecker.evaluate(entry).available }
+        val entries = liveSkillEntries()
             .filter { entry -> isVisibleInCurrentRun(entry.id) }
             .filter { entry ->
                 if (query.isBlank()) true
@@ -1214,7 +1236,8 @@ internal class AgentLocalTools(
 
     private fun isVisibleInCurrentRun(skillId: String): Boolean {
         val normalized = SkillParser.normalizeSkillLookup(skillId)
-        return normalized in runAvailableSkillIds && normalized !in mutatedSkillIds
+        if (normalized in mutatedSkillIds) return false
+        return liveSkillEntries().any { SkillParser.normalizeSkillLookup(it.id) == normalized }
     }
 
     private fun nextTurnRequired(skillId: String): String = errorResult(

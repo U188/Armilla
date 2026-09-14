@@ -63,7 +63,9 @@ internal fun AssistantEditScreen(
     var prompt by remember(assistantId) { mutableStateOf(original.prompt) }
     var avatarFileName by remember(assistantId) { mutableStateOf(original.avatarFileName) }
     var memoryEnabled by remember(assistantId) { mutableStateOf(original.memoryEnabled) }
+    var persistedMemoryEnabled by remember(assistantId) { mutableStateOf(original.memoryEnabled) }
     var enabledSkillIds by remember(assistantId) { mutableStateOf(original.enabledSkillIds.toSet()) }
+    var persistedSkillIds by remember(assistantId) { mutableStateOf(original.enabledSkillIds.toSet()) }
     var memoryDraft by remember(assistantId) { mutableStateOf("") }
     var memorySaved by remember(assistantId) { mutableStateOf("") }
     var installedSkills by remember(assistantId) { mutableStateOf<List<SkillIndexEntry>>(emptyList()) }
@@ -77,8 +79,8 @@ internal fun AssistantEditScreen(
     val dirty = name.trim() != original.name ||
         prompt != original.prompt ||
         avatarFileName != original.avatarFileName ||
-        memoryEnabled != original.memoryEnabled ||
-        enabledSkillIds != original.enabledSkillIds.toSet() ||
+        memoryEnabled != persistedMemoryEnabled ||
+        enabledSkillIds != persistedSkillIds ||
         memoryDraft != memorySaved
 
     LaunchedEffect(assistantId) {
@@ -101,6 +103,22 @@ internal fun AssistantEditScreen(
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         cropBitmap = decodeAvatarBitmap(context, uri)
+    }
+
+    fun persistAssistantToggles(nextMemory: Boolean = memoryEnabled, nextSkills: Set<String> = enabledSkillIds) {
+        scope.launch(Dispatchers.IO) {
+            val current = AssistantRepository.profile(assistantId) ?: return@launch
+            AssistantRepository.update(
+                current.copy(
+                    memoryEnabled = nextMemory,
+                    enabledSkillIds = nextSkills.toList(),
+                ),
+            )
+            withContext(Dispatchers.Main) {
+                persistedMemoryEnabled = nextMemory
+                persistedSkillIds = nextSkills
+            }
+        }
     }
 
     fun save() {
@@ -232,7 +250,10 @@ internal fun AssistantEditScreen(
                     title = stringResource(R.string.ui_enable_memory_4b69b7),
                     summary = stringResource(R.string.assistant_memory_summary),
                     checked = memoryEnabled,
-                    onCheckedChange = { memoryEnabled = it },
+                    onCheckedChange = {
+                        memoryEnabled = it
+                        persistAssistantToggles(nextMemory = it)
+                    },
                 )
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     TextField(
@@ -287,11 +308,13 @@ internal fun AssistantEditScreen(
                             enabled = !saving,
                             showMenu = false,
                             onToggle = { enabled ->
-                                enabledSkillIds = if (enabled) {
+                                val next = if (enabled) {
                                     enabledSkillIds + skill.id
                                 } else {
                                     enabledSkillIds - skill.id
                                 }
+                                enabledSkillIds = next
+                                persistAssistantToggles(nextSkills = next)
                             },
                         )
                     }

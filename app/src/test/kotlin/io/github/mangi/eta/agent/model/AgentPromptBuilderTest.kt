@@ -60,7 +60,7 @@ class AgentPromptBuilderTest {
         )
 
         assertEquals(
-            listOf("system", "system", "system", "user", "assistant", "user"),
+            listOf("system", "system", "system", "system", "system", "user", "assistant", "user"),
             messages.roles(),
         )
         assertEquals("自定义系统约束", messages.getJSONObject(0).getString("content"))
@@ -96,10 +96,12 @@ class AgentPromptBuilderTest {
         assertTrue(messages.getJSONObject(2).getString("content").contains("read_image 可直接读取 Linux 的 /workspace"))
         assertTrue(messages.getJSONObject(2).getString("content").contains("再在下一轮调用下一张"))
         assertFalse(messages.systemContents().any { it.contains("网页浏览、读取") })
-        assertEquals("旧问题", messages.getJSONObject(3).getString("content"))
-        assertEquals("旧回答", messages.getJSONObject(4).getString("content"))
+        assertTrue(messages.systemContents().any { it.contains("持久记忆已关闭") })
+        assertTrue(messages.systemContents().any { it.contains("当前助手未开启 Skills") })
+        assertEquals("旧问题", messages.getJSONObject(5).getString("content"))
+        assertEquals("旧回答", messages.getJSONObject(6).getString("content"))
 
-        val currentContent = messages.getJSONObject(5).getJSONArray("content")
+        val currentContent = messages.getJSONObject(7).getJSONArray("content")
         assertEquals("当前问题", currentContent.getJSONObject(0).getString("text"))
         assertEquals(
             image.reference,
@@ -132,7 +134,7 @@ class AgentPromptBuilderTest {
             skillContext = SkillContext(installedSkills = listOf(skill)),
         )
 
-        assertEquals(listOf("system", "system", "system", "user"), messages.roles())
+        assertEquals(listOf("system", "system", "system", "system", "user"), messages.roles())
         val systemContents = messages.systemContents()
         assertTrue(systemContents.any { it.contains("browser_use") })
         assertTrue(systemContents.any { it.contains("desktop_chrome") })
@@ -140,11 +142,11 @@ class AgentPromptBuilderTest {
         assertTrue(systemContents.any { it.contains("/var/minis/offloads") })
         assertFalse(systemContents.any { it.contains("open_and_exec") })
         val skillMessage = systemContents.single { it.contains("id=screen-audit") }
-        assertTrue(skillMessage.contains("path=/skills/screen-audit/SKILL.md"))
+        assertTrue(skillMessage.contains("path=/var/minis/skills/screen-audit/SKILL.md"))
         assertTrue(skillMessage.contains("capabilities=scripts, assets"))
         assertTrue(skillMessage.contains("description=检查屏幕 并输出 结论"))
         assertTrue(skillMessage.contains("先调用 skills_read"))
-        assertEquals("读取网页", messages.getJSONObject(3).getString("content"))
+        assertEquals("读取网页", messages.getJSONObject(4).getString("content"))
     }
 
     @Test

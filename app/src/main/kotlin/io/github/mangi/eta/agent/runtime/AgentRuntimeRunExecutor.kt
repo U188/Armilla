@@ -151,7 +151,7 @@ internal class AgentRuntimeRunExecutor(
                     request.config.deviceSensitiveActionTools &&
                         currentPermissions().deviceSensitiveActionTools
                 },
-                memoryToolsEnabled = { assistant.memoryEnabled },
+                memoryToolsEnabled = { AssistantRepository.active().memoryEnabled },
                 screenshotExcludedPackages = {
                     entrySurfaceGuard?.consumeScreenshotExcludedPackages().orEmpty()
                 },
@@ -214,6 +214,32 @@ internal class AgentRuntimeRunExecutor(
                 runController = runController,
                 skillContext = skillContext,
                 memoryContext = memoryContext,
+                skillContextProvider = {
+                    val current = AssistantRepository.active()
+                    val enabled = current.enabledSkillIds.toSet()
+                    SkillContext(
+                        installedSkills = SkillRuntime.publishVisibleSkills(
+                            context = appContext,
+                            assistantId = current.id,
+                            entries = skillIndexService.listSkillsForManagement()
+                                .filter { it.installed && it.id in enabled }
+                                .filter { SkillCompatibilityChecker.evaluate(it).available },
+                        ),
+                    )
+                },
+                memoryContextProvider = {
+                    val current = AssistantRepository.active()
+                    if (!current.memoryEnabled) {
+                        AgentMemoryContext.DISABLED
+                    } else {
+                        runCatching {
+                            AgentMemoryContextBuilder.build(
+                                snapshot = AgentMemoryRepository.snapshot(current.id),
+                                contextWindow = request.config.contextWindow,
+                            )
+                        }.getOrElse { AgentMemoryContextBuilder.empty(request.config.contextWindow) }
+                    }
+                },
                 additionalTools = mcpTools,
                 linuxEnvironmentLabelProvider = {
                     when (LinuxEnvironmentSettingsRepository.current(appContext)) {

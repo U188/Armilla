@@ -91,6 +91,8 @@ internal object AgentModelClient {
         runController: AgentRunController = AgentRunController(),
         skillContext: SkillContext = SkillContext.EMPTY,
         memoryContext: AgentMemoryContext = AgentMemoryContext.DISABLED,
+        skillContextProvider: () -> SkillContext = { skillContext },
+        memoryContextProvider: () -> AgentMemoryContext = { memoryContext },
         additionalTools: JSONArray = JSONArray(),
         capabilitiesProvider: () -> AgentToolCapabilities = { AgentToolCapabilities(rootAvailable = false) },
         sessionId: String = java.util.UUID.randomUUID().toString(),
@@ -138,7 +140,10 @@ internal object AgentModelClient {
             rootAvailable = initialCapabilities.rootAvailable,
         ).length()
         var transcriptStartIndex = messages.length()
-        fun toolsFor(capabilities: AgentToolCapabilities): JSONArray {
+        fun toolsFor(
+            capabilities: AgentToolCapabilities,
+            memoryEnabled: Boolean = memoryContext.enabled,
+        ): JSONArray {
             val tools = AgentToolCatalog.build(
                 terminalTools = config.terminalTools,
                 browserTools = config.browserTools,
@@ -147,7 +152,7 @@ internal object AgentModelClient {
                 deviceSensitiveActionTools = config.deviceSensitiveActionTools,
                 skillGitHubDiscovery = true,
                 skillGitHubInstall = true,
-                memoryTools = memoryContext.enabled,
+                memoryTools = memoryEnabled,
                 capabilities = capabilities,
             )
             for (index in 0 until additionalTools.length()) {
@@ -185,16 +190,16 @@ internal object AgentModelClient {
             onHistoryCompacted = { transcriptStartIndex = messages.length() },
             toolsForRound = {
                 val capabilities = capabilitiesProvider()
-                if (capabilities.rootAvailable != promptRootAvailable) {
-                    val systemMessages = AgentPromptBuilder.buildSystemMessages(
-                        config, skillContext, memoryContext, capabilities.rootAvailable,
-                    )
-                    for (index in 0 until systemMessages.length()) {
-                        messages.put(index, systemMessages.getJSONObject(index))
-                    }
-                    promptRootAvailable = capabilities.rootAvailable
+                val nextSkillContext = skillContextProvider()
+                val nextMemoryContext = memoryContextProvider()
+                val systemMessages = AgentPromptBuilder.buildSystemMessages(
+                    config, nextSkillContext, nextMemoryContext, capabilities.rootAvailable,
+                )
+                for (index in 0 until systemMessages.length()) {
+                    messages.put(index, systemMessages.getJSONObject(index))
                 }
-                toolsFor(capabilities)
+                promptRootAvailable = capabilities.rootAvailable
+                toolsFor(capabilities, nextMemoryContext.enabled)
             },
         )
         val result = try {

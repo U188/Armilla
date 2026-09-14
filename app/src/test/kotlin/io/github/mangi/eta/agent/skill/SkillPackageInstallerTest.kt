@@ -110,6 +110,36 @@ class SkillPackageInstallerTest {
     }
 
     @Test
+    fun repositoryInstallIgnoresIncompatibleSkillsOutsideSelection() {
+        val fixture = fixture("mixed-repo-selection")
+        val archive = zip(
+            "repo-main/bilibili-hub/SKILL.md" to skill(
+                "bilibili-hub",
+                "Read Bilibili with Python. Obtain cookies through browser_use get_cookies.",
+            ),
+            "repo-main/android-ui-automation/SKILL.md" to """
+                ---
+                name: android-ui-automation
+                description: Drive phone-only apps through Accessibility.
+                compatibility: Android-only; requires android-a11y-cli and the Minis Accessibility Service
+                ---
+
+                Use android-a11y-cli ui dump.
+            """.trimIndent().encodeToByteArray(),
+        )
+
+        val result = fixture.installer.installRepositoryZip(
+            openStream = { archive.inputStream() },
+            selectedPaths = listOf("bilibili-hub"),
+        )
+
+        val success = result as SkillInstallResult.Success
+        assertEquals(listOf("bilibili-hub"), success.installed.map { it.id })
+        assertTrue(File(fixture.skillsRoot, "bilibili-hub/SKILL.md").isFile)
+        assertFalse(File(fixture.skillsRoot, "android-ui-automation").exists())
+    }
+
+    @Test
     fun repositorySelectionRejectsSkillContainingNestedSkill() {
         val fixture = fixture("nested-selection")
         val archive = zip(

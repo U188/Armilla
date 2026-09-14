@@ -200,6 +200,22 @@ class SkillPackageInstaller internal constructor(
                 "所选 Skill 使用了重复名称：${duplicateIds.sorted().joinToString()}",
             )
         }
+        candidates.forEach { candidate ->
+            val compatibility = SkillCompatibilityChecker.evaluate(
+                id = candidate.id,
+                name = candidate.name,
+                description = candidate.description,
+                compatibility = candidate.compatibility,
+                metadata = candidate.metadata,
+                body = candidate.body,
+            )
+            if (!compatibility.available) {
+                fail(
+                    SkillInstallErrorCode.INCOMPATIBLE_SKILL,
+                    "${candidate.id}：${compatibility.reason ?: "当前环境无法运行该 Skill"}",
+                )
+            }
+        }
 
         val installedEntries = indexService.listSkillsForManagement(forceRefresh = true)
             .associateBy { it.id }
@@ -360,6 +376,9 @@ class SkillPackageInstaller internal constructor(
                 description = metadata.description,
                 relativePath = relativePath,
                 directory = directory,
+                compatibility = metadata.compatibility,
+                metadata = metadata.metadata,
+                body = metadata.body,
             )
         }.sortedBy { it.relativePath }
     }
@@ -394,21 +413,13 @@ class SkillPackageInstaller internal constructor(
             )
         }
         val body = raw.substringAfter("---", "").substringAfter("---", "").trim()
-        val compatibility = SkillCompatibilityChecker.evaluate(
-            id = name,
+        return ValidatedSkillMetadata(
             name = name,
             description = description,
             compatibility = parsed["compatibility"]?.trim(),
             metadata = parsed["metadata"]?.let { SkillParser.parseIndentedBlock(it) } ?: emptyMap(),
             body = body,
         )
-        if (!compatibility.available) {
-            fail(
-                SkillInstallErrorCode.INCOMPATIBLE_SKILL,
-                compatibility.reason ?: "当前环境无法运行该 Skill",
-            )
-        }
-        return ValidatedSkillMetadata(name = name, description = description)
     }
 
     private fun strictFrontmatter(raw: String): String? {
@@ -717,6 +728,9 @@ class SkillPackageInstaller internal constructor(
         val description: String,
         val relativePath: String,
         val directory: File,
+        val compatibility: String? = null,
+        val metadata: Map<String, String> = emptyMap(),
+        val body: String = "",
     ) {
         val publicModel: SkillArchiveCandidate
             get() = SkillArchiveCandidate(
@@ -730,6 +744,9 @@ class SkillPackageInstaller internal constructor(
     private data class ValidatedSkillMetadata(
         val name: String,
         val description: String,
+        val compatibility: String? = null,
+        val metadata: Map<String, String> = emptyMap(),
+        val body: String = "",
     )
 
     private data class ArchiveOperation(

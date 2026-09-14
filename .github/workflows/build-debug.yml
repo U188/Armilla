@@ -64,7 +64,7 @@ jobs:
       - name: 运行单元测试
         run: >-
           ./gradlew --no-daemon --no-configuration-cache
-          :app:testReleaseUnitTest
+          :app:testDebugUnitTest
 
       - name: 构建 Release APK
         env:

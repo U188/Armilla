@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GppMaybe
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.HealthAndSafety
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.Inventory
@@ -884,16 +885,43 @@ internal fun SettingsScreen(
                             )
                         },
                         onClick = {
-                            val intent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse("https://t.me/+6JhB2iRjjDExYWM1"),
+                            openExternalUrl(
+                                context,
+                                "https://t.me/+6JhB2iRjjDExYWM1",
+                                context.getString(R.string.about_telegram_open_failed),
                             )
-                            runCatching { context.startActivity(intent) }.onFailure {
-                                Toast.makeText(
+                        },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.about_qq_group),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.Groups,
+                            )
+                        },
+                        endActions = {
+                            Text(
+                                text = "QQ",
+                                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                            )
+                        },
+                        onClick = {
+                            val opened = runCatching {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("mqqapi://card/show_pslcard?src_type=internal&version=1&uin=735910197&card_type=group&source=qrcode"),
+                                    )
+                                )
+                                true
+                            }.getOrDefault(false)
+                            if (!opened) {
+                                openExternalUrl(
                                     context,
-                                    context.getString(R.string.about_telegram_open_failed),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                    "https://qm.qq.com/q/735910197",
+                                    context.getString(R.string.about_qq_group_open_failed),
+                                )
                             }
                         },
                     )

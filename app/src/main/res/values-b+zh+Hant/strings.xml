@@ -468,6 +468,8 @@
   <string name="update_check_title">檢查更新</string>
   <string name="about_telegram_channel">Telegram 頻道</string>
   <string name="about_telegram_open_failed">無法開啟 Telegram</string>
+  <string name="about_qq_group">QQ 群</string>
+  <string name="about_qq_group_open_failed">無法開啟 QQ</string>
   <string name="about_relay_station">自用中轉站</string>
   <string name="about_relay_station_open_failed">無法開啟中轉站</string>
   <string name="about_relay_station_st_api">ST API</string>

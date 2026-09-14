@@ -472,6 +472,8 @@
   <string name="update_check_title">Check for updates</string>
   <string name="about_telegram_channel">Telegram channel</string>
   <string name="about_telegram_open_failed">Couldn\'t open Telegram</string>
+  <string name="about_qq_group">QQ group</string>
+  <string name="about_qq_group_open_failed">Couldn\'t open QQ</string>
   <string name="about_relay_station">Personal relay</string>
   <string name="about_relay_station_open_failed">Couldn\'t open the relay site</string>
   <string name="about_relay_station_st_api">ST API</string>

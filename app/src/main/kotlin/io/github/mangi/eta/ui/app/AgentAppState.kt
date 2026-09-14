@@ -60,6 +60,7 @@ import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ProviderTypes
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
+import io.github.mangi.eta.data.repository.EtaBackupExportOptions
 import io.github.mangi.eta.data.repository.EtaBackupRepository
 import io.github.mangi.eta.data.repository.EtaBackupSummary
 import io.github.mangi.eta.data.repository.ModelRepository
@@ -628,8 +629,13 @@ internal class AgentAppState(
         memoryState = memoryState.copy(notice = null)
     }
 
-    suspend fun exportBackup(output: OutputStream): EtaBackupSummary =
-        EtaBackupRepository.export(appContext, output)
+    suspend fun exportBackup(
+        output: OutputStream,
+        options: EtaBackupExportOptions = EtaBackupExportOptions(),
+    ): EtaBackupSummary = EtaBackupRepository.export(appContext, output, options)
+
+    suspend fun exportConversation(conversationId: String, output: OutputStream): EtaBackupSummary =
+        EtaBackupRepository.exportConversation(appContext, conversationId, output)
 
     suspend fun importBackup(input: InputStream): EtaBackupSummary {
         val locallyBusy = withContext(Dispatchers.Main.immediate) {

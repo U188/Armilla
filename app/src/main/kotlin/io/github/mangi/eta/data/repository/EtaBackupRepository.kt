@@ -1,27 +1,45 @@
 package io.github.mangi.eta.data.repository
 
 import android.content.Context
+import android.util.Base64
 import androidx.room.withTransaction
+import io.github.mangi.eta.agent.device.RootAccess
+import io.github.mangi.eta.agent.device.RootSu
+import io.github.mangi.eta.agent.media.AgentChatImageCache
+import io.github.mangi.eta.agent.skill.SkillRuntime
+import io.github.mangi.eta.agent.terminal.LinuxDistribution
+import io.github.mangi.eta.agent.terminal.LinuxEnvironmentPaths
+import io.github.mangi.eta.agent.terminal.LinuxExecutionBackend
+import io.github.mangi.eta.agent.terminal.TerminalPrivateStorage
+import io.github.mangi.eta.data.datastore.EtaSettingsBackup
+import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.ConversationContextCheckpointEntity
 import io.github.mangi.eta.data.db.ConversationEntity
 import io.github.mangi.eta.data.db.ConversationFolderEntity
 import io.github.mangi.eta.data.db.ConversationMessageEntity
 import io.github.mangi.eta.data.db.ConversationStateEntity
 import io.github.mangi.eta.data.db.EtaDatabase
+import io.github.mangi.eta.data.db.McpServerEntity
 import io.github.mangi.eta.data.db.ProviderEntity
 import io.github.mangi.eta.data.db.ProviderModelEntity
 import io.github.mangi.eta.data.db.ProviderWithModelsSeed
+import io.github.mangi.eta.data.db.SkillRegistryEntity
 import io.github.mangi.eta.data.model.AssistantPrompt
-import io.github.mangi.eta.data.datastore.SettingsDataStore
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.concurrent.TimeUnit
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
-import java.io.InputStream
-import java.io.OutputStream
+import kotlinx.serialization.json.Json
 
-/** Eta 用户数据备份的稳定 JSON 格式。只保存对话、Provider/Model 和 MEMORY.md。 */
+/** 代鱼用户数据备份。schema 1 只有对话、提供商和记忆；schema 2 补上助手、技能、MCP、设置、附件和可选 Linux 环境。 */
 @Serializable
 internal data class EtaBackupDocument(
     val format: String = FORMAT,
@@ -37,10 +55,23 @@ internal data class EtaBackupDocument(
     val folders: List<ConversationFolderEntity> = emptyList(),
     val memoryMd: String = "",
     val assistantMemories: Map<String, String> = emptyMap(),
+    val assistants: AssistantBackupSnapshot? = null,
+    val assistantAvatars: Map<String, String> = emptyMap(),
+    val skillRegistry: List<SkillRegistryEntity> = emptyList(),
+    val skillFiles: Map<String, String> = emptyMap(),
+    val mcpServers: List<McpServerEntity> = emptyList(),
+    val mcpTokens: Map<String, String> = emptyMap(),
+    val settings: EtaSettingsBackup? = null,
+    val includeLinuxEnvironment: Boolean = false,
+    val linuxWorkspaceIncluded: Boolean = false,
+    val attachmentCount: Int = 0,
+    val importedFileCount: Int = 0,
 ) {
     companion object {
         const val FORMAT = "eta-backup"
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
+        const val MIN_SUPPORTED_SCHEMA = 1
+        const val MANIFEST_NAME = "eta-backup.json"
     }
 }
 
@@ -50,20 +81,44 @@ internal data class EtaBackupProvider(
     val models: List<ProviderModelEntity> = emptyList(),
 )
 
+@Serializable
+internal data class EtaConversationExport(
+    val format: String = FORMAT,
+    val schemaVersion: Int = SCHEMA_VERSION,
+    val exportedAt: Long,
+    val conversation: ConversationEntity,
+    val messages: List<ConversationMessageEntity> = emptyList(),
+    val contextCheckpoint: ConversationContextCheckpointEntity? = null,
+    val attachmentCount: Int = 0,
+) {
+    companion object {
+        const val FORMAT = "eta-conversation"
+        const val SCHEMA_VERSION = 1
+        const val MANIFEST_NAME = "eta-conversation.json"
+    }
+}
+
 internal data class EtaBackupSummary(
     val providerCount: Int,
     val modelCount: Int,
     val conversationCount: Int,
     val messageCount: Int,
     val memoryBytes: Int,
+    val assistantCount: Int = 0,
+    val mcpCount: Int = 0,
+    val skillCount: Int = 0,
+    val attachmentCount: Int = 0,
+    val includedLinuxEnvironment: Boolean = false,
+)
+
+internal data class EtaBackupExportOptions(
+    val includeLinuxEnvironment: Boolean = false,
 )
 
 internal class EtaBackupException(message: String, cause: Throwable? = null) :
     IllegalArgumentException(message, cause)
 
 internal object EtaBackupRepository {
-    private const val MAX_BACKUP_BYTES = 64L * 1024L * 1024L
-
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -71,70 +126,135 @@ internal object EtaBackupRepository {
         prettyPrint = true
     }
 
-    suspend fun export(context: Context, output: OutputStream): EtaBackupSummary =
-        withContext(Dispatchers.IO) {
-            val document = snapshot(context.applicationContext)
-            val bytes = json.encodeToString(document).toByteArray(Charsets.UTF_8)
-            if (bytes.size > MAX_BACKUP_BYTES) {
-                throw EtaBackupException("备份文件超过 64 MiB 限制")
-            }
-            output.write(bytes)
-            output.flush()
-            document.summary()
+    fun linuxEnvironmentBytes(context: Context): Long {
+        val appContext = context.applicationContext
+        val walked = LinuxDistribution.entries.sumOf { distribution ->
+            directorySize(LinuxEnvironmentPaths.environmentDir(appContext, distribution))
         }
+        if (walked > 0L) return walked
+        if (!RootAccess.isGranted) return 0L
+        return LinuxDistribution.entries.sumOf { distribution ->
+            duBytes(LinuxEnvironmentPaths.environmentDir(appContext, distribution))
+        }
+    }
+
+    suspend fun export(
+        context: Context,
+        output: OutputStream,
+        options: EtaBackupExportOptions = EtaBackupExportOptions(),
+    ): EtaBackupSummary = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        val document = snapshot(appContext, options)
+        ZipOutputStream(output).use { zip ->
+            putText(zip, EtaBackupDocument.MANIFEST_NAME, json.encodeToString(document))
+            putDirectory(zip, "attachments/chat-images/", File(appContext.cacheDir, AgentChatImageCache.CACHE_DIRECTORY))
+            putDirectory(
+                zip,
+                "attachments/imports/",
+                File(TerminalPrivateStorage.workspace(appContext.filesDir), "imports"),
+            )
+            putDirectory(
+                zip,
+                "linux/workspace/",
+                TerminalPrivateStorage.workspace(appContext.filesDir),
+                skipNames = setOf("imports"),
+            )
+            if (options.includeLinuxEnvironment) {
+                exportLinuxEnvironments(appContext, zip)
+            }
+            zip.finish()
+        }
+        document.summary()
+    }
+
+    suspend fun exportConversation(
+        context: Context,
+        conversationId: String,
+        output: OutputStream,
+    ): EtaBackupSummary = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        val document = conversationSnapshot(appContext, conversationId)
+        ZipOutputStream(output).use { zip ->
+            putText(zip, EtaConversationExport.MANIFEST_NAME, json.encodeToString(document))
+            putDirectory(
+                zip,
+                "attachments/chat-images/$conversationId/",
+                File(File(appContext.cacheDir, AgentChatImageCache.CACHE_DIRECTORY), conversationId),
+            )
+            referencedImportedFiles(appContext, document.messages, document.contextCheckpoint).forEach { file ->
+                val relative = importedRelativePath(appContext, file) ?: return@forEach
+                putFile(zip, "attachments/imports/$relative", file)
+            }
+            zip.finish()
+        }
+        document.summary()
+    }
 
     suspend fun import(context: Context, input: InputStream): EtaBackupSummary =
         withContext(Dispatchers.IO) {
-            val document = readDocument(input)
-            validate(document)
             val appContext = context.applicationContext
-            val database = EtaDatabase.get(appContext)
-            database.withTransaction {
-                database.providerDao().replaceAll(
-                    document.providers.map { provider ->
-                        ProviderWithModelsSeed(
-                            provider = provider.provider,
-                            models = provider.models,
-                        )
-                    },
-                )
-                database.conversationDao().replaceAll(
-                    conversations = document.conversations,
-                    messages = document.messages,
-                    contextCheckpoints = document.contextCheckpoints,
-                    state = document.conversationState,
-                )
-                database.conversationDao().replaceFolders(document.folders)
+            val temp = File.createTempFile("eta-backup-", ".bin", appContext.cacheDir)
+            try {
+                temp.outputStream().use { input.copyTo(it) }
+                if (isZip(temp)) {
+                    ZipFile(temp).use { zip ->
+                        val manifest = zip.getEntry(EtaBackupDocument.MANIFEST_NAME)
+                            ?: throw EtaBackupException("备份文件缺少清单")
+                        val document = decodeDocument(zip.getInputStream(manifest).readBytes().toString(Charsets.UTF_8))
+                        validate(document)
+                        restoreMetadata(appContext, document)
+                        extractPrefix(zip, "attachments/chat-images/", File(appContext.cacheDir, AgentChatImageCache.CACHE_DIRECTORY))
+                        val workspace = TerminalPrivateStorage.workspace(appContext.filesDir)
+                        extractPrefix(zip, "attachments/imports/", File(workspace, "imports"))
+                        extractPrefix(zip, "linux/workspace/", workspace, skipNames = setOf("imports"))
+                        if (document.includeLinuxEnvironment) {
+                            restoreLinuxEnvironments(appContext, zip)
+                        }
+                        rewriteRestoredPaths(appContext, document)
+                        document.summary()
+                    }
+                } else {
+                    val document = decodeDocument(temp.readText(Charsets.UTF_8))
+                    validate(document)
+                    restoreMetadata(appContext, document)
+                    rewriteRestoredPaths(appContext, document)
+                    document.summary()
+                }
+            } finally {
+                temp.delete()
             }
-
-            // MEMORY.md 使用 AtomicFile，数据库提交后再替换，失败时不会留下半截文件。
-            AgentMemoryRepository.importAll(document.assistantMemories, document.memoryMd)
-            SettingsDataStore.setSelection(
-                providerId = document.selectedProviderId,
-                modelId = document.selectedModelId,
-            )
-            ProviderRepository.ensureBuiltInsMerged()
-            ProviderRepository.repairSelection()
-            document.summary()
         }
 
     suspend fun inspect(input: InputStream): EtaBackupSummary = withContext(Dispatchers.IO) {
-        val document = readDocument(input)
+        val bytes = input.readBytes()
+        if (bytes.isEmpty()) throw EtaBackupException("备份文件为空")
+        val document = if (bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) {
+            ZipInputStream(bytes.inputStream()).use { zip ->
+                generateSequence { zip.nextEntry }
+                    .firstOrNull { it.name == EtaBackupDocument.MANIFEST_NAME }
+                    ?.let { decodeDocument(zip.readBytes().toString(Charsets.UTF_8)) }
+                    ?: throw EtaBackupException("备份文件缺少清单")
+            }
+        } else {
+            decodeDocument(bytes.toString(Charsets.UTF_8))
+        }
         validate(document)
         document.summary()
     }
 
-    private suspend fun snapshot(context: Context): EtaBackupDocument {
-        val appContext = context.applicationContext
-        val database = EtaDatabase.get(appContext)
+    private suspend fun snapshot(
+        context: Context,
+        options: EtaBackupExportOptions,
+    ): EtaBackupDocument {
+        val database = EtaDatabase.get(context)
         val providers = database.providerDao().providers().map { provider ->
-            EtaBackupProvider(
-                provider = provider.provider,
-                models = provider.models,
-            )
+            EtaBackupProvider(provider = provider.provider, models = provider.models)
         }
         val conversations = database.conversationDao()
-        val settings = SettingsDataStore.settings()
+        val settings = SettingsDataStore.backupSnapshot()
+        val mcpServers = database.mcpServerDao().servers()
+        val chatImages = File(context.cacheDir, AgentChatImageCache.CACHE_DIRECTORY)
+        val imports = File(TerminalPrivateStorage.workspace(context.filesDir), "imports")
         return EtaBackupDocument(
             exportedAt = System.currentTimeMillis(),
             providers = providers,
@@ -147,57 +267,111 @@ internal object EtaBackupRepository {
             folders = conversations.folders(),
             memoryMd = AgentMemoryRepository.snapshot(AssistantPrompt.DEFAULT_ID).content,
             assistantMemories = AgentMemoryRepository.exportAll(),
+            assistants = if (AssistantRepository.isReady()) AssistantRepository.exportSnapshot() else null,
+            assistantAvatars = if (AssistantRepository.isReady()) encodeFiles(AssistantRepository.exportAvatars()) else emptyMap(),
+            skillRegistry = database.skillDao().registryEntries(),
+            skillFiles = encodeFiles(SkillRuntime.exportUserSkills(context)),
+            mcpServers = mcpServers,
+            mcpTokens = McpSecretStore(context).exportTokens(mcpServers.map { it.id }),
+            settings = settings,
+            includeLinuxEnvironment = options.includeLinuxEnvironment,
+            linuxWorkspaceIncluded = true,
+            attachmentCount = countFiles(chatImages),
+            importedFileCount = countFiles(imports),
         )
     }
 
-    private fun readDocument(input: InputStream): EtaBackupDocument {
-        val bytes = input.readBytesLimited(MAX_BACKUP_BYTES)
-        if (bytes.isEmpty()) throw EtaBackupException("备份文件为空")
-        return runCatching {
-            json.decodeFromString<EtaBackupDocument>(bytes.toString(Charsets.UTF_8))
-        }.getOrElse { failure ->
+    private suspend fun conversationSnapshot(
+        context: Context,
+        conversationId: String,
+    ): EtaConversationExport {
+        val dao = EtaDatabase.get(context).conversationDao()
+        val conversation = dao.conversationEntity(conversationId)
+            ?: throw EtaBackupException("会话不存在")
+        val messages = dao.messagesForConversation(conversationId)
+        val checkpoint = dao.contextCheckpoint(conversationId)
+        val chatDir = File(File(context.cacheDir, AgentChatImageCache.CACHE_DIRECTORY), conversationId)
+        return EtaConversationExport(
+            exportedAt = System.currentTimeMillis(),
+            conversation = conversation,
+            messages = messages,
+            contextCheckpoint = checkpoint,
+            attachmentCount = countFiles(chatDir) + referencedImportedFiles(context, messages, checkpoint).size,
+        )
+    }
+
+    private suspend fun restoreMetadata(context: Context, document: EtaBackupDocument) {
+        val database = EtaDatabase.get(context)
+        database.withTransaction {
+            database.providerDao().replaceAll(
+                document.providers.map { provider ->
+                    ProviderWithModelsSeed(provider = provider.provider, models = provider.models)
+                },
+            )
+            database.conversationDao().replaceAll(
+                conversations = document.conversations,
+                messages = document.messages,
+                contextCheckpoints = document.contextCheckpoints,
+                state = document.conversationState,
+            )
+            database.conversationDao().replaceFolders(document.folders)
+            if (document.schemaVersion >= 2) {
+                database.mcpServerDao().replaceAll(document.mcpServers)
+                database.skillDao().replaceRegistry(document.skillRegistry)
+            }
+        }
+        AgentMemoryRepository.importAll(document.assistantMemories, document.memoryMd)
+        if (document.schemaVersion >= 2) {
+            if (AssistantRepository.isReady()) {
+                document.assistants?.let(AssistantRepository::importSnapshot)
+                AssistantRepository.importAvatars(decodeFiles(document.assistantAvatars))
+            }
+            SkillRuntime.importUserSkills(context, decodeFiles(document.skillFiles))
+            McpSecretStore(context).replaceAll(document.mcpTokens)
+            document.settings?.let { SettingsDataStore.restoreBackup(it) }
+                ?: SettingsDataStore.setSelection(document.selectedProviderId, document.selectedModelId)
+        } else {
+            SettingsDataStore.setSelection(document.selectedProviderId, document.selectedModelId)
+        }
+        LinuxEnvironmentSettingsRepository.initialize(context)
+        ProviderRepository.ensureBuiltInsMerged()
+        ProviderRepository.repairSelection()
+    }
+
+    private suspend fun rewriteRestoredPaths(context: Context, document: EtaBackupDocument) {
+        val currentRoot = context.filesDir.parentFile?.absolutePath ?: return
+        val pattern = Regex("""/data/(?:user/\d+|data)/[^/\s"'\\]+""")
+        val rewrite: (String) -> String = { value -> pattern.replace(value, currentRoot) }
+        val conversations = document.conversations.map { it.copy(historyJson = rewrite(it.historyJson)) }
+        val messages = document.messages.map {
+            it.copy(content = rewrite(it.content), imagesJson = rewrite(it.imagesJson))
+        }
+        val checkpoints = document.contextCheckpoints.map { it.copy(historyJson = rewrite(it.historyJson)) }
+        EtaDatabase.get(context).conversationDao().replaceAll(
+            conversations = conversations,
+            messages = messages,
+            contextCheckpoints = checkpoints,
+            state = document.conversationState,
+        )
+        EtaDatabase.get(context).conversationDao().replaceFolders(document.folders)
+    }
+
+    private fun decodeDocument(raw: String): EtaBackupDocument =
+        runCatching { json.decodeFromString<EtaBackupDocument>(raw) }.getOrElse { failure ->
             throw EtaBackupException("备份文件格式无效", failure)
         }
-    }
 
     private fun validate(document: EtaBackupDocument) {
         if (document.format != EtaBackupDocument.FORMAT) {
             throw EtaBackupException("这不是 Eta 备份文件")
         }
-        if (document.schemaVersion != EtaBackupDocument.SCHEMA_VERSION) {
+        if (document.schemaVersion !in EtaBackupDocument.MIN_SUPPORTED_SCHEMA..EtaBackupDocument.SCHEMA_VERSION) {
             throw EtaBackupException("不支持的 Eta 备份版本：${document.schemaVersion}")
         }
-
         val providerIds = document.providers.map { it.provider.id }
         if (providerIds.size != providerIds.toSet().size || providerIds.any(String::isBlank)) {
             throw EtaBackupException("备份中的模型提供商存在重复或无效 ID")
         }
-        val modelIds = document.providers.flatMap { provider ->
-            val ids = provider.models.map { it.id }
-            if (ids.size != ids.toSet().size || ids.any(String::isBlank)) {
-                throw EtaBackupException("备份中的模型存在重复或无效 ID")
-            }
-            if (provider.models.any { it.providerId != provider.provider.id }) {
-                throw EtaBackupException("备份中的模型与提供商不匹配")
-            }
-            provider.models.map { model -> model.id to provider.provider.id }
-        }
-        if (modelIds.size != modelIds.map { it.first }.toSet().size) {
-            throw EtaBackupException("备份中的模型 ID 重复")
-        }
-        if (document.selectedProviderId != null && document.selectedProviderId !in providerIds) {
-            throw EtaBackupException("备份中的当前提供商不存在")
-        }
-        val selectedModel = document.selectedModelId?.let { selectedId ->
-            modelIds.firstOrNull { it.first == selectedId }
-        }
-        if (document.selectedModelId != null && selectedModel == null) {
-            throw EtaBackupException("备份中的当前模型不存在")
-        }
-        if (selectedModel != null && selectedModel.second != document.selectedProviderId) {
-            throw EtaBackupException("备份中的当前模型与提供商不匹配")
-        }
-
         val conversationIds = document.conversations.map { it.id }
         if (conversationIds.size != conversationIds.toSet().size || conversationIds.any(String::isBlank)) {
             throw EtaBackupException("备份中的会话存在重复或无效 ID")
@@ -205,54 +379,18 @@ internal object EtaBackupRepository {
         if (document.messages.any { it.conversationId !in conversationIds }) {
             throw EtaBackupException("备份中的消息缺少所属会话")
         }
-        val messageIds = document.messages.map { it.id }
-        if (messageIds.any(String::isBlank) || messageIds.size != messageIds.toSet().size) {
-            throw EtaBackupException("备份中的消息 ID 重复")
-        }
-        val messagePositions = document.messages.map { it.conversationId to it.sortIndex }
-        if (messagePositions.size != messagePositions.toSet().size) {
-            throw EtaBackupException("备份中的消息顺序重复")
-        }
-        val checkpointIds = document.contextCheckpoints.map { it.conversationId }
-        if (checkpointIds.size != checkpointIds.toSet().size) {
-            throw EtaBackupException("备份中的上下文检查点重复")
-        }
-        if (document.contextCheckpoints.any { it.conversationId !in conversationIds }) {
-            throw EtaBackupException("备份中的上下文检查点缺少所属会话")
-        }
-        if (document.conversationState != null &&
-            document.conversationState.id != ConversationStateEntity.SINGLETON_ID
-        ) {
-            throw EtaBackupException("备份中的会话状态无效")
-        }
-        if (document.conversationState?.selectedConversationId !in conversationIds &&
-            document.conversationState != null
-        ) {
-            throw EtaBackupException("备份中的当前会话不存在")
-        }
-        val folderIds = document.folders.map { it.id }
-        if (folderIds.size != folderIds.toSet().size || folderIds.any(String::isBlank)) {
-            throw EtaBackupException("备份中的文件夹存在重复或无效 ID")
-        }
-        if (document.folders.any { it.name.isBlank() }) {
-            throw EtaBackupException("备份中的文件夹名称无效")
-        }
-        val knownFolderIds = folderIds.toSet()
-        if (document.conversations.any { conversation ->
-                conversation.folderId.isNotBlank() && conversation.folderId !in knownFolderIds
-            }
-        ) {
-            throw EtaBackupException("备份中的会话文件夹不存在")
-        }
-
-        if (document.memoryMd.toByteArray(Charsets.UTF_8).size > 1024 * 1024) {
+        if (document.memoryMd.toByteArray().size > 1024 * 1024) {
             throw EtaBackupException("MEMORY.md 超过 1 MiB 限制")
         }
-        document.assistantMemories.forEach { (id, content) ->
-            if (id.isBlank()) throw EtaBackupException("备份中的助手记忆 ID 无效")
-            if (content.toByteArray(Charsets.UTF_8).size > 1024 * 1024) {
-                throw EtaBackupException("助手记忆超过 1 MiB 限制")
+        document.assistants?.profiles?.let { profiles ->
+            val ids = profiles.map { it.id }
+            if (ids.size != ids.toSet().size || ids.any(String::isBlank)) {
+                throw EtaBackupException("备份中的助手存在重复或无效 ID")
             }
+        }
+        val mcpIds = document.mcpServers.map { it.id }
+        if (mcpIds.size != mcpIds.toSet().size || mcpIds.any(String::isBlank)) {
+            throw EtaBackupException("备份中的 MCP 服务器存在重复或无效 ID")
         }
     }
 
@@ -261,22 +399,261 @@ internal object EtaBackupRepository {
         modelCount = providers.sumOf { it.models.size },
         conversationCount = conversations.size,
         messageCount = messages.size,
-        memoryBytes = memoryMd.toByteArray(Charsets.UTF_8).size,
+        memoryBytes = memoryMd.toByteArray().size,
+        assistantCount = assistants?.profiles?.size ?: 0,
+        mcpCount = mcpServers.size,
+        skillCount = skillFiles.keys.map { it.substringBefore('/') }.filter { it.isNotBlank() }.toSet().size,
+        attachmentCount = attachmentCount + importedFileCount,
+        includedLinuxEnvironment = includeLinuxEnvironment,
+    )
+
+    private fun EtaConversationExport.summary(): EtaBackupSummary = EtaBackupSummary(
+        providerCount = 0,
+        modelCount = 0,
+        conversationCount = 1,
+        messageCount = messages.size,
+        memoryBytes = 0,
+        attachmentCount = attachmentCount,
     )
 }
 
-private fun InputStream.readBytesLimited(maxBytes: Long): ByteArray {
-    val output = java.io.ByteArrayOutputStream()
-    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-    var total = 0L
-    while (true) {
-        val count = read(buffer)
-        if (count < 0) break
-        total += count
-        if (total > maxBytes) {
-            throw EtaBackupException("备份文件超过 64 MiB 限制")
-        }
-        output.write(buffer, 0, count)
+private fun encodeFiles(files: Map<String, ByteArray>): Map<String, String> =
+    files.mapValues { (_, bytes) -> Base64.encodeToString(bytes, Base64.NO_WRAP) }
+
+private fun decodeFiles(files: Map<String, String>): Map<String, ByteArray> =
+    files.mapValues { (_, encoded) -> Base64.decode(encoded, Base64.NO_WRAP) }
+
+private fun isZip(file: File): Boolean =
+    file.inputStream().use { input ->
+        val header = ByteArray(2)
+        input.read(header) == 2 && header[0] == 0x50.toByte() && header[1] == 0x4B.toByte()
     }
-    return output.toByteArray()
+
+private fun putText(zip: ZipOutputStream, name: String, text: String) {
+    zip.putNextEntry(ZipEntry(name))
+    zip.write(text.toByteArray())
+    zip.closeEntry()
+}
+
+private fun putFile(zip: ZipOutputStream, name: String, file: File) {
+    if (!file.isFile || file.length() <= 0L) return
+    zip.putNextEntry(ZipEntry(name))
+    file.inputStream().use { it.copyTo(zip) }
+    zip.closeEntry()
+}
+
+private fun putDirectory(
+    zip: ZipOutputStream,
+    prefix: String,
+    root: File,
+    skipNames: Set<String> = emptySet(),
+) {
+    if (!root.exists()) return
+    root.walkTopDown().filter { it.isFile }.forEach { file ->
+        val relative = runCatching { file.relativeTo(root).invariantSeparatorsPath }.getOrNull() ?: return@forEach
+        if (relative.isBlank() || relative.split('/').any { it in skipNames || it == ".." }) return@forEach
+        putFile(zip, prefix + relative, file)
+    }
+}
+
+private fun exportLinuxEnvironments(context: Context, zip: ZipOutputStream) {
+    LinuxDistribution.entries.forEach { distribution ->
+        val envDir = LinuxEnvironmentPaths.environmentDir(context, distribution)
+        if (!envDir.exists()) return@forEach
+        val backend = LinuxEnvironmentPaths.backendOf(
+            LinuxEnvironmentPaths.rootfsDir(context, distribution).absolutePath,
+        )
+        val entryName = "linux/environments/${backend.wireName}/${distribution.wireName}.tar"
+        zip.putNextEntry(ZipEntry(entryName))
+        val packed = streamTar(envDir, zip)
+        zip.closeEntry()
+        if (!packed) {
+            // Keep an empty marker so restore can still see the attempted environment.
+        }
+    }
+}
+
+private fun restoreLinuxEnvironments(context: Context, zip: ZipFile) {
+    zip.entries().toList().forEach { entry ->
+        val match = Regex("""^linux/environments/([^/]+)/([^/]+)\.tar$""").find(entry.name) ?: return@forEach
+        val backend = LinuxExecutionBackend.entries.firstOrNull { it.wireName == match.groupValues[1] } ?: return@forEach
+        val distribution = LinuxDistribution.entries.firstOrNull { it.wireName == match.groupValues[2] } ?: return@forEach
+        val destination = LinuxEnvironmentPaths.environmentDir(context, distribution, backend)
+        destination.parentFile?.mkdirs()
+        extractTar(zip.getInputStream(entry), destination)
+    }
+}
+
+private fun streamTar(source: File, output: OutputStream): Boolean {
+    if (canWalk(source)) {
+        val process = ProcessBuilder("tar", "-C", source.absolutePath, "-cf", "-", ".")
+            .redirectErrorStream(true)
+            .start()
+        return try {
+            process.inputStream.copyTo(output)
+            process.waitFor(20, TimeUnit.MINUTES) && process.exitValue() == 0
+        } finally {
+            runCatching { process.destroyForcibly() }
+        }
+    }
+    if (!RootAccess.isGranted) return false
+    val process = RootSu.process(
+        "tar -C ${shellQuote(source.absolutePath)} -cf - .",
+    ).redirectErrorStream(true).start()
+    return try {
+        process.inputStream.copyTo(output)
+        process.waitFor(20, TimeUnit.MINUTES) && process.exitValue() == 0
+    } finally {
+        runCatching { process.destroyForcibly() }
+    }
+}
+
+private fun extractTar(input: InputStream, destination: File) {
+    destination.parentFile?.mkdirs()
+    if (canWrite(destination.parentFile ?: destination)) {
+        destination.deleteRecursively()
+        destination.mkdirs()
+        val process = ProcessBuilder("tar", "-C", destination.absolutePath, "-xf", "-")
+            .redirectErrorStream(true)
+            .start()
+        try {
+            input.copyTo(process.outputStream)
+            process.outputStream.close()
+            process.waitFor(20, TimeUnit.MINUTES)
+        } finally {
+            runCatching { process.destroyForcibly() }
+        }
+        return
+    }
+    if (!RootAccess.isGranted) return
+    val staging = File(destination.parentFile, ".eta-linux-restore-${System.nanoTime()}")
+    staging.mkdirs()
+    try {
+        val process = ProcessBuilder("tar", "-C", staging.absolutePath, "-xf", "-")
+            .redirectErrorStream(true)
+            .start()
+        try {
+            input.copyTo(process.outputStream)
+            process.outputStream.close()
+            process.waitFor(20, TimeUnit.MINUTES)
+        } finally {
+            runCatching { process.destroyForcibly() }
+        }
+        copyTreeAsRoot(staging, destination)
+    } finally {
+        staging.deleteRecursively()
+        deleteTreeAsRoot(staging)
+    }
+}
+
+private fun extractPrefix(
+    zip: ZipFile,
+    prefix: String,
+    destination: File,
+    skipNames: Set<String> = emptySet(),
+) {
+    val entries = zip.entries().toList().filter { it.name.startsWith(prefix) && !it.isDirectory }
+    if (entries.isEmpty()) return
+    destination.mkdirs()
+    entries.forEach { entry ->
+        val relative = entry.name.removePrefix(prefix)
+        if (relative.isBlank() || relative.contains("..") || relative.split('/').any { it in skipNames }) return@forEach
+        val target = File(destination, relative)
+        if (!target.canonicalFile.path.startsWith(destination.canonicalFile.path)) return@forEach
+        target.parentFile?.mkdirs()
+        zip.getInputStream(entry).use { input -> target.outputStream().use { input.copyTo(it) } }
+    }
+}
+
+private fun copyTreeAsRoot(source: File, destination: File): Boolean {
+    destination.parentFile?.mkdirs()
+    return runRoot(
+        "rm -rf -- ${shellQuote(destination.absolutePath)} && " +
+            "cp -a -- ${shellQuote(source.absolutePath)} ${shellQuote(destination.absolutePath)} && " +
+            "chmod -R a+rX -- ${shellQuote(destination.absolutePath)}",
+        timeoutMinutes = 20,
+    )
+}
+
+private fun deleteTreeAsRoot(target: File): Boolean {
+    if (!target.exists()) return true
+    return runRoot("rm -rf -- ${shellQuote(target.absolutePath)}", timeoutMinutes = 5)
+}
+
+private fun runRoot(command: String, timeoutMinutes: Long): Boolean {
+    if (!RootAccess.isGranted) return false
+    val process = runCatching { RootSu.process(command).redirectErrorStream(true).start() }.getOrNull() ?: return false
+    return try {
+        val finished = process.waitFor(timeoutMinutes, TimeUnit.MINUTES)
+        if (!finished) {
+            process.destroyForcibly()
+            false
+        } else {
+            process.exitValue() == 0
+        }
+    } finally {
+        runCatching { process.destroy() }
+    }
+}
+
+private fun duBytes(root: File): Long {
+    if (!root.exists() || !RootAccess.isGranted) return 0L
+    val process = runCatching {
+        RootSu.process("du -sb -- ${shellQuote(root.absolutePath)}").redirectErrorStream(true).start()
+    }.getOrNull() ?: return 0L
+    return try {
+        val finished = process.waitFor(30, TimeUnit.SECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            0L
+        } else {
+            process.inputStream.bufferedReader().readText().trim().substringBefore('\t').toLongOrNull() ?: 0L
+        }
+    } finally {
+        runCatching { process.destroy() }
+    }
+}
+
+private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
+
+private fun canWalk(root: File): Boolean = root.canRead() && (root.listFiles()?.firstOrNull()?.canRead() != false)
+
+private fun canWrite(root: File): Boolean = root.parentFile?.canWrite() == true && (!root.exists() || root.canWrite())
+
+private fun directorySize(root: File): Long {
+    if (!root.exists() || !root.canRead()) return 0L
+    return runCatching { root.walkTopDown().filter { it.isFile }.sumOf { it.length() } }.getOrDefault(0L)
+}
+
+private fun countFiles(root: File): Int {
+    if (!root.exists()) return 0
+    return runCatching { root.walkTopDown().count { it.isFile } }.getOrDefault(0)
+}
+
+private fun referencedImportedFiles(
+    context: Context,
+    messages: List<ConversationMessageEntity>,
+    checkpoint: ConversationContextCheckpointEntity?,
+): List<File> {
+    val text = buildString {
+        messages.forEach {
+            appendLine(it.content)
+            appendLine(it.imagesJson)
+        }
+        checkpoint?.let { appendLine(it.historyJson) }
+    }
+    val matches = Regex("""(/data/(?:user/\d+|data)/[^\s"']+/files/(?:terminal-user|terminal)/workspace/imports/[^\s"']+)""")
+        .findAll(text)
+    return matches.map { File(it.groupValues[1]) }.filter { it.isFile }.distinctBy { it.absolutePath }
+}
+
+private fun importedRelativePath(context: Context, file: File): String? {
+    val roots = listOf(
+        File(TerminalPrivateStorage.workspace(context.filesDir), "imports"),
+        File(File(context.filesDir, "terminal/workspace"), "imports"),
+    )
+    return roots.firstNotNullOfOrNull { root ->
+        runCatching { file.canonicalFile.relativeTo(root.canonicalFile).invariantSeparatorsPath }.getOrNull()
+            ?.takeIf { it.isNotBlank() && !it.startsWith("..") }
+    }
 }

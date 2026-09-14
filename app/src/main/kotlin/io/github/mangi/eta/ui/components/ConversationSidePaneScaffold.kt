@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Memory
@@ -159,6 +160,7 @@ fun ConversationSidePaneScaffold(
     onConversationDelete: (ConversationSummaryUi) -> Unit,
     onMoveConversationToFolder: (ConversationSummaryUi) -> Unit = {},
     onConversationTogglePin: (ConversationSummaryUi) -> Unit = {},
+    onConversationExport: (ConversationSummaryUi) -> Unit = {},
     onNewConversation: () -> Unit,
     onOpenManageChats: () -> Unit = {},
     onSelectFolder: (String?) -> Unit = {},
@@ -284,6 +286,7 @@ fun ConversationSidePaneScaffold(
                     onMoveConversationToFolder = onMoveConversationToFolder,
                     onNewConversation = onNewConversation,
                     onConversationTogglePin = onConversationTogglePin,
+                    onConversationExport = onConversationExport,
                     onOpenManageChats = { launchAfterDrawerClosed(onOpenManageChats) },
                     onSelectFolder = onSelectFolder,
                     onCreateFolder = onCreateFolder,
@@ -319,6 +322,7 @@ private fun ConversationPanePanel(
     onConversationDelete: (ConversationSummaryUi) -> Unit,
     onMoveConversationToFolder: (ConversationSummaryUi) -> Unit = {},
     onConversationTogglePin: (ConversationSummaryUi) -> Unit = {},
+    onConversationExport: (ConversationSummaryUi) -> Unit = {},
     onNewConversation: () -> Unit,
     onOpenManageChats: () -> Unit = {},
     onSelectFolder: (String?) -> Unit = {},
@@ -424,6 +428,7 @@ private fun ConversationPanePanel(
                                 onDelete = { onConversationDelete(conversation) },
                                 onMoveToFolder = { onMoveConversationToFolder(conversation) },
                                 onTogglePin = { onConversationTogglePin(conversation) },
+                                onExport = { onConversationExport(conversation) },
                             )
                         }
                     }
@@ -830,6 +835,7 @@ private fun ConversationTextRow(
     onDelete: () -> Unit,
     onMoveToFolder: () -> Unit,
     onTogglePin: () -> Unit,
+    onExport: () -> Unit,
 ) {
     var showActionMenu by remember { mutableStateOf(false) }
     val view = LocalView.current
@@ -935,6 +941,22 @@ private fun ConversationTextRow(
                 onClick = {
                     showActionMenu = false
                     onTogglePin()
+                },
+            )
+            DropdownMenuItem(
+                modifier = DrawerMenuItemModifier,
+                contentPadding = DrawerMenuItemPadding,
+                text = { Text(stringResource(R.string.conversation_export)) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+                    )
+                },
+                onClick = {
+                    showActionMenu = false
+                    onExport()
                 },
             )
             DropdownMenuItem(

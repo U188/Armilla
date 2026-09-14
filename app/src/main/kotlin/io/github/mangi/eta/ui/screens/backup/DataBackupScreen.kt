@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.screens.backup
 
 import android.content.Context
+import android.text.format.Formatter
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,15 +25,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.data.repository.EtaBackupExportOptions
+import io.github.mangi.eta.data.repository.EtaBackupRepository
 import io.github.mangi.eta.data.repository.EtaBackupSummary
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
+import io.github.mangi.eta.ui.components.SwitchPreference
 import java.io.InputStream
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
@@ -46,13 +53,21 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 internal fun DataBackupScreen(
     context: Context,
     onBack: () -> Unit,
-    onExport: suspend (OutputStream) -> EtaBackupSummary,
+    onExport: suspend (OutputStream, EtaBackupExportOptions) -> EtaBackupSummary,
     onImport: suspend (InputStream) -> EtaBackupSummary,
 ) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
     var showImportDialog by remember { mutableStateOf(false) }
+    var includeLinuxEnvironment by remember { mutableStateOf(false) }
+    var linuxBytes by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(Unit) {
+        linuxBytes = withContext(Dispatchers.IO) {
+            EtaBackupRepository.linuxEnvironmentBytes(context)
+        }
+    }
+    val linuxSizeLabel = linuxBytes?.takeIf { it > 0L }?.let { Formatter.formatShortFileSize(context, it) }
 
     fun showFailure(throwable: Throwable) {
         if (throwable is CancellationException) throw throwable
@@ -64,7 +79,7 @@ internal fun DataBackupScreen(
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json"),
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -72,13 +87,14 @@ internal fun DataBackupScreen(
             try {
                 val output = context.contentResolver.openOutputStream(uri)
                     ?: error(context.getString(R.string.data_backup_file_open_failed))
-                val summary = output.use { onExport(it) }
+                val summary = output.use { onExport(it, EtaBackupExportOptions(includeLinuxEnvironment = includeLinuxEnvironment)) }
                 Toast.makeText(
                     context,
                     context.getString(
                         R.string.data_backup_exported,
                         summary.conversationCount,
                         summary.providerCount,
+                        summary.assistantCount,
                     ),
                     Toast.LENGTH_SHORT,
                 ).show()
@@ -116,6 +132,18 @@ internal fun DataBackupScreen(
         }
         item(key = "actions-card") {
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                SwitchPreference(
+                    title = stringResource(R.string.data_backup_include_linux),
+                    summary = if (linuxSizeLabel != null) {
+                        stringResource(R.string.data_backup_include_linux_summary) + "\n" +
+                            stringResource(R.string.data_backup_linux_size, linuxSizeLabel)
+                    } else {
+                        stringResource(R.string.data_backup_include_linux_summary)
+                    },
+                    checked = includeLinuxEnvironment,
+                    onCheckedChange = { includeLinuxEnvironment = it },
+                    enabled = !busy,
+                )
                 ArrowPreference(
                     title = stringResource(R.string.data_backup_export),
                     summary = if (busy) {
@@ -145,7 +173,7 @@ internal fun DataBackupScreen(
                         )
                     },
                     onClick = {
-                        importLauncher.launch(arrayOf("application/json", "text/plain"))
+                        importLauncher.launch(arrayOf("application/zip", "application/json", "text/plain", "*/*"))
                     },
                 )
             }
@@ -230,4 +258,4 @@ private fun BackupIcon(icon: ImageVector, loading: Boolean) {
 }
 
 private fun defaultBackupFileName(): String =
-    "代鱼-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}-备份.JSON"
+    "代鱼-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}-备份.zip"

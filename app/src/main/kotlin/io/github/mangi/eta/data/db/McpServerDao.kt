@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -26,4 +27,18 @@ internal interface McpServerDao {
 
     @Query("DELETE FROM mcp_servers WHERE id = :id")
     suspend fun delete(id: String): Int
+
+    @Query("DELETE FROM mcp_servers")
+    suspend fun deleteAll()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(servers: List<McpServerEntity>)
+
+    @Transaction
+    suspend fun replaceAll(servers: List<McpServerEntity>) {
+        deleteAll()
+        if (servers.isNotEmpty()) {
+            insertAll(servers)
+        }
+    }
 }

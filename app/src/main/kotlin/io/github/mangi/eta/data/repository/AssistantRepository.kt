@@ -164,6 +164,44 @@ internal object AssistantRepository {
     }
 
     @Synchronized
+    fun exportSnapshot(): AssistantBackupSnapshot {
+        ensureReady()
+        return AssistantBackupSnapshot(activeId = activeId.value, profiles = profiles.value)
+    }
+
+    @Synchronized
+    fun importSnapshot(snapshot: AssistantBackupSnapshot) {
+        ensureReady()
+        val profiles = snapshot.profiles.ifEmpty { listOf(defaultProfile(System.currentTimeMillis())) }
+        val active = snapshot.activeId.takeIf { id -> profiles.any { it.id == id } } ?: profiles.first().id
+        val next = migrateDefaultPrompt(Snapshot(active, profiles))
+        writeIndex(next)
+        publish(next)
+        refreshAssistantSkills(next.activeId, publishVisible = true)
+    }
+
+    fun exportAvatars(): Map<String, ByteArray> {
+        if (!::applicationContext.isInitialized) return emptyMap()
+        val dir = avatarsDirectory()
+        if (!dir.isDirectory) return emptyMap()
+        return dir.listFiles().orEmpty()
+            .filter { it.isFile && it.name.isNotBlank() }
+            .associate { it.name to it.readBytes() }
+    }
+
+    fun importAvatars(files: Map<String, ByteArray>) {
+        if (!::applicationContext.isInitialized) return
+        val dir = avatarsDirectory()
+        dir.mkdirs()
+        dir.listFiles().orEmpty().forEach { it.delete() }
+        files.forEach { (name, bytes) ->
+            val safe = File(name).name
+            if (safe.isBlank() || safe != name) return@forEach
+            File(dir, safe).writeBytes(bytes)
+        }
+    }
+
+    @Synchronized
     fun select(id: String) {
         ensureReady()
         require(profiles.value.any { it.id == id }) { "助手不存在" }
@@ -309,3 +347,9 @@ internal object AssistantRepository {
         val profiles: List<AssistantProfile>,
     )
 }
+
+@Serializable
+internal data class AssistantBackupSnapshot(
+    val activeId: String,
+    val profiles: List<AssistantProfile> = emptyList(),
+)

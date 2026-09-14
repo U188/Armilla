@@ -262,7 +262,7 @@ class SkillIndexService(
         listSkillsForManagement().filter { it.installed }
 
     fun findInstalledSkill(identifier: String): SkillIndexEntry? {
-        val normalized = SkillParser.normalizeSkillLookup(identifier)
+                    val normalized = relative.replace('\\', '/').trim().trimStart('/')
         if (normalized.isBlank()) return null
         val entries = listSkillsForManagement().filter { it.installed }
         return entries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }
@@ -717,6 +717,42 @@ object SkillRuntime {
     fun deleteAssistantSkills(context: Context, assistantId: String) {
         File(skillsRoot(context), "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(assistantId)}")
             .deleteRecursively()
+    }
+
+    fun exportUserSkills(context: Context): Map<String, ByteArray> {
+        val root = skillsRoot(context)
+        if (!root.isDirectory) return emptyMap()
+        val skip = setOf(ASSISTANT_SKILL_DIR, VISIBLE_SKILL_DIR, ".eta-skill-installer")
+        val files = linkedMapOf<String, ByteArray>()
+        root.listFiles().orEmpty()
+            .filter { it.isDirectory && it.name !in skip && !it.name.startsWith(".") }
+            .forEach { pack ->
+                pack.walkTopDown().forEach { file ->
+                    if (!file.isFile || shouldSkipSkillCopy(file)) return@forEach
+                    val relative = file.relativeTo(root).invariantSeparatorsPath
+                    if (relative.isNotBlank()) files[relative] = file.readBytes()
+                }
+            }
+        return files
+    }
+
+    fun importUserSkills(context: Context, files: Map<String, ByteArray>) {
+        val root = skillsRoot(context)
+        root.mkdirs()
+        val skip = setOf(ASSISTANT_SKILL_DIR, VISIBLE_SKILL_DIR, ".eta-skill-installer")
+        root.listFiles().orEmpty()
+            .filter { it.isDirectory && it.name !in skip && !it.name.startsWith(".") }
+            .forEach { it.deleteRecursively() }
+        files.forEach { (relative, bytes) ->
+            val normalized = relative.replace('\\', '/').trim().trimStart('/')
+            if (normalized.isBlank() || normalized.contains("..")) return@forEach
+            val first = normalized.substringBefore('/')
+            if (first in skip || first.startsWith(".")) return@forEach
+            val target = File(root, normalized)
+            if (!target.canonicalFile.startsWith(root.canonicalFile)) return@forEach
+            target.parentFile?.mkdirs()
+            target.writeBytes(bytes)
+        }
     }
 
     private fun bindSkillToAssistant(

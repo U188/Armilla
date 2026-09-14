@@ -86,6 +86,10 @@ internal object ProviderRepository {
         repairSelection()
     }
 
+    suspend fun deleteProviders(ids: Collection<String>) {
+        ids.distinct().forEach { deleteProvider(it) }
+    }
+
     suspend fun copyProvider(id: String): ProviderSetting? {
         val source = providerById(id) ?: return null
         val nextOrder = (allProviders().maxOfOrNull { it.sortOrder } ?: -1) + 1

@@ -95,6 +95,9 @@ import io.github.mangi.eta.ui.screens.terminal.SharedFoldersScreen
 import io.github.mangi.eta.ui.screens.terminal.TerminalEntryScreen
 import io.github.mangi.eta.ui.screens.terminal.WorkspaceScreen
 import io.github.mangi.eta.ui.screens.tools.AgentToolsScreen
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -160,10 +163,39 @@ fun AgentAppRoot(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+
     var conversationPaneOpen by remember { mutableStateOf(false) }
     var conversationRenameTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var conversationDeleteTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var conversationMoveTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
+    var conversationExportTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
+
+    val conversationExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val conversation = conversationExportTarget
+        conversationExportTarget = null
+        if (uri == null || conversation == null) return@rememberLauncherForActivityResult
+        uiScope.launch {
+            try {
+                val output = context.contentResolver.openOutputStream(uri)
+                    ?: error(context.getString(R.string.data_backup_file_open_failed))
+                output.use { agentState.exportConversation(conversation.id, it) }
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.conversation_exported, conversation.title.ifBlank { context.getString(R.string.conversation_unnamed) }),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } catch (throwable: Throwable) {
+                Toast.makeText(
+                    context,
+                    throwable.message ?: context.getString(R.string.conversation_export_failed),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
     var messageDeleteTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
     var messageRegenerateTarget by remember { mutableStateOf<MessageMutationTarget?>(null) }
 
@@ -315,6 +347,14 @@ fun AgentAppRoot(
             },
             onConversationTogglePin = { conversation ->
                 agentState.toggleConversationPinned(conversation.id)
+            },
+            onConversationExport = { conversation ->
+                conversationExportTarget = conversation
+                val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+                val title = conversation.title.ifBlank { context.getString(R.string.conversation_unnamed) }
+                    .replace(Regex("""[\\/:*?"<>|]"""), "_")
+                    .take(40)
+                conversationExportLauncher.launch("代鱼-$title-$stamp.zip")
             },
             onOpenManageChats = { pushFromDrawer(AppRoute.ManageChats) },
             onSelectFolder = { folderId -> agentState.selectFolder(folderId) },
@@ -676,7 +716,11 @@ fun AgentAppRoot(
                     context = context,
                     onBack = ::popRoute,
                     onExport = agentState::exportBackup,
-                    onImport = agentState::importBackup,
+                    onImport = { input ->
+                        val summary = agentState.importBackup(input)
+                        appViewModel.refreshKimiWeb()
+                        summary
+                    },
                 )
             }
             entry<AppRoute.Memory>(swipeDismiss = swipeDismiss) {

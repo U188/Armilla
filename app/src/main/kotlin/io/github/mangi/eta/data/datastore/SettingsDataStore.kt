@@ -61,6 +61,7 @@ internal object SettingsDataStore {
     private val RETIRED_HEATMAP_JSON = stringPreferencesKey("retired_heatmap_json")
     private val MODEL_USAGE_JSON = stringPreferencesKey("model_usage_json")
     private const val SELECTED_MODEL_BY_PROVIDER_PREFIX = "selected_model_id_by_provider."
+    private const val LINUX_BACKEND_PREFIX = "linux_backend."
 
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = STORE_NAME)
 
@@ -197,6 +198,50 @@ internal object SettingsDataStore {
     suspend fun setLinuxDistribution(value: String?) {
         ensureInitialized()
         dataStore.edit { preferences -> preferences.putOrRemove(LINUX_DISTRIBUTION, value) }
+    }
+
+    suspend fun backupSnapshot(): EtaSettingsBackup {
+        ensureInitialized()
+        val prefs = dataStore.data.first()
+        val settings = prefs.toSettings()
+        return EtaSettingsBackup(
+            selectedProviderId = settings.selectedProviderId,
+            selectedModelId = settings.selectedModelId,
+            memoryEnabled = settings.memoryEnabled,
+            fileLoggingEnabled = settings.fileLoggingEnabled,
+            linuxDistribution = prefs[LINUX_DISTRIBUTION],
+            linuxBackends = stringMap(prefs, LINUX_BACKEND_PREFIX),
+            selectedModelByProvider = stringMap(prefs, SELECTED_MODEL_BY_PROVIDER_PREFIX),
+            appearance = settings.appearance,
+        )
+    }
+
+    suspend fun restoreBackup(snapshot: EtaSettingsBackup) {
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs.keys
+                .filter { key ->
+                    key.name.startsWith(LINUX_BACKEND_PREFIX) ||
+                        key.name.startsWith(SELECTED_MODEL_BY_PROVIDER_PREFIX)
+                }
+                .forEach(prefs::remove)
+            prefs.putOrRemove(SELECTED_PROVIDER_ID, snapshot.selectedProviderId)
+            prefs.putOrRemove(SELECTED_MODEL_ID, snapshot.selectedModelId)
+            prefs[MEMORY_ENABLED] = snapshot.memoryEnabled
+            prefs[FILE_LOGGING_ENABLED] = snapshot.fileLoggingEnabled
+            prefs.putOrRemove(LINUX_DISTRIBUTION, snapshot.linuxDistribution)
+            prefs.putAppearance(snapshot.appearance.normalized())
+            snapshot.linuxBackends.forEach { (distribution, backend) ->
+                if (distribution.isNotBlank() && backend.isNotBlank()) {
+                    prefs[stringPreferencesKey("$LINUX_BACKEND_PREFIX$distribution")] = backend
+                }
+            }
+            snapshot.selectedModelByProvider.forEach { (providerId, modelId) ->
+                if (providerId.isNotBlank() && modelId.isNotBlank()) {
+                    prefs[selectedModelByProviderKey(providerId)] = modelId
+                }
+            }
+        }
     }
 
     suspend fun setAppearanceSettings(settings: AppearanceSettings) {
@@ -380,6 +425,16 @@ internal object SettingsDataStore {
     private fun selectedModelByProviderKey(providerId: String): Preferences.Key<String> =
         stringPreferencesKey("$SELECTED_MODEL_BY_PROVIDER_PREFIX$providerId")
 
+    private fun stringMap(prefs: Preferences, prefix: String): Map<String, String> =
+        prefs.asMap().mapNotNull { (key, value) ->
+            val name = key.name
+            if (name.startsWith(prefix) && value is String && value.isNotBlank()) {
+                name.removePrefix(prefix) to value
+            } else {
+                null
+            }
+        }.toMap()
+
     private fun MutablePreferences.putOrRemove(key: Preferences.Key<String>, value: String?) {
         if (value.isNullOrBlank()) {
             remove(key)
@@ -426,6 +481,18 @@ internal object SettingsDataStore {
         this[APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE] = settings.morphLoadingBeforeResponseOnly
     }
 }
+
+@kotlinx.serialization.Serializable
+internal data class EtaSettingsBackup(
+    val selectedProviderId: String? = null,
+    val selectedModelId: String? = null,
+    val memoryEnabled: Boolean = true,
+    val fileLoggingEnabled: Boolean = false,
+    val linuxDistribution: String? = null,
+    val linuxBackends: Map<String, String> = emptyMap(),
+    val selectedModelByProvider: Map<String, String> = emptyMap(),
+    val appearance: AppearanceSettings = AppearanceSettings(),
+)
 
 internal data class RetiredUsage(
     val inputTokens: Long = 0L,

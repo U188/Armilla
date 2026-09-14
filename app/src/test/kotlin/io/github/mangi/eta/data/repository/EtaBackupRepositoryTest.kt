@@ -32,6 +32,8 @@ class EtaBackupRepositoryTest {
         SettingsDataStore.init(context)
         ProviderRepository.init(context)
         AgentMemoryRepository.init(context)
+        AssistantRepository.init(context)
+        McpServerRepository.init(context)
     }
 
     @Test

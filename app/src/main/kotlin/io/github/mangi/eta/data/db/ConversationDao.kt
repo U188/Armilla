@@ -34,6 +34,12 @@ internal interface ConversationDao {
     @Query("SELECT * FROM conversation_context_checkpoints ORDER BY conversation_id ASC")
     suspend fun contextCheckpoints(): List<ConversationContextCheckpointEntity>
 
+    @Query("SELECT * FROM conversations WHERE id = :id")
+    suspend fun conversationEntity(id: String): ConversationEntity?
+
+    @Query("SELECT * FROM conversation_messages WHERE conversation_id = :conversationId ORDER BY sort_index ASC")
+    suspend fun messagesForConversation(conversationId: String): List<ConversationMessageEntity>
+
     @Query("SELECT * FROM conversation_messages WHERE conversation_id = :conversationId ORDER BY sort_index ASC LIMIT :limit OFFSET :offset")
     suspend fun messagesPage(conversationId: String, limit: Int, offset: Int): List<ConversationMessageEntity>
 

@@ -2,7 +2,6 @@ package io.github.mangi.eta.core
 
 import android.content.Context
 import android.os.Build
-import android.os.Process
 import android.util.Log
 import java.io.BufferedReader
 import java.io.File
@@ -30,7 +29,7 @@ internal object AppFileLogger {
     private val enabled = AtomicBoolean(false)
     private val installed = AtomicBoolean(false)
     private val lock = ReentrantLock()
-    private val logcatProcess = AtomicReference<Process?>()
+    private val logcatProcess = AtomicReference<java.lang.Process?>()
     private val logcatThread = AtomicReference<Thread?>()
 
     @Volatile private var logsDir: File? = null
@@ -184,7 +183,7 @@ internal object AppFileLogger {
             ProcessBuilder(
                 "logcat",
                 "--pid",
-                Process.myPid().toString(),
+                android.os.Process.myPid().toString(),
                 "-v",
                 "threadtime",
                 "-T",

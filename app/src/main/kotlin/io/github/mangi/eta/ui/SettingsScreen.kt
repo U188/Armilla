@@ -73,7 +73,6 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AppFileLogger
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.model.AppUpdateOffer
-import io.github.mangi.eta.data.model.Settings
 import io.github.mangi.eta.data.repository.AppUpdateRepository
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
@@ -127,7 +126,9 @@ internal fun SettingsScreen(
     val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
-    val appSettings by SettingsDataStore.settingsFlow().collectAsState(initial = Settings())
+    val appSettings by SettingsDataStore.settingsFlow().collectAsState(
+        initial = io.github.mangi.eta.data.model.Settings(),
+    )
     var exportingLogs by remember { mutableStateOf(false) }
     var clearingLogs by remember { mutableStateOf(false) }
     var showClearLogsDialog by remember { mutableStateOf(false) }

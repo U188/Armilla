@@ -90,7 +90,7 @@ import io.github.mangi.eta.ui.model.conversationTokenUsage
 import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.liveContextUsage
 import io.github.mangi.eta.ui.model.cacheDisplayName
-import io.github.mangi.eta.ui.model.toLiveModelImage
+import io.github.mangi.eta.ui.model.toOutboundModelImage
 import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
 import io.github.mangi.eta.ui.model.AgentSkillsUiState
 import io.github.mangi.eta.ui.model.AgentToolsUiState
@@ -1328,7 +1328,7 @@ internal class AgentAppState(
                 withContext(Dispatchers.Main) {
                     if (homeState.isStreaming || rejectSendIfCompressing()) return@withContext
                     val outbound = pendingImages.filter { image ->
-                        if (image.isVideo) supportsVideo else supportsVision
+                        if (image.isVideo) supportsVideo || supportsVision else supportsVision
                     }
                     val extraFiles = pendingImages.mapIndexedNotNull { index, image ->
                         val file = staged.getOrNull(index) ?: return@mapIndexedNotNull null
@@ -1922,13 +1922,9 @@ internal class AgentAppState(
                 )
                 return@launch
             }
+            val supportsVideo = modelPickerState.selectedModel?.supportsVideo == true
             val modelImages = images.map { p ->
-                AgentModelClient.ModelImage(
-                    reference = p.uri,
-                    mimeType = p.mimeType,
-                    bytes = 0,
-                    source = "user_attach",
-                )
+                p.toOutboundModelImage(supportsVideo).copy(source = "user_attach")
             }
             val compressModelConfig = resolveCompressModelConfig(config)
             val estimatedTokens = liveContextUsage(
@@ -2183,8 +2179,10 @@ internal class AgentAppState(
         }
     }
 
-    private fun List<PendingImageUi>.toHistoryImages(): List<AgentModelClient.ModelImage> =
-        map { it.toLiveModelImage() }
+    private fun List<PendingImageUi>.toHistoryImages(): List<AgentModelClient.ModelImage> {
+        val supportsVideo = modelPickerState.selectedModel?.supportsVideo == true
+        return map { it.toOutboundModelImage(supportsVideo) }
+    }
 
     private fun mimeTypeForFileName(name: String): String = when {
         name.endsWith(".png", ignoreCase = true) -> "image/png"

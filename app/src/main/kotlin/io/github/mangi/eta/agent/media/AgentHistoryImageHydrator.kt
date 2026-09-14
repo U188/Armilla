@@ -31,6 +31,7 @@ internal object AgentHistoryImageHydrator {
         val next = JSONArray()
         val restoredImagePaths = mutableListOf<String>()
         val restoredVideoPaths = mutableListOf<String>()
+        val restoredVideoDurationsMs = HashMap<String, Long>()
         for (index in 0 until content.length()) {
             val item = content.optJSONObject(index) ?: continue
             when (item.optString("type")) {
@@ -57,20 +58,29 @@ internal object AgentHistoryImageHydrator {
                     changed = true
                     val path = item.optString("path")
                     val mime = item.optString("mime").ifBlank { "video/mp4" }
-                    restoredVideoPaths += path
-                    if (!supportsVideo) continue
                     val file = File(path)
-                    if (!file.isFile || file.length() !in 1..MAX_AGENT_VIDEO_BYTES.toLong()) continue
-                    val bytes = runCatching { file.readBytes() }.getOrNull()
-                    if (bytes == null || bytes.isEmpty()) continue
-                    val video = runCatching {
-                        AgentVideoCodec.fromVideoBytes(bytes, mime, source = "history_attach")
-                    }.getOrNull() ?: continue
-                    next.put(
-                        JSONObject()
-                            .put("type", "video_url")
-                            .put("video_url", JSONObject().put("url", video.reference)),
-                    )
+                    val preview = file.takeIf { it.isFile }?.let { AgentVideoCodec.previewFromFile(it, path) }
+                    restoredVideoPaths += path
+                    preview?.durationMs?.takeIf { it > 0L }?.let { restoredVideoDurationsMs[path] = it }
+                    if (supportsVideo) {
+                        if (!file.isFile || file.length() !in 1..MAX_AGENT_VIDEO_BYTES.toLong()) continue
+                        val bytes = runCatching { file.readBytes() }.getOrNull()
+                        if (bytes == null || bytes.isEmpty()) continue
+                        val video = runCatching {
+                            AgentVideoCodec.fromVideoBytes(bytes, mime, source = "history_attach")
+                        }.getOrNull() ?: continue
+                        next.put(
+                            JSONObject()
+                                .put("type", "video_url")
+                                .put("video_url", JSONObject().put("url", video.reference)),
+                        )
+                    } else if (supportsVision && preview != null) {
+                        next.put(
+                            JSONObject()
+                                .put("type", "image_url")
+                                .put("image_url", JSONObject().put("url", preview.thumbnail.reference)),
+                        )
+                    }
                 }
                 else -> next.put(item)
             }
@@ -81,7 +91,12 @@ internal object AgentHistoryImageHydrator {
                 addAll(restoredImagePaths.map { path -> "[用户图片] $path" })
             }
             if (!supportsVideo && restoredVideoPaths.isNotEmpty()) {
-                addAll(restoredVideoPaths.map { path -> "[用户视频] $path" })
+                addAll(restoredVideoPaths.map { path ->
+                    val duration = restoredVideoDurationsMs[path]
+                        ?.let { "\n时长 ${AgentVideoCodec.formatDuration(it)}" }
+                        .orEmpty()
+                    "[用户视频] $path$duration"
+                })
             }
         }
         if (listings.isNotEmpty()) {

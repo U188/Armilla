@@ -898,8 +898,8 @@
   <string name="tool_ui_set_timer_aee60c">設定計時器</string>
   <string name="tool_ui_set_alarm_25ca3c">設定鬧鐘</string>
   <string name="tool_ui_set_volume_85a691">設定音量</string>
-  <string name="tool_ui_read_pictures_ae993b">讀取圖片</string>
-  <string name="tool_ui_read_pictures_of_known_paths_and_hand_them_over__7f9569">讀取已知路徑的圖片並交給視覺模型解讀</string>
+  <string name="tool_ui_read_pictures_ae993b">讀取圖片或影片</string>
+  <string name="tool_ui_read_pictures_of_known_paths_and_hand_them_over__7f9569">讀取已知路徑的圖片或影片；影片會抽取封面幀交給視覺模型</string>
   <string name="tool_ui_read_the_current_node_and_attach_the_original_im_df1fec">讀取目前節點，必要時附原圖</string>
   <string name="tool_ui_read_the_current_notification_title_and_text_0faee7">讀取目前通知標題與正文</string>
   <string name="tool_ui_read_the_network_credentials_saved_by_the_phone_96d43a">讀取手機儲存的網路憑證</string>

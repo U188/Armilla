@@ -43,7 +43,7 @@ internal class AgentTraceFormatter(
             "wait_for_text" -> "等待文本出现"
             "wait_for_package" -> "等待应用就绪"
             "open_system_panel" -> "打开系统面板"
-            "read_image" -> "查看图片"
+            "read_image" -> "查看图片或视频"
             "memory_get" -> summarizeMemoryGetArguments(toolCall.argumentsJson)
             "memory_write" -> summarizeMemoryWriteArguments(toolCall.argumentsJson)
             "skills_list" -> "查看技能列表"

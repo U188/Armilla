@@ -34,4 +34,15 @@ class AgentVideoCodecTest {
         assertEquals("video/webm", AgentVideoCodec.sniffMime(webm))
         assertEquals(null, AgentVideoCodec.sniffMime(byteArrayOf(1, 2, 3)))
     }
+
+    @Test
+    fun sniffFileReadsHeaderOnly() {
+        val file = kotlin.io.path.createTempFile(suffix = ".mp4").toFile()
+        file.writeBytes(byteArrayOf(0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d) + ByteArray(32))
+        try {
+            assertEquals("video/mp4", AgentVideoCodec.sniffFile(file))
+        } finally {
+            file.delete()
+        }
+    }
 }

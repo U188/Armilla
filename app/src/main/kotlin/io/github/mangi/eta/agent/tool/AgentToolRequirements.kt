@@ -138,7 +138,7 @@ internal object AgentToolRequirements {
                 }
             }
             "read_image" -> properties?.getJSONObject("path")?.put("description",
-                "当前应用有权读取的绝对图片路径、file URI 或已授权的 content URI。")
+                "当前应用有权读取的绝对图片或视频路径、file URI 或已授权的 content URI；视频会抽取封面帧。")
             "press_key" -> properties?.getJSONObject("button")?.let { button ->
                 val values = button.getJSONArray("enum")
                 button.put("enum", JSONArray().also { allowed ->

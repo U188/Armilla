@@ -318,6 +318,18 @@ internal fun PendingImageUi.toLiveModelImage(): AgentModelClient.ModelImage =
         )
     }
 
+internal fun PendingImageUi.toOutboundModelImage(supportsVideo: Boolean): AgentModelClient.ModelImage =
+    if (isVideo && !supportsVideo) {
+        AgentModelClient.ModelImage(
+            reference = dataUrl,
+            mimeType = "image/jpeg",
+            bytes = dataUrl.length,
+            source = uri,
+        )
+    } else {
+        toLiveModelImage()
+    }
+
 internal fun PendingImageUi.cacheDisplayName(index: Int): String {
     if (isVideo) {
         val extension = io.github.mangi.eta.agent.media.AgentVideoCodec.extensionForMime(mimeType, uri)

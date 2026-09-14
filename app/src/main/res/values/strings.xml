@@ -891,8 +891,8 @@
   <string name="tool_ui_set_timer_aee60c">Set timer</string>
   <string name="tool_ui_set_alarm_25ca3c">Set alarm</string>
   <string name="tool_ui_set_volume_85a691">Set volume</string>
-  <string name="tool_ui_read_pictures_ae993b">Read pictures</string>
-  <string name="tool_ui_read_pictures_of_known_paths_and_hand_them_over__7f9569">Read pictures of known paths and hand them over to the visual model for interpretation</string>
+  <string name="tool_ui_read_pictures_ae993b">Read pictures or videos</string>
+  <string name="tool_ui_read_pictures_of_known_paths_and_hand_them_over__7f9569">Read a picture or video at a known path; videos attach a preview frame for the vision model</string>
   <string name="tool_ui_read_the_current_node_and_attach_the_original_im_df1fec">Read the current node and attach the original image if necessary</string>
   <string name="tool_ui_read_the_current_notification_title_and_text_0faee7">Read the current notification title and text</string>
   <string name="tool_ui_read_the_network_credentials_saved_by_the_phone_96d43a">Read the network credentials saved by the phone</string>

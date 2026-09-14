@@ -17,6 +17,14 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+internal data class AgentVideoPreview(
+    val thumbnail: AgentModelClient.ModelImage,
+    val durationMs: Long,
+    val width: Int?,
+    val height: Int?,
+    val mimeType: String,
+)
+
 internal data class AgentVideoAttachment(
     val file: File,
     val mimeType: String,
@@ -51,6 +59,18 @@ internal object AgentVideoCodec {
 
     fun looksLikeVideo(bytes: ByteArray): Boolean = sniffMime(bytes) != null
 
+    fun sniffFile(file: File): String? {
+        if (!file.isFile || file.length() <= 0L) return null
+        val header = runCatching {
+            file.inputStream().use { input ->
+                val buffer = ByteArray(16)
+                val read = input.read(buffer)
+                if (read <= 0) ByteArray(0) else buffer.copyOf(read)
+            }
+        }.getOrNull() ?: return null
+        return sniffMime(header)
+    }
+
     fun fileFromSource(value: String): File? {
         val path = value.trim().removePrefix("file://")
         if (!path.startsWith("/")) return null
@@ -59,6 +79,27 @@ internal object AgentVideoCodec {
 
     fun previewThumbnail(file: File, source: String): AgentModelClient.ModelImage =
         thumbnailFromFile(file, source) ?: placeholderThumbnail(source)
+
+    fun previewFromFile(file: File, source: String): AgentVideoPreview? {
+        if (!file.isFile || file.length() <= 0L) return null
+        return runCatching {
+            val metadata = readMetadata(file)
+            val mime = sniffFile(file) ?: when (extensionForMime("video/mp4", file.name)) {
+                "webm" -> "video/webm"
+                "mov" -> "video/quicktime"
+                "mkv" -> "video/x-matroska"
+                "3gp" -> "video/3gpp"
+                else -> "video/mp4"
+            }
+            AgentVideoPreview(
+                thumbnail = previewThumbnail(file, source),
+                durationMs = metadata.durationMs,
+                width = metadata.width,
+                height = metadata.height,
+                mimeType = mime,
+            )
+        }.getOrNull()
+    }
 
     fun isVideoSource(value: String): Boolean {
         val trimmed = value.trim()

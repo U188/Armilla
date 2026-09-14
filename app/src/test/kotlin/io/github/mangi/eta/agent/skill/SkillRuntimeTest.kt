@@ -227,6 +227,50 @@ class SkillRuntimeTest {
     }
 
     @Test
+    fun bindSkillsSkipsPythonCacheAndKeepsScripts() {
+        val context = RuntimeEnvironment.getApplication()
+        val skillsRoot = File(context.filesDir, "skills").apply { mkdirs() }
+        val dir = File(skillsRoot, "alpha").apply { mkdirs() }
+        File(dir, "SKILL.md").writeText(
+            """
+            ---
+            name: alpha
+            description: Test skill alpha.
+            ---
+
+            # alpha
+            """.trimIndent(),
+        )
+        File(dir, "scripts").mkdirs()
+        File(dir, "scripts/client.py").writeText("print('ok')\n")
+        File(dir, "scripts/__pycache__").mkdirs()
+        File(dir, "scripts/__pycache__/client.cpython-314.pyc").writeBytes(byteArrayOf(1, 2, 3))
+        val entry = SkillIndexEntry(
+            id = "alpha",
+            name = "alpha",
+            description = "Test skill alpha.",
+            rootPath = dir.absolutePath,
+            skillFilePath = File(dir, "SKILL.md").absolutePath,
+            hasScripts = true,
+            hasReferences = false,
+            hasAssets = false,
+            hasEvals = false,
+            installed = true,
+        )
+
+        SkillRuntime.bindSkillsToAssistant(context, "asst-1", listOf(entry))
+        SkillRuntime.publishVisibleSkills(context, "asst-1", listOf(entry))
+
+        val bound = SkillRuntime.assistantSkillsDirectory(context, "asst-1")
+        val visible = SkillRuntime.visibleSkillsDirectory(context)
+        assertTrue(File(bound, "alpha/SKILL.md").isFile)
+        assertTrue(File(bound, "alpha/scripts/client.py").isFile)
+        assertFalse(File(bound, "alpha/scripts/__pycache__").exists())
+        assertTrue(File(visible, "alpha/scripts/client.py").isFile)
+        assertFalse(File(visible, "alpha/scripts/__pycache__").exists())
+    }
+
+    @Test
     fun publishVisibleSkillsRemovesDisabledCopies() {
         val context = RuntimeEnvironment.getApplication()
         val skillsRoot = File(context.filesDir, "skills").apply { mkdirs() }

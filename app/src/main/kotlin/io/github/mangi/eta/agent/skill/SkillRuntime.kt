@@ -486,6 +486,7 @@ class SkillIndexService(
             .onEnter { dir ->
                 // `.assistant` / `.visible` 是当前助手的发布拷贝，不能当成又一份已安装 Skill。
                 (dir == skillsRoot || !dir.name.startsWith(".")) &&
+                    !shouldSkipSkillCopy(dir) &&
                     !Files.isSymbolicLink(dir.toPath()) &&
                     runCatching { dir.canonicalFile.toPath().startsWith(canonicalRoot) }.getOrDefault(false)
             }
@@ -635,6 +636,18 @@ class SkillLoader(private val skillsRoot: File) {
 internal const val ASSISTANT_SKILL_DIR = ".assistant"
 internal const val VISIBLE_SKILL_DIR = ".visible"
 
+private val skippedSkillCopyNames = setOf(
+    "__pycache__",
+    ".git",
+)
+
+private fun shouldSkipSkillCopy(file: File): Boolean {
+    val name = file.name
+    return name in skippedSkillCopyNames ||
+        name.endsWith(".pyc") ||
+        name.endsWith(".pyo")
+}
+
 object SkillRuntime {
     @Volatile
     private var sharedIndexService: SkillIndexService? = null
@@ -698,7 +711,7 @@ object SkillRuntime {
         if (!source.isDirectory) return
         dest.parentFile?.mkdirs()
         dest.deleteRecursively()
-        source.copyRecursively(dest)
+        copySkillTree(source, dest)
     }
 
     fun deleteAssistantSkills(context: Context, assistantId: String) {
@@ -730,14 +743,24 @@ object SkillRuntime {
                 File(dest, "data").mkdirs()
                 return@forEach
             }
-            val target = File(dest, child.name)
-            if (child.isDirectory) {
-                child.copyRecursively(target, overwrite = true)
-            } else if (child.isFile) {
-                child.copyTo(target, overwrite = true)
-            }
+            if (shouldSkipSkillCopy(child)) return@forEach
+            copySkillTree(child, File(dest, child.name))
         }
         File(dest, "data").mkdirs()
+    }
+
+    private fun copySkillTree(source: File, dest: File) {
+        if (shouldSkipSkillCopy(source)) return
+        if (source.isDirectory) {
+            dest.mkdirs()
+            source.listFiles().orEmpty().forEach { child ->
+                copySkillTree(child, File(dest, child.name))
+            }
+            return
+        }
+        if (!source.isFile) return
+        dest.parentFile?.mkdirs()
+        runCatching { source.copyTo(dest, overwrite = true) }
     }
 
     fun createIndexService(context: Context): SkillIndexService {

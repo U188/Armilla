@@ -176,14 +176,16 @@ internal object AssistantRepository {
 
     private fun refreshAssistantSkills(assistantId: String, publishVisible: Boolean) {
         if (!::applicationContext.isInitialized) return
-        val enabled = profile(assistantId)?.enabledSkillIds?.toSet().orEmpty()
-        val entries = SkillRuntime.createIndexService(applicationContext)
-            .listSkillsForManagement()
-            .filter { it.installed && it.id in enabled }
-        if (publishVisible) {
-            SkillRuntime.publishVisibleSkills(applicationContext, assistantId, entries)
-        } else {
-            SkillRuntime.bindSkillsToAssistant(applicationContext, assistantId, entries)
+        runCatching {
+            val enabled = profile(assistantId)?.enabledSkillIds?.toSet().orEmpty()
+            val entries = SkillRuntime.createIndexService(applicationContext)
+                .listSkillsForManagement()
+                .filter { it.installed && it.id in enabled }
+            if (publishVisible) {
+                SkillRuntime.publishVisibleSkills(applicationContext, assistantId, entries)
+            } else {
+                SkillRuntime.bindSkillsToAssistant(applicationContext, assistantId, entries)
+            }
         }
     }
 

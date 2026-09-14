@@ -128,6 +128,13 @@ internal object AssistantRepository {
         )
         writeIndex(snapshot)
         publish(snapshot)
+        if (::applicationContext.isInitialized) {
+            val enabled = updated.enabledSkillIds.toSet()
+            val entries = SkillRuntime.createIndexService(applicationContext)
+                .listSkillsForManagement()
+                .filter { it.installed && it.id in enabled }
+            SkillRuntime.bindSkillsToAssistant(applicationContext, updated.id, entries)
+        }
         return updated
     }
 

@@ -35,7 +35,7 @@ internal object ProotCommandBuilder {
         else bind("$workspace/offloads", "/var/minis/offloads")
         if (browser != null) bind(browser.absolutePath, "/var/minis/browser")
         else bind("$workspace/browser", "/var/minis/browser")
-        TerminalRuntime.skillsDirectory()?.takeIf { it.isDirectory }?.let { bind(it.absolutePath, "/var/minis/skills") }
+        TerminalRuntime.visibleSkillsDirectory()?.takeIf { it.isDirectory }?.let { bind(it.absolutePath, "/var/minis/skills") }
         bind(tempDirectory.absolutePath, "/dev/shm")
         if (publicStorageGranted && File("/storage/emulated/0").canRead()) bind("/storage/emulated/0")
         sharedMounts.filter {

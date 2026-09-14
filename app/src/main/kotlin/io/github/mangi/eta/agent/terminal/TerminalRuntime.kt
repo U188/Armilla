@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.terminal
 import android.content.Context
 import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.runtime.AgentExecutionService
+import io.github.mangi.eta.agent.skill.SkillRuntime
 import java.io.File
 
 internal enum class LinuxExecutionBackend(val wireName: String) {
@@ -44,6 +45,14 @@ internal object TerminalRuntime {
         if (identity == "root") "/data/local/tmp/eta" else userWorkspacePath
 
     fun skillsDirectory(): File? = appContext?.let { File(it.filesDir, "skills") }
+
+    fun visibleSkillsDirectory(): File? {
+        val context = appContext ?: return skillsDirectory()
+        val assistantId = runCatching {
+            io.github.mangi.eta.data.repository.AssistantRepository.active().id
+        }.getOrNull() ?: return skillsDirectory()
+        return SkillRuntime.assistantSkillsDirectory(context, assistantId).apply { mkdirs() }
+    }
 
     fun minisOffloadsDirectory(): File? = appContext?.let { minisSubdirectory(it.filesDir, "offloads") }
 

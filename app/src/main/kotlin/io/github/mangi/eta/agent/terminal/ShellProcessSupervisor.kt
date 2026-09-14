@@ -300,7 +300,7 @@ internal class ShellProcessSupervisor(
         val mode = if (command == null) "session" else "command"
         val payload = shellQuote(command.orEmpty())
         // name 经 SharedFolderMounts 校验只含 [A-Za-z0-9._-]，可安全拼进双引号路径。
-        val skillsDir = TerminalRuntime.skillsDirectory()?.takeIf { it.isDirectory }?.absolutePath
+        val skillsDir = TerminalRuntime.visibleSkillsDirectory()?.takeIf { it.isDirectory }?.absolutePath
         val offloadsDir = TerminalRuntime.minisOffloadsDirectory()?.absolutePath
             ?: "/data/local/tmp/eta/offloads"
         val browserDir = TerminalRuntime.minisBrowserDirectory()?.absolutePath

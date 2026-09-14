@@ -39,7 +39,8 @@ internal object LinuxGuestPathResolver {
         return resolveAndroidPath(
             path = path,
             workspaceHost = workspaceHostForApp(context).path,
-            skillsHost = File(context.filesDir, "skills").path,
+            skillsHost = TerminalRuntime.visibleSkillsDirectory()?.path
+                ?: File(context.filesDir, "skills").path,
             offloadsHost = File(context.filesDir, "minis/offloads").path,
             browserHost = File(context.filesDir, "minis/browser").path,
             sharedMounts = SharedFolderMounts.current(),

@@ -184,4 +184,45 @@ class SkillRuntimeTest {
         assertTrue(externalMarker.isFile)
         assertEquals("external content must survive", externalMarker.readText())
     }
+
+    @Test
+    fun bindSkillsToAssistantRemovesDisabledCopies() {
+        val context = RuntimeEnvironment.getApplication()
+        val skillsRoot = File(context.filesDir, "skills").apply { mkdirs() }
+        fun writeSkill(id: String): SkillIndexEntry {
+            val dir = File(skillsRoot, id).apply { mkdirs() }
+            File(dir, "SKILL.md").writeText(
+                """
+                ---
+                name: $id
+                description: Test skill $id.
+                ---
+
+                # $id
+                """.trimIndent(),
+            )
+            return SkillIndexEntry(
+                id = id,
+                name = id,
+                description = "Test skill $id.",
+                rootPath = dir.absolutePath,
+                skillFilePath = File(dir, "SKILL.md").absolutePath,
+                hasScripts = false,
+                hasReferences = false,
+                hasAssets = false,
+                hasEvals = false,
+                installed = true,
+            )
+        }
+        val alpha = writeSkill("alpha")
+        val beta = writeSkill("beta")
+        SkillRuntime.bindSkillsToAssistant(context, "asst-1", listOf(alpha, beta))
+        val bound = SkillRuntime.assistantSkillsDirectory(context, "asst-1")
+        assertTrue(File(bound, "alpha/SKILL.md").isFile)
+        assertTrue(File(bound, "beta/SKILL.md").isFile)
+
+        SkillRuntime.bindSkillsToAssistant(context, "asst-1", listOf(alpha))
+        assertTrue(File(bound, "alpha/SKILL.md").isFile)
+        assertFalse(File(bound, "beta").exists())
+    }
 }

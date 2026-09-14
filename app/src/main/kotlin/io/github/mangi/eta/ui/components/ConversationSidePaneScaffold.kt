@@ -98,7 +98,6 @@ import io.github.mangi.eta.ui.model.ConversationFolderUi
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
-import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.material3.DropdownMenuItem
@@ -353,8 +352,6 @@ private fun ConversationPanePanel(
     val activeAssistant = remember(profiles, activeId) {
         profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
     }
-    var showAssistantPicker by remember { mutableStateOf(false) }
-
     Surface(
         modifier = modifier
             .width(width)
@@ -435,7 +432,7 @@ private fun ConversationPanePanel(
             PaneAssistantBar(
                 name = activeAssistant?.name?.ifBlank { stringResource(R.string.app_name) }
                     ?: stringResource(R.string.app_name),
-                onClick = { showAssistantPicker = true },
+                onClick = onOpenAssistants,
                 avatar = {
                     AssistantAvatar(
                         assistant = activeAssistant,
@@ -455,12 +452,6 @@ private fun ConversationPanePanel(
         }
     }
 
-    AssistantPickerDialog(
-        show = showAssistantPicker,
-        onDismiss = { showAssistantPicker = false },
-        onSelect = onSelectAssistant,
-        onEdit = onEditAssistant,
-    )
 }
 
 @Composable

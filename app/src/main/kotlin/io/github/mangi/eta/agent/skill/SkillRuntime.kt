@@ -630,12 +630,21 @@ object SkillRuntime {
 
     fun skillsRoot(context: Context): File = File(context.filesDir, "skills")
 
+    fun assistantSkillsDirectory(context: Context, assistantId: String): File =
+        File(skillsRoot(context), "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(assistantId)}")
+
     fun bindSkillsToAssistant(
         context: Context,
         assistantId: String,
         entries: List<SkillIndexEntry>,
     ): List<SkillIndexEntry> {
         val root = skillsRoot(context)
+        val destRoot = assistantSkillsDirectory(context, assistantId)
+        destRoot.mkdirs()
+        val keep = entries.mapTo(linkedSetOf()) { it.id }
+        destRoot.listFiles().orEmpty().forEach { child ->
+            if (child.isDirectory && child.name !in keep) child.deleteRecursively()
+        }
         return entries.map { bindSkillToAssistant(root, assistantId, it) }
     }
 

@@ -18,6 +18,10 @@ class VisionChatModelsTest {
             "kimi-vl",
             "grok-4",
             "grok-4.6",
+            "gpt-6",
+            "gpt-6-astra",
+            "gpt6-astra",
+            "openai/gpt-6-astra",
         ).forEach { id ->
             assertTrue(id, VisionChatModels.matches(id))
             assertTrue(id, model(id).supportsVision)

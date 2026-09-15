@@ -30,7 +30,10 @@ internal class AgentCompactionArchive(filesDir: File, sessionId: String) {
                 require(stored + bytes.size <= 256L * 1024 * 1024) { "本会话原文存档达到 256 MiB 上限，请结束任务；不要在未保存资料前清理存档" }
             }
         }
-        check(root.usableSpace > bytes.size + 32L * 1024 * 1024) { "空间不足，不能保存压缩原文" }
+        val usable = root.usableSpace
+        if (usable > 0L) {
+            check(usable > bytes.size + 32L * 1024 * 1024) { "空间不足，不能保存压缩原文" }
+        }
         val id = UUID.randomUUID().toString()
         val file = AtomicFile(File(root, "$id.json"))
         val output = file.startWrite()

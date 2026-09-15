@@ -70,7 +70,13 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         AssistantRepository.init(this)
         McpServerRepository.init(this)
         runBlocking(Dispatchers.IO) {
-            io.github.mangi.eta.data.repository.EtaBackupRepository.recoverInterruptedImport(this@EtaApp)
+            runCatching {
+                io.github.mangi.eta.data.repository.EtaBackupRepository.recoverInterruptedImport(this@EtaApp)
+            }.onFailure { throwable ->
+                AndroidAgentLogger.error(
+                    "Interrupted backup recovery failed: type=${throwable.safeLogType()}"
+                )
+            }
         }
         XposedServiceHelper.registerListener(this)
         applicationScope.launch {

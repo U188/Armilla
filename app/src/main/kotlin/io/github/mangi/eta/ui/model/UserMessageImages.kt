@@ -107,7 +107,10 @@ internal fun attachUserImageSources(
             message
         } else {
             // Legacy histories lack attachment IDs. An ambiguous match must not be guessed.
-            val matches = history.filter { it.role == "user" && it.content == message.content }
+            val matches = history.filter {
+                it.role.equals("user", ignoreCase = true) &&
+                    AgentConversationCodec.userVisibleText(it) == message.content
+            }
             val uniqueUiText = messages.count { it is UserMessageUi && it.content == message.content } == 1
             val sources = matches.singleOrNull()?.takeIf { uniqueUiText }?.let(AgentConversationCodec::persistedImageSources)
             if (sources != null && sources.size == message.images.size) {

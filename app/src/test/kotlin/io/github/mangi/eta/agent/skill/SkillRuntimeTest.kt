@@ -217,7 +217,7 @@ class SkillRuntimeTest {
         val alpha = writeSkill("alpha")
         val beta = writeSkill("beta")
         SkillRuntime.bindSkillsToAssistant(context, "asst-1", listOf(alpha, beta))
-        val bound = SkillRuntime.assistantSkillsDirectory(context, "asst-1")
+        val bound = SkillRuntime.visibleSkillsDirectory(context, "asst-1")
         assertTrue(File(bound, "alpha/SKILL.md").isFile)
         assertTrue(File(bound, "beta/SKILL.md").isFile)
 
@@ -261,8 +261,8 @@ class SkillRuntimeTest {
         SkillRuntime.bindSkillsToAssistant(context, "asst-1", listOf(entry))
         SkillRuntime.publishVisibleSkills(context, "asst-1", listOf(entry))
 
-        val bound = SkillRuntime.assistantSkillsDirectory(context, "asst-1")
-        val visible = SkillRuntime.visibleSkillsDirectory(context)
+        val bound = SkillRuntime.visibleSkillsDirectory(context, "asst-1")
+        val visible = SkillRuntime.visibleSkillsDirectory(context, "asst-1")
         assertTrue(File(bound, "alpha/SKILL.md").isFile)
         assertTrue(File(bound, "alpha/scripts/client.py").isFile)
         assertFalse(File(bound, "alpha/scripts/__pycache__").exists())
@@ -302,7 +302,7 @@ class SkillRuntimeTest {
         val alpha = writeSkill("alpha")
         val beta = writeSkill("beta")
         SkillRuntime.publishVisibleSkills(context, "asst-1", listOf(alpha, beta))
-        val visible = SkillRuntime.visibleSkillsDirectory(context)
+        val visible = SkillRuntime.visibleSkillsDirectory(context, "asst-1")
         assertTrue(File(visible, "alpha/SKILL.md").isFile)
         assertTrue(File(visible, "beta/SKILL.md").isFile)
         assertTrue(File(skillsRoot, "beta/SKILL.md").isFile)

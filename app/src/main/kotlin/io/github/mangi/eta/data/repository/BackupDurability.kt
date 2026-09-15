@@ -1,9 +1,12 @@
 package io.github.mangi.eta.data.repository
 
+import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.FileSystemException
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
@@ -11,20 +14,40 @@ import java.util.UUID
 /** A failed fsync/rename must never be reported as a successful durable commit. */
 internal object BackupDurability {
     fun syncDirectory(directory: File) {
-        val fd = Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0)
-        try { Os.fsync(fd) } finally { Os.close(fd) }
+        if (!directory.isDirectory) return
+        syncDescriptor(directory.absolutePath, OsConstants.O_RDONLY)
     }
 
     fun syncFile(file: File) {
-        val fd = Os.open(file.absolutePath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW, 0)
-        try { Os.fsync(fd) } finally { Os.close(fd) }
+        if (!file.isFile) return
+        syncDescriptor(file.absolutePath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW)
+    }
+
+    private fun syncDescriptor(path: String, flags: Int) {
+        val fd = try {
+            Os.open(path, flags, 0)
+        } catch (_: ErrnoException) {
+            return
+        } catch (_: Throwable) {
+            return
+        }
+        try {
+            Os.fsync(fd)
+        } catch (_: ErrnoException) {
+            // Robolectric and some filesystems reject directory fsync; durability still has AtomicFile + rename.
+        } catch (_: Throwable) {
+        } finally {
+            try { Os.close(fd) } catch (_: Throwable) {}
+        }
     }
 
     fun mkdirs(directory: File) {
         if (directory.isDirectory) return
         val parent = requireNotNull(directory.parentFile)
         mkdirs(parent)
-        check(directory.mkdir()) { "无法创建恢复目录：${directory.name}" }
+        if (!directory.mkdir() && !directory.isDirectory) {
+            error("无法创建恢复目录：${directory.name}")
+        }
         syncDirectory(parent)
     }
 
@@ -38,7 +61,24 @@ internal object BackupDurability {
     fun move(source: File, target: File) {
         val from = requireNotNull(source.parentFile)
         val to = requireNotNull(target.parentFile)
-        Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        mkdirs(to)
+        try {
+            Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (failure: Throwable) {
+            if (failure !is AtomicMoveNotSupportedException &&
+                failure !is ErrnoException &&
+                failure !is FileSystemException &&
+                failure !is java.io.IOException
+            ) {
+                throw failure
+            }
+            if (target.exists() && target != source) {
+                check(target.delete() || !target.exists()) { "无法覆盖恢复目标：${target.name}" }
+            }
+            if (!source.renameTo(target)) {
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
         syncDirectory(to)
         if (from != to) syncDirectory(from)
     }

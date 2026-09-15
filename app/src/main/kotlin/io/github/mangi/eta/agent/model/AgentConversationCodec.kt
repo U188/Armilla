@@ -203,6 +203,30 @@ internal object AgentConversationCodec {
         }
     }
 
+    fun userVisibleText(message: AgentModelClient.ConversationMessage): String {
+        if (message.content.isNotBlank()) return message.content.trim()
+        if (message.contentJson.isBlank()) return ""
+        val value = runCatching { JSONTokener(message.contentJson).nextValue() }.getOrNull() ?: return ""
+        return extractUserText(value).trim()
+    }
+
+    private fun extractUserText(value: Any?): String = when (value) {
+        is String -> value
+        is JSONArray -> buildString {
+            for (index in 0 until value.length()) {
+                val text = extractUserText(value.opt(index)).trim()
+                if (text.isEmpty()) continue
+                if (isNotEmpty()) append('\n')
+                append(text)
+            }
+        }
+        is JSONObject -> {
+            val type = value.optString("type")
+            if (type.isEmpty() || type == "text") value.optString("text") else ""
+        }
+        else -> ""
+    }
+
     private fun String.isDirectPreviewSource(): Boolean =
         startsWith("https://", ignoreCase = true) ||
             startsWith("http://", ignoreCase = true) ||

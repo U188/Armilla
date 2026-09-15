@@ -660,7 +660,10 @@ object SkillRuntime {
         File(skillsRoot(context), "$ASSISTANT_SKILL_DIR/${AssistantStorage.id(assistantId)}")
 
     fun visibleSkillsDirectory(context: Context): File =
-        File(skillsRoot(context), "$VISIBLE_SKILL_DIR/${AssistantStorage.id(io.github.mangi.eta.data.repository.AssistantRepository.active().id)}/skills")
+        visibleSkillsDirectory(context, io.github.mangi.eta.data.repository.AssistantRepository.active().id)
+
+    fun visibleSkillsDirectory(context: Context, assistantId: String): File =
+        File(skillsRoot(context), "$VISIBLE_SKILL_DIR/${AssistantStorage.id(assistantId)}/skills")
 
     /** Only UI/user terminals use this assistant-owned view. Agent runs have separate immutable views. */
     fun publishVisibleSkills(context: Context, assistantId: String, entries: List<SkillIndexEntry>): List<SkillIndexEntry> =
@@ -836,7 +839,15 @@ object SkillRuntime {
         try {
             var bytes = 0L
             var files = 0
-            source.walkTopDown().onEnter { it == source || ((it.parentFile != source || it.name != "data") && !shouldSkipSkillCopy(it)) }.forEach { file ->
+            source.walkTopDown().onEnter { dir ->
+                when {
+                    dir == source -> true
+                    shouldSkipSkillCopy(dir) -> false
+                    dir.name == "data" && dir.parentFile == source -> false
+                    !dir.canRead() -> false
+                    else -> true
+                }
+            }.forEach { file ->
                 if (file == source || shouldSkipSkillCopy(file) || file.relativeTo(source).path.substringBefore(File.separator) == "data") return@forEach
                 require(++files <= 4096 && !Files.isSymbolicLink(file.toPath())) { "技能包条目过多或包含符号链接" }
                 if (file.isFile) bytes += file.length()
@@ -845,12 +856,22 @@ object SkillRuntime {
                 if (file.isDirectory) check(target.mkdirs() || target.isDirectory)
                 else {
                     require(file.isFile) { "技能包包含特殊文件" }
+                    if (!file.canRead()) {
+                        if (shouldSkipSkillCopy(file)) return@forEach
+                        error("技能文件不可读：${file.name}")
+                    }
                     check(target.parentFile!!.mkdirs() || target.parentFile!!.isDirectory)
-                    file.copyTo(target)
+                    try {
+                        file.copyTo(target)
+                    } catch (error: java.io.IOException) {
+                        if (shouldSkipSkillCopy(file)) return@forEach
+                        throw error
+                    }
                 }
             }
             check(File(staging, "SKILL.md").isFile) { "技能正文缺失" }
-            check(File(staging, "data").mkdirs())
+            val dataDir = File(staging, "data")
+            check(dataDir.mkdirs() || dataDir.isDirectory)
             if (dest.exists()) moveSkillDirectoryAtomically(dest, old)
             try { moveSkillDirectoryAtomically(staging, dest) }
             catch (error: Throwable) {
@@ -868,12 +889,22 @@ object SkillRuntime {
         if (shouldSkipSkillCopy(source)) return
         require(!Files.isSymbolicLink(source.toPath())) { "技能复制不接受符号链接" }
         if (source.isDirectory) {
+            if (!source.canRead()) return
             check(dest.mkdirs() || dest.isDirectory)
             source.listFiles().orEmpty().forEach { copySkillTree(it, File(dest, it.name)) }
         } else {
             require(source.isFile) { "技能文件无效" }
+            if (!source.canRead()) {
+                if (shouldSkipSkillCopy(source)) return
+                error("技能文件不可读：${source.name}")
+            }
             check(dest.parentFile!!.mkdirs() || dest.parentFile!!.isDirectory)
-            source.copyTo(dest, overwrite = true)
+            try {
+                source.copyTo(dest, overwrite = true)
+            } catch (error: java.io.IOException) {
+                if (shouldSkipSkillCopy(source)) return
+                throw error
+            }
         }
     }
 

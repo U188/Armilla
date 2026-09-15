@@ -389,7 +389,7 @@ class AgentModelClientLoopTest {
         )
 
         val result = AgentModelClient.complete(
-            config = modelConfig(),
+            config = modelConfig().copy(supportsVision = true),
             prompt = "观察后点击",
             toolExecutor = AgentModelClient.ToolExecutor { call ->
                 AgentModelClient.ToolResult(
@@ -435,7 +435,7 @@ class AgentModelClientLoopTest {
         var observationIndex = 0
 
         AgentModelClient.complete(
-            config = modelConfig(),
+            config = modelConfig().copy(supportsVision = true),
             prompt = "连续观察",
             toolExecutor = AgentModelClient.ToolExecutor {
                 val reference = if (observationIndex++ == 0) firstImage else secondImage
@@ -646,7 +646,7 @@ class AgentModelClientLoopTest {
         }
         val messages = JSONArray().put(AgentConversationCodec.userTextMessage("开始"))
         val loop = AgentLoop(
-            config = modelConfig(), messages = messages,
+            config = modelConfig().copy(supportsVision = true), messages = messages,
             tools = AgentToolCatalog.build(terminalTools = false, browserTools = false),
             provider = provider,
             toolExecutor = AgentModelClient.ToolExecutor {

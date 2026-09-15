@@ -67,7 +67,10 @@ class ProviderRepositoryTest {
 
         val restored = ProviderRepository.providerById(provider.id)!!
         assertEquals(listOf("x-provider"), restored.customHeaders.map { it.name })
-        assertEquals(listOf("x-model"), restored.models.first().customHeaders.map { it.name })
+        assertEquals(
+            listOf("x-model"),
+            restored.models.first { it.modelId == "model-1" }.customHeaders.map { it.name },
+        )
     }
 
     @Test
@@ -134,11 +137,13 @@ private fun sampleProvider(
                 id = "$id-m1",
                 modelId = "model-1",
                 displayName = "Model 1",
+                sortOrder = 0,
             ),
             io.github.mangi.eta.data.model.Model(
                 id = "$id-m2",
                 modelId = "model-2",
                 displayName = "Model 2",
+                sortOrder = 1,
             ),
         ),
     )

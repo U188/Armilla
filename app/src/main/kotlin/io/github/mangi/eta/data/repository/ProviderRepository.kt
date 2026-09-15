@@ -66,8 +66,7 @@ internal object ProviderRepository {
     }
 
     suspend fun updateProvider(provider: ProviderSetting) {
-        require(dao().providerById(provider.id) != null) { "Provider 不存在" }
-        replaceProvider(provider)
+        require(dao().updateProvider(provider.toEntity()) == 1) { "Provider 不存在" }
         repairSelection()
     }
 

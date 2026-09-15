@@ -892,17 +892,15 @@ fun AgentAppRoot(
     if (conversationExportConfirmation) {
         WindowDialog(
             show = true,
-            title = "导出单个会话",
-            summary = "包含本会话的消息、模型上下文历史和所引用的本地附件；不包含提供商配置、记忆、技能或整个工作区。" +
-                "\n这是未加密归档，消息和附件中的敏感内容不会自动脱敏。外部网址只保留链接。" +
-                "\n导入时创建新会话，不覆盖已有会话；继续对话需要在目标设备重新选择模型。目录附件和未导入应用附件目录的本地文件暂不支持。",
+            title = stringResource(R.string.conversation_export_title),
+            summary = stringResource(R.string.conversation_export_summary),
             onDismissRequest = {
                 conversationExportConfirmation = false
                 conversationExportId = null
             },
         ) {
             MiuixDialogActions(
-                confirmText = "选择保存位置",
+                confirmText = stringResource(R.string.conversation_export_choose_location),
                 onCancel = {
                     conversationExportConfirmation = false
                     conversationExportId = null

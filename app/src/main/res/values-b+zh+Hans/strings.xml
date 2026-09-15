@@ -1316,6 +1316,9 @@
   <string name="data_backup_include_linux_summary">会连同 Kimi 等已装工具一起打包。关掉则只保留工作区文件和设置。</string>
   <string name="data_backup_linux_size">Linux 环境大约 %1$s</string>
   <string name="conversation_export">导出会话</string>
+  <string name="conversation_export_title">导出会话</string>
+  <string name="conversation_export_summary">会导出本会话的消息和附件。不含提供商、记忆、技能和工作区。归档未加密，导入时会新建会话。</string>
+  <string name="conversation_export_choose_location">选择保存位置</string>
   <string name="conversation_exported">已导出“%1$s”</string>
   <string name="conversation_export_failed">导出会话失败</string>
   <string name="data_backup_file_open_failed">无法打开所选文件</string>

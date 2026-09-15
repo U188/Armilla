@@ -1307,6 +1307,9 @@
   <string name="data_backup_include_linux_summary">Includes Kimi and other installed tools. Leave this off to keep only workspace files and settings.</string>
   <string name="data_backup_linux_size">Estimated Linux environment size: %1$s</string>
   <string name="conversation_export">Export conversation</string>
+  <string name="conversation_export_title">Export conversation</string>
+  <string name="conversation_export_summary">Exports this chat’s messages and attachments. Provider settings, memory, skills, and the workspace are not included. The archive is unencrypted; importing creates a new chat.</string>
+  <string name="conversation_export_choose_location">Choose location</string>
   <string name="conversation_exported">Exported “%1$s”</string>
   <string name="conversation_export_failed">Couldn’t export this conversation</string>
   <string name="data_backup_file_open_failed">Unable to open the selected file</string>

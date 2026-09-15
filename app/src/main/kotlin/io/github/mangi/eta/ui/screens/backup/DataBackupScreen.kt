@@ -220,6 +220,7 @@ internal fun DataBackupScreen(
                                     R.string.data_backup_imported,
                                     summary.conversationCount,
                                     summary.providerCount,
+                                    summary.assistantCount,
                                 ),
                                 Toast.LENGTH_SHORT,
                             ).show()

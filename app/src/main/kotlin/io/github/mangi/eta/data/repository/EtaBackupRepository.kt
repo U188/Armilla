@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import androidx.room.withTransaction
 import io.github.mangi.eta.agent.device.RootAccess
+import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.agent.device.RootSu
 import io.github.mangi.eta.agent.media.AgentChatImageCache
 import io.github.mangi.eta.agent.skill.SkillRuntime
@@ -25,14 +26,19 @@ import io.github.mangi.eta.data.db.ProviderModelEntity
 import io.github.mangi.eta.data.db.ProviderWithModelsSeed
 import io.github.mangi.eta.data.db.SkillRegistryEntity
 import io.github.mangi.eta.data.model.AssistantPrompt
+import io.github.mangi.eta.agent.terminal.AndroidBusyBox
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.SequenceInputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -146,6 +152,7 @@ internal object EtaBackupRepository {
         val appContext = context.applicationContext
         val document = snapshot(appContext, options)
         ZipOutputStream(output).use { zip ->
+            zip.setLevel(if (options.includeLinuxEnvironment) 1 else 6)
             putText(zip, EtaBackupDocument.MANIFEST_NAME, json.encodeToString(document))
             putDirectory(zip, "attachments/chat-images/", File(appContext.cacheDir, AgentChatImageCache.CACHE_DIRECTORY))
             putDirectory(
@@ -193,37 +200,77 @@ internal object EtaBackupRepository {
     suspend fun import(context: Context, input: InputStream): EtaBackupSummary =
         withContext(Dispatchers.IO) {
             val appContext = context.applicationContext
-            val temp = File.createTempFile("eta-backup-", ".bin", appContext.cacheDir)
-            try {
-                temp.outputStream().use { input.copyTo(it) }
-                if (isZip(temp)) {
-                    ZipFile(temp).use { zip ->
-                        val manifest = zip.getEntry(EtaBackupDocument.MANIFEST_NAME)
-                            ?: throw EtaBackupException("备份文件缺少清单")
-                        val document = decodeDocument(zip.getInputStream(manifest).readBytes().toString(Charsets.UTF_8))
-                        validate(document)
-                        restoreMetadata(appContext, document)
-                        extractPrefix(zip, "attachments/chat-images/", File(appContext.cacheDir, AgentChatImageCache.CACHE_DIRECTORY))
-                        val workspace = TerminalPrivateStorage.workspace(appContext.filesDir)
-                        extractPrefix(zip, "attachments/imports/", File(workspace, "imports"))
-                        extractPrefix(zip, "linux/workspace/", workspace, skipNames = setOf("imports"))
-                        if (document.includeLinuxEnvironment) {
-                            restoreLinuxEnvironments(appContext, zip)
-                        }
-                        rewriteRestoredPaths(appContext, document)
-                        document.summary()
-                    }
-                } else {
-                    val document = decodeDocument(temp.readText(Charsets.UTF_8))
-                    validate(document)
-                    restoreMetadata(appContext, document)
-                    rewriteRestoredPaths(appContext, document)
-                    document.summary()
-                }
-            } finally {
-                temp.delete()
+            val header = ByteArray(2)
+            val read = input.read(header)
+            if (read <= 0) throw EtaBackupException("备份文件为空")
+            val body = SequenceInputStream(ByteArrayInputStream(header, 0, read), input)
+            if (read >= 2 && header[0] == 0x50.toByte() && header[1] == 0x4B.toByte()) {
+                importZip(appContext, body)
+            } else {
+                val document = decodeDocument(body.readBytes().toString(Charsets.UTF_8))
+                validate(document)
+                restoreMetadata(appContext, document)
+                rewriteRestoredPaths(appContext, document)
+                document.summary()
             }
         }
+
+    private suspend fun importZip(context: Context, input: InputStream): EtaBackupSummary {
+        var document: EtaBackupDocument? = null
+        ZipInputStream(input).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                if (entry.isDirectory) continue
+                val name = entry.name.trimStart('/')
+                when {
+                    name == EtaBackupDocument.MANIFEST_NAME -> {
+                        val parsed = decodeDocument(zip.readBytes().toString(Charsets.UTF_8))
+                        validate(parsed)
+                        restoreMetadata(context, parsed)
+                        document = parsed
+                    }
+                    name.startsWith("attachments/chat-images/") -> {
+                        extractZipFile(
+                            zip,
+                            File(context.cacheDir, AgentChatImageCache.CACHE_DIRECTORY),
+                            name.removePrefix("attachments/chat-images/"),
+                        )
+                    }
+                    name.startsWith("attachments/imports/") -> {
+                        extractZipFile(
+                            zip,
+                            File(TerminalPrivateStorage.workspace(context.filesDir), "imports"),
+                            name.removePrefix("attachments/imports/"),
+                        )
+                    }
+                    name.startsWith("linux/workspace/") -> {
+                        extractZipFile(
+                            zip,
+                            TerminalPrivateStorage.workspace(context.filesDir),
+                            name.removePrefix("linux/workspace/"),
+                            skipNames = setOf("imports"),
+                        )
+                    }
+                    name.matches(Regex("""^linux/environments/[^/]+/[^/]+\.tar$""")) -> {
+                        val match = Regex("""^linux/environments/([^/]+)/([^/]+)\.tar$""").matchEntire(name)
+                            ?: continue
+                        runCatching {
+                            restoreLinuxTar(context, zip, match.groupValues[1], match.groupValues[2])
+                        }.getOrElse { failure ->
+                            AndroidAgentLogger.error(
+                                "Backup linux restore failed: backend=${match.groupValues[1]} distribution=${match.groupValues[2]} type=${failure.javaClass.simpleName} message=${failure.message}",
+                            )
+                            throw (failure as? EtaBackupException)
+                                ?: EtaBackupException("无法导入完整 Linux 环境：${failure.message ?: failure.javaClass.simpleName}", failure)
+                        }
+                    }
+                }
+            }
+        }
+        val restored = document ?: throw EtaBackupException("备份文件缺少清单")
+        rewriteRestoredPaths(context, restored)
+        return restored.summary()
+    }
 
     suspend fun inspect(input: InputStream): EtaBackupSummary = withContext(Dispatchers.IO) {
         val bytes = input.readBytes()
@@ -423,12 +470,6 @@ private fun encodeFiles(files: Map<String, ByteArray>): Map<String, String> =
 private fun decodeFiles(files: Map<String, String>): Map<String, ByteArray> =
     files.mapValues { (_, encoded) -> Base64.decode(encoded, Base64.NO_WRAP) }
 
-private fun isZip(file: File): Boolean =
-    file.inputStream().use { input ->
-        val header = ByteArray(2)
-        input.read(header) == 2 && header[0] == 0x50.toByte() && header[1] == 0x4B.toByte()
-    }
-
 private fun putText(zip: ZipOutputStream, name: String, text: String) {
     zip.putNextEntry(ZipEntry(name))
     zip.write(text.toByteArray())
@@ -465,41 +506,99 @@ private fun exportLinuxEnvironments(context: Context, zip: ZipOutputStream) {
         )
         val entryName = "linux/environments/${backend.wireName}/${distribution.wireName}.tar"
         zip.putNextEntry(ZipEntry(entryName))
-        val packed = streamTar(envDir, zip)
+        val packed = if (canWalk(envDir)) {
+            writeTar(envDir, zip)
+        } else {
+            streamBusyBoxTar(envDir, zip)
+        }
         zip.closeEntry()
         if (!packed) {
-            // Keep an empty marker so restore can still see the attempted environment.
+            throw EtaBackupException("无法打包 Linux 环境：${distribution.wireName}")
         }
     }
 }
 
-private fun restoreLinuxEnvironments(context: Context, zip: ZipFile) {
-    zip.entries().toList().forEach { entry ->
-        val match = Regex("""^linux/environments/([^/]+)/([^/]+)\.tar$""").find(entry.name) ?: return@forEach
-        val backend = LinuxExecutionBackend.entries.firstOrNull { it.wireName == match.groupValues[1] } ?: return@forEach
-        val distribution = LinuxDistribution.entries.firstOrNull { it.wireName == match.groupValues[2] } ?: return@forEach
-        val destination = LinuxEnvironmentPaths.environmentDir(context, distribution, backend)
-        destination.parentFile?.mkdirs()
-        extractTar(zip.getInputStream(entry), destination)
+private fun restoreLinuxTar(
+    context: Context,
+    input: InputStream,
+    backendName: String,
+    distributionName: String,
+) {
+    val backend = LinuxExecutionBackend.entries.firstOrNull { it.wireName == backendName }
+        ?: throw EtaBackupException("备份中的 Linux 后端无效：$backendName")
+    val distribution = LinuxDistribution.entries.firstOrNull { it.wireName == distributionName }
+        ?: throw EtaBackupException("备份中的 Linux 发行版无效：$distributionName")
+    val destination = LinuxEnvironmentPaths.environmentDir(context, distribution, backend)
+    destination.parentFile?.mkdirs()
+    if (canWrite(destination.parentFile ?: destination) && (backend == LinuxExecutionBackend.PROOT || canWalk(destination))) {
+        if (destination.exists() && !destination.deleteRecursively()) {
+            deleteTreeAsRoot(destination)
+        }
+        destination.mkdirs()
+        extractTarStream(input, destination)
+        return
+    }
+    if (!RootAccess.isGranted) {
+        throw EtaBackupException("导入完整 Linux 环境需要 Root")
+    }
+    extractBusyBoxTar(input, destination)
+}
+
+private fun writeTar(source: File, output: OutputStream): Boolean = runCatching {
+    TarArchiveOutputStream(output).apply {
+        setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
+        setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX)
+    }.let { tar ->
+        source.walkTopDown().forEach { file ->
+            val relative = file.relativeTo(source).invariantSeparatorsPath.ifBlank { "." }
+            if (relative == ".") return@forEach
+            val entry = TarArchiveEntry(file, relative)
+            tar.putArchiveEntry(entry)
+            if (file.isFile) file.inputStream().use { it.copyTo(tar) }
+            tar.closeArchiveEntry()
+        }
+        tar.finish()
+    }
+    true
+}.getOrDefault(false)
+
+private fun extractTarStream(input: InputStream, destination: File) {
+    val root = destination.canonicalFile
+    // 不能 close：底层可能是正在读取的 ZipInputStream。
+    val tar = TarArchiveInputStream(input)
+    while (true) {
+        val entry = tar.nextEntry ?: break
+        val relative = normalizeTarPath(entry.name) ?: continue
+        val target = File(root, relative).canonicalFile
+        if (!target.path.startsWith(root.path + File.separator) && target != root) {
+            throw EtaBackupException("Linux 归档路径越界")
+        }
+        when {
+            entry.isDirectory -> target.mkdirs()
+            entry.isSymbolicLink -> {
+                target.parentFile?.mkdirs()
+                Files.deleteIfExists(target.toPath())
+                runCatching {
+                    Files.createSymbolicLink(target.toPath(), java.nio.file.Path.of(entry.linkName))
+                }.getOrElse {
+                    target.writeText("")
+                }
+            }
+            entry.isFile -> {
+                target.parentFile?.mkdirs()
+                target.outputStream().use { tar.copyTo(it) }
+                if (entry.mode and 0b001001001 != 0) target.setExecutable(true, false)
+            }
+        }
     }
 }
 
-private fun streamTar(source: File, output: OutputStream): Boolean {
-    if (canWalk(source)) {
-        val process = ProcessBuilder("tar", "-C", source.absolutePath, "-cf", "-", ".")
-            .redirectErrorStream(true)
-            .start()
-        return try {
-            process.inputStream.copyTo(output)
-            process.waitFor(20, TimeUnit.MINUTES) && process.exitValue() == 0
-        } finally {
-            runCatching { process.destroyForcibly() }
-        }
-    }
+private fun streamBusyBoxTar(source: File, output: OutputStream): Boolean {
     if (!RootAccess.isGranted) return false
-    val process = RootSu.process(
-        "tar -C ${shellQuote(source.absolutePath)} -cf - .",
-    ).redirectErrorStream(true).start()
+    val script = AndroidBusyBox.discoveryScript() +
+        "; [ -n \"\$eta_busybox\" ] || exit 127; " +
+        "\"\$eta_busybox\" tar -C " + shellQuote(source.absolutePath) + " -cf - ."
+    val process = RootSu.process(script).redirectErrorStream(true).start()
     return try {
         process.inputStream.copyTo(output)
         process.waitFor(20, TimeUnit.MINUTES) && process.exitValue() == 0
@@ -508,71 +607,50 @@ private fun streamTar(source: File, output: OutputStream): Boolean {
     }
 }
 
-private fun extractTar(input: InputStream, destination: File) {
+private fun extractBusyBoxTar(input: InputStream, destination: File) {
     destination.parentFile?.mkdirs()
-    if (canWrite(destination.parentFile ?: destination)) {
-        destination.deleteRecursively()
-        destination.mkdirs()
-        val process = ProcessBuilder("tar", "-C", destination.absolutePath, "-xf", "-")
-            .redirectErrorStream(true)
-            .start()
-        try {
-            input.copyTo(process.outputStream)
-            process.outputStream.close()
-            process.waitFor(20, TimeUnit.MINUTES)
-        } finally {
-            runCatching { process.destroyForcibly() }
-        }
-        return
-    }
-    if (!RootAccess.isGranted) return
-    val staging = File(destination.parentFile, ".eta-linux-restore-${System.nanoTime()}")
-    staging.mkdirs()
+    val script = AndroidBusyBox.discoveryScript() +
+        "; [ -n \"\$eta_busybox\" ] || exit 127; " +
+        "\"\$eta_busybox\" rm -rf -- " + shellQuote(destination.absolutePath) + "; " +
+        "\"\$eta_busybox\" mkdir -p -- " + shellQuote(destination.absolutePath) + "; " +
+        "\"\$eta_busybox\" tar -C " + shellQuote(destination.absolutePath) + " -xf -"
+    val process = RootSu.process(script).redirectErrorStream(true).start()
     try {
-        val process = ProcessBuilder("tar", "-C", staging.absolutePath, "-xf", "-")
-            .redirectErrorStream(true)
-            .start()
-        try {
-            input.copyTo(process.outputStream)
-            process.outputStream.close()
-            process.waitFor(20, TimeUnit.MINUTES)
-        } finally {
-            runCatching { process.destroyForcibly() }
+        process.outputStream.use { stdin -> input.copyTo(stdin) }
+        val finished = process.waitFor(20, TimeUnit.MINUTES)
+        val code = if (finished) process.exitValue() else -1
+        if (!finished || code != 0) {
+            throw EtaBackupException("无法还原 Linux 环境（退出码 $code）")
         }
-        copyTreeAsRoot(staging, destination)
+    } catch (failure: EtaBackupException) {
+        throw failure
+    } catch (failure: Throwable) {
+        throw EtaBackupException("无法还原 Linux 环境：${failure.message ?: failure.javaClass.simpleName}", failure)
     } finally {
-        staging.deleteRecursively()
-        deleteTreeAsRoot(staging)
+        runCatching { process.destroyForcibly() }
     }
 }
 
-private fun extractPrefix(
-    zip: ZipFile,
-    prefix: String,
+private fun normalizeTarPath(raw: String): String? {
+    val relative = raw.trim().trimStart('/').replace('\\', '/')
+    if (relative.isBlank() || relative == ".") return null
+    val segments = relative.split('/').filter { it.isNotEmpty() && it != "." }
+    if (segments.any { it == ".." }) throw EtaBackupException("Linux 归档路径越界")
+    return segments.joinToString("/")
+}
+
+private fun extractZipFile(
+    zip: ZipInputStream,
     destination: File,
+    relative: String,
     skipNames: Set<String> = emptySet(),
 ) {
-    val entries = zip.entries().toList().filter { it.name.startsWith(prefix) && !it.isDirectory }
-    if (entries.isEmpty()) return
+    if (relative.isBlank() || relative.contains("..") || relative.split('/').any { it in skipNames }) return
+    val target = File(destination, relative)
     destination.mkdirs()
-    entries.forEach { entry ->
-        val relative = entry.name.removePrefix(prefix)
-        if (relative.isBlank() || relative.contains("..") || relative.split('/').any { it in skipNames }) return@forEach
-        val target = File(destination, relative)
-        if (!target.canonicalFile.path.startsWith(destination.canonicalFile.path)) return@forEach
-        target.parentFile?.mkdirs()
-        zip.getInputStream(entry).use { input -> target.outputStream().use { input.copyTo(it) } }
-    }
-}
-
-private fun copyTreeAsRoot(source: File, destination: File): Boolean {
-    destination.parentFile?.mkdirs()
-    return runRoot(
-        "rm -rf -- ${shellQuote(destination.absolutePath)} && " +
-            "cp -a -- ${shellQuote(source.absolutePath)} ${shellQuote(destination.absolutePath)} && " +
-            "chmod -R a+rX -- ${shellQuote(destination.absolutePath)}",
-        timeoutMinutes = 20,
-    )
+    if (!target.canonicalFile.path.startsWith(destination.canonicalFile.path)) return
+    target.parentFile?.mkdirs()
+    target.outputStream().use { zip.copyTo(it) }
 }
 
 private fun deleteTreeAsRoot(target: File): Boolean {

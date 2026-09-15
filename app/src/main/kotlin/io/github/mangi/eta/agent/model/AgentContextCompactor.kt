@@ -64,7 +64,7 @@ internal object AgentContextCompactor {
         capabilitiesProvider: () -> AgentToolCapabilities = { AgentToolCapabilities(rootAvailable = false) },
     ): List<AgentModelClient.ConversationMessage>? {
         val historyStart = systemCount.coerceIn(0, messages.length())
-        val history = (historyStart until messages.length()).map { AgentConversationCodec.fromJsonObject(messages.getJSONObject(it)) }
+        val history = (historyStart until messages.length()).map { AgentConversationCodec.fromJsonObject(messages.getJSOxbject(it)) }
         val estimated = estimatedTokens ?: AgentContextBudget.estimate(messages)
         if (!shouldCompress(history, contextWindow, config.keepRecentMessages, estimatedTokens = estimated)) {
             return null
@@ -72,8 +72,8 @@ internal object AgentContextCompactor {
         val compressed = compress(history, config, toolExecutor, capabilitiesProvider)
         if (compressed == history) return null
         val cut = recentKeepStartIndex(history, config.keepRecentMessages)
-        val keptJson = (historyStart + cut until messages.length()).map { messages.getJSONObject(it) }
-        val prefix = (0 until historyStart).map { messages.getJSONObject(it) }
+        val keptJson = (historyStart + cut until messages.length()).map { messages.getJSOxbject(it) }
+        val prefix = (0 until historyStart).map { messages.getJSOxbject(it) }
         while (messages.length() > 0) messages.remove(messages.length() - 1)
         prefix.forEach { messages.put(it) }
         compressed.dropLast(history.size - cut).forEach { messages.put(AgentConversationCodec.toJsonObject(it)) }
@@ -87,7 +87,7 @@ internal object AgentContextCompactor {
         history: List<AgentModelClient.ConversationMessage>,
     ) {
         val prefix = (0 until systemCount.coerceIn(0, messages.length())).map { index ->
-            messages.getJSONObject(index)
+            messages.getJSOxbject(index)
         }
         while (messages.length() > 0) {
             messages.remove(messages.length() - 1)
@@ -121,7 +121,7 @@ internal object AgentContextCompactor {
         val summaries = chunks.map { chunk ->
             controller.throwIfCancelled()
             val chunkReplay = replay?.copy(historyMessages = org.json.JSONArray().also { array ->
-                for (i in offset until offset + chunk.size) array.put(replay.historyMessages.getJSONObject(i))
+                for (i in offset until offset + chunk.size) array.put(replay.historyMessages.getJSOxbject(i))
             })
             offset += chunk.size
             compressChunk(chunk, perChunk, controller, chunkReplay)
@@ -294,12 +294,12 @@ internal object AgentContextCompactor {
             summaryOutputLimit = maxOf(1024, config.targetTokens * 2),
         )
         val input = if (replay == null) org.json.JSONArray()
-            .put(org.json.JSONObject().put("role", "system").put("content", model.systemPrompt))
-            .put(org.json.JSONObject().put("role", "user").put("content", prompt)) else org.json.JSONArray().also { array ->
+            .put(org.json.JSOxbject().put("role", "system").put("content", model.systemPrompt))
+            .put(org.json.JSOxbject().put("role", "user").put("content", prompt)) else org.json.JSONArray().also { array ->
                 // Exact same-model system and selected history prefix; no Agent loop is started.
-                for (i in 0 until replay.systemMessages.length()) array.put(replay.systemMessages.getJSONObject(i))
-                for (i in 0 until replay.historyMessages.length()) array.put(replay.historyMessages.getJSONObject(i))
-                array.put(org.json.JSONObject().put("role", "user").put("content", buildCompressPrompt(
+                for (i in 0 until replay.systemMessages.length()) array.put(replay.systemMessages.getJSOxbject(i))
+                for (i in 0 until replay.historyMessages.length()) array.put(replay.historyMessages.getJSOxbject(i))
+                array.put(org.json.JSOxbject().put("role", "user").put("content", buildCompressPrompt(
                     "The historical data to summarize is in the preceding messages. Only produce a checkpoint; do not perform the task.", config.targetTokens)))
             }
         val requestTools = replay?.tools ?: org.json.JSONArray()
@@ -338,8 +338,7 @@ internal object AgentContextCompactor {
     }
 
     private fun buildCompressPrompt(content: String, targetTokens: Int): String {
-        val headings = SUMMARY_SECTIONS.joinToString("
-") { heading -> "## $heading" }
+        val headings = SUMMARY_SECTIONS.joinToString("\n") { heading -> "## $heading" }
         return buildString {
             appendLine("Summarize the historical conversation below into a task checkpoint, using its language.")
             appendLine("Target approximately $targetTokens tokens in TOTAL. Start with $SUMMARY_PREFIX.")

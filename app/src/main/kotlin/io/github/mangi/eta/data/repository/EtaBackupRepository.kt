@@ -178,7 +178,7 @@ internal object EtaBackupRepository {
                     )
                     zip.finish()
                 }
-                document.summary()
+                document.toBackupSummary()
             } finally {
                 AgentExecutionService.endBackupMaintenance()
             }
@@ -207,7 +207,7 @@ internal object EtaBackupRepository {
                     }
                     zip.finish()
                 }
-                document.summary()
+                document.toConversationSummary()
             } finally {
                 AgentExecutionService.endBackupMaintenance()
             }
@@ -277,7 +277,7 @@ internal object EtaBackupRepository {
                                 journal.commit()
                                 mayRetire = true
                             }
-                            return@withLock plan.document.summary()
+                            return@withLock plan.document.toConversationSummary()
                         }
                         val planned = linkedMapOf<File, File>()
                         files.forEach { (name, source) ->
@@ -342,7 +342,7 @@ internal object EtaBackupRepository {
                         // publishing a marker which startup could legitimately interpret as committed.
                         journal.commit()
                         mayRetire = true
-                        if (document != null) document.summary() else requireNotNull(conversation).summary()
+                        if (document != null) document.toBackupSummary() else requireNotNull(conversation).toConversationSummary()
                     } finally {
                         if (mayRetire || !BackupRestoreJournal.hasJournal(operation)) {
                             BackupDurability.retire(operation).deleteRecursively()
@@ -404,8 +404,8 @@ internal object EtaBackupRepository {
                         total += raw.toByteArray().size
                         require(total <= BackupArchiveSafety.TOTAL_LIMIT) { "备份总量超过限制" }
                         summary = if (name == EtaBackupDocument.MANIFEST_NAME) {
-                            decodeDocument(raw).also(::validate).summary()
-                        } else decodeConversation(raw).summary()
+                            decodeDocument(raw).also(::validate).toBackupSummary()
+                        } else decodeConversation(raw).toConversationSummary()
                     } else {
                         total += BackupArchiveSafety.copyLimited(zip, OutputStream.nullOutputStream(), BackupArchiveSafety.TOTAL_LIMIT - total)
                     }
@@ -414,8 +414,8 @@ internal object EtaBackupRepository {
             requireNotNull(summary) { "备份文件缺少清单" }
         } else {
             val raw = BackupArchiveSafety.readText(body)
-            if (manifestName(raw) == EtaConversationExport.MANIFEST_NAME) decodeConversation(raw).summary()
-            else decodeDocument(raw).also(::validate).summary()
+            if (manifestName(raw) == EtaConversationExport.MANIFEST_NAME) decodeConversation(raw).toConversationSummary()
+            else decodeDocument(raw).also(::validate).toBackupSummary()
         }
     }
 
@@ -618,7 +618,7 @@ internal object EtaBackupRepository {
         }
     }
 
-    private fun EtaBackupDocument.summary(): EtaBackupSummary = EtaBackupSummary(
+    private fun EtaBackupDocument.toBackupSummary(): EtaBackupSummary = EtaBackupSummary(
         providerCount = providers.size,
         modelCount = providers.sumOf { it.models.size },
         conversationCount = conversations.size,
@@ -631,7 +631,7 @@ internal object EtaBackupRepository {
         includedLinuxEnvironment = includeLinuxEnvironment,
     )
 
-    private fun EtaConversationExport.summary(): EtaBackupSummary = EtaBackupSummary(
+    private fun EtaConversationExport.toConversationSummary(): EtaBackupSummary = EtaBackupSummary(
         providerCount = 0,
         modelCount = 0,
         conversationCount = 1,

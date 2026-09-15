@@ -187,8 +187,8 @@ internal object AgentConversationStore {
                 isStreaming = false,
                 thinkingEnabled = conversation.reasoningEffortValue.enablesReasoning,
                 reasoningEffort = conversation.reasoningEffortValue,
-                providerId = conversation.providerId.ifBlank { fallbackProviderId },
-                modelId = conversation.modelId.ifBlank { fallbackModelId },
+                providerId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackProviderId else conversation.providerId,
+                modelId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackModelId else conversation.modelId,
             )
             titles[conversation.id] = conversation.title.takeUnless { it == LEGACY_UNNAMED_TITLE }.orEmpty()
             updatedAt[conversation.id] = conversation.updatedAt

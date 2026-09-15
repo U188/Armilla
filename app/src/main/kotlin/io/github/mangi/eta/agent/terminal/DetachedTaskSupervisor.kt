@@ -64,6 +64,7 @@ internal class DetachedTaskSupervisor(
     private val rootAvailable: () -> Boolean = { TerminalRuntime.rootAvailable },
     private val acquireUserLease: (String, () -> Unit) -> Boolean = TerminalRuntime::acquireUserTask,
     private val releaseUserLease: (String) -> Unit = TerminalRuntime::releaseUserTask,
+    private val skillsDirectoryProvider: () -> File? = TerminalRuntime::visibleSkillsDirectory,
 ) {
     companion object {
         const val DEFAULT_DAEMON_DIR = "/data/local/tmp/eta/daemon"
@@ -81,7 +82,7 @@ internal class DetachedTaskSupervisor(
             File(context.filesDir, "terminal-daemons.json")
     }
 
-    private val oneShotSupervisor = ShellProcessSupervisor(rootAvailable = rootAvailable)
+    private val oneShotSupervisor = ShellProcessSupervisor(rootAvailable = rootAvailable, skillsDirectoryProvider = skillsDirectoryProvider)
 
     /** command/cwd/identity/environment 必须已由调用方归一化。 */
     fun start(
@@ -290,7 +291,7 @@ internal class DetachedTaskSupervisor(
             val rootfs = rootfsPath(environment)
             if (!LinuxEnvironmentPaths.rootfsReady(rootfs)) return DaemonStartResult.Failed("LINUX_ENVIRONMENT_NOT_READY", "Linux 环境尚未安装")
             if (!ProotCommandBuilder.available()) return DaemonStartResult.Failed("PROOT_UNAVAILABLE", "当前设备没有可用的免 Root Linux 运行组件")
-            ProotCommandBuilder.payload(requireNotNull(rootfs), "cd ${shellQuote(cwd)} && exec sh -c ${shellQuote(command)}", linuxSharedMountsProvider(), workspace = workspace)
+            ProotCommandBuilder.payload(requireNotNull(rootfs), "cd ${shellQuote(cwd)} && exec sh -c ${shellQuote(command)}", linuxSharedMountsProvider(), workspace = workspace, skillsDirectory = skillsDirectoryProvider())
         } else "cd ${shellQuote(cwd)} && exec sh -c ${shellQuote(command)}"
         val lease = "daemon:$id"
         val stopped = java.util.concurrent.atomic.AtomicBoolean(false)

@@ -49,7 +49,7 @@ internal fun AgentHomeScreen(
             pendingFileReferences = state.pendingFileReferences,
             messageEdit = state.messageEdit,
             onReasoningEffortChange = { onAction(AgentHomeAction.ReasoningEffortChanged(it)) },
-            onModelSelected = { onAction(AgentHomeAction.ModelSelected(it)) },
+            onModelSelected = { providerId, modelId -> onAction(AgentHomeAction.ModelSelected(modelId, providerId)) },
             onSubmit = { text -> onAction(AgentHomeAction.SubmitMessage(text)) },
             onStop = { onAction(AgentHomeAction.StopRun) },
             onContinue = { onAction(AgentHomeAction.ContinueRun) },

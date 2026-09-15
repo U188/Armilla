@@ -76,28 +76,29 @@ internal class AgentRuntimeSession(
         return controller.steer(text)
     }
 
-    fun requestCompact(keepRecentMessages: Int? = null, targetTokens: Int? = null): Boolean {
+    fun requestCompact(keepRecentMessages: Int? = null, targetTokens: Int? = null, allowCurrentTurn: Boolean = false): Boolean {
         lock.withLock {
             if (state != State.RUNNING) return false
         }
-        return controller.requestCompact(keepRecentMessages, targetTokens)
+        return controller.requestCompact(keepRecentMessages, targetTokens, allowCurrentTurn)
     }
 
     fun <T : AgentEvent> steer(
         text: String,
+        imagesJson: String = "[]",
         eventFactory: () -> T,
     ): T? {
-        lock.withLock {
+        val accepted = lock.withLock {
             if (state != State.RUNNING) return null
+            val interrupt = controller.enqueueSteering(AgentRunController.SteeringInput(text, imagesJson)) ?: return null
+            val event = eventFactory()
+            recordForReplay(event)
+            subscribers.forEach { subscriber -> runCatching { subscriber.eventSink(event) } }
+            event to interrupt
         }
-        if (!controller.steer(text)) return null
-        return lock.withLock {
-            if (state != State.RUNNING) return null
-            eventFactory().also { event ->
-                recordForReplay(event)
-                subscribers.forEach { it.eventSink(event) }
-            }
-        }
+        // Never cancel network resources while holding the session lock.
+        controller.interruptSteering(accepted.second)
+        return accepted.first
     }
 
     private fun recordForReplay(event: AgentEvent) {

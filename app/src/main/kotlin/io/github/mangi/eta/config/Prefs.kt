@@ -46,6 +46,7 @@ internal object Prefs {
         const val AGENT_RUNTIME_CONFIG_JSON = "agent_runtime_config_json"
         const val AGENT_AUTO_COMPRESS_ENABLED = "agent_auto_compress_enabled"
         const val AGENT_COMPRESS_TARGET_TOKENS = "agent_compress_target_tokens"
+        const val AGENT_COMPRESSION_STRATEGY = "agent_compression_strategy"
         const val AGENT_COMPRESS_KEEP_RECENT = "agent_compress_keep_recent"
         const val AGENT_COMPRESS_MODEL_PROVIDER_ID = "agent_compress_model_provider_id"
         const val AGENT_COMPRESS_MODEL_ID = "agent_compress_model_id"

@@ -29,6 +29,9 @@ internal class AgentModelFailure(
             } catch (_: org.json.JSONException) {
                 null
             }
+            if (status in setOf(400, 413) && isContextOverflow(error)) {
+                return AgentModelFailure("CONTEXT_WINDOW_EXCEEDED", false, "提供方确认上下文超限，需缩减上下文后重试。")
+            }
             val permanent = isPermanent(error, body)
             val providerMessage = error?.optString("message")
                 ?.replace('\n', ' ')
@@ -56,6 +59,8 @@ internal class AgentModelFailure(
         }
 
         fun stream(error: JSONObject, message: String): AgentModelFailure {
+            // A stream may already have emitted visible text or invoked hosted tools.
+            // Do not turn its late error into a replay of possible side effects.
             val codes = listOf(
                 error.optString("code"),
                 error.optString("type"),
@@ -83,6 +88,17 @@ internal class AgentModelFailure(
                 "MODEL_CONNECTION_FAILED", true, "模型连接中断或暂时无法建立，请检查网络与服务商状态。", failure,
             )
             else -> null
+        }
+
+        private fun isContextOverflow(error: JSONObject?): Boolean {
+            if (error == null) return false
+            val code = error.optString("code").lowercase()
+            val type = error.optString("type").lowercase()
+            if (code in setOf("context_length_exceeded", "context_window_exceeded", "prompt_too_long") ||
+                type in setOf("context_length_exceeded", "context_window_exceeded", "prompt_too_long")) return true
+            val message = error.optString("message").lowercase()
+            return message.contains("maximum context length") || message.contains("prompt is too long") ||
+                message.contains("context window exceeded")
         }
 
         private fun isPermanent(error: JSONObject?, body: String): Boolean =

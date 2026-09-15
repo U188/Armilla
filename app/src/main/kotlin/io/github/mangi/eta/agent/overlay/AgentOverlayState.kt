@@ -140,7 +140,9 @@ internal fun AgentOverlayState.applyEvent(event: AgentEvent): AgentOverlayState 
         detailText = "",
     )
 
-    is AgentEvent.ContextCompacted -> this
+    is AgentEvent.ContextCompacted -> if (event.blocked) copy(
+        phase = AgentOverlayPhase.PAUSED, status = AgentOverlayStatus.Paused, detailText = event.reason,
+    ) else this
 
     is AgentEvent.RunFinished -> copy(
         phase = AgentOverlayPhase.FINISHED,

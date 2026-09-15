@@ -36,6 +36,16 @@ internal class RootShellTerminalController(
         const val MAX_ASYNC_OUTPUT_CHARS = 64_000
     }
 
+    private val ownedDaemonIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun hasRunningOwnedDaemons(): Boolean = runCatching {
+        detachedSupervisor?.list().orEmpty().any { it.running && it.task.id in ownedDaemonIds }
+    }.getOrDefault(true)
+
+    fun stopOwnedDaemons() {
+        ownedDaemonIds.forEach { detachedSupervisor?.stop(it) }
+    }
+
     private val sessions = linkedMapOf<String, TerminalSession>()
     private val asyncJobs = linkedMapOf<String, AsyncCommand>()
     private val cleanupStarted = AtomicBoolean(false)
@@ -409,7 +419,7 @@ internal class RootShellTerminalController(
         environmentPreflight(normalizedIdentity, normalizedEnvironment)?.let { return it }
         val safeCwd = normalizeCwd(cwd, normalizedEnvironment, normalizedIdentity)
         return when (val result = supervisor.start(trimmed, safeCwd, normalizedIdentity, normalizedEnvironment)) {
-            is DaemonStartResult.Started -> JSONObject()
+            is DaemonStartResult.Started -> JSONObject().also { ownedDaemonIds += result.task.id }
                 .put("ok", true)
                 .put("tool", "terminal")
                 .put("action", "daemon_start")

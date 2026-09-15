@@ -33,6 +33,7 @@ internal object ResponsesRequestBuilder {
         request.remove("previous_response_id")
         request.remove("reasoning")
         ProviderReasoning.applyResponsesRequest(request, config)
+        config.summaryOutputLimit?.let { request.put("max_output_tokens", it) }
         return request
     }
 

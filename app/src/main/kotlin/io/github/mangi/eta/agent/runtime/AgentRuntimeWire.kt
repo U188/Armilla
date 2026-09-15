@@ -170,6 +170,7 @@ internal object AgentRuntimeWire {
         val handoff: EntryHandoff? = null,
         val historyAlreadyCompacted: Boolean = false,
         val modelSessionId: String = "",
+        val assistantId: String = config.assistantId,
     ) {
         // 旧入口沿用会话 handoff；无持久会话的入口以首个 run 为会话起点。
         val effectiveModelSessionId: String
@@ -277,6 +278,7 @@ internal object AgentRuntimeWire {
         historyDescriptor: ParcelFileDescriptor,
     ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, request.runId)
+        putString("assistant_id", request.assistantId)
         putString(KEY_PROMPT, request.prompt)
         putString(KEY_MODEL_SESSION_ID, request.modelSessionId)
         putString(KEY_PROVIDER_ID, request.config.providerId)
@@ -379,9 +381,11 @@ internal object AgentRuntimeWire {
         images: List<AgentModelClient.ModelImage>,
     ): RunRequest = RunRequest(
             runId = bundle.getString(KEY_RUN_ID).orEmpty(),
+            assistantId = bundle.getString("assistant_id").orEmpty(),
             prompt = bundle.getString(KEY_PROMPT).orEmpty(),
             modelSessionId = bundle.getString(KEY_MODEL_SESSION_ID).orEmpty(),
             config = AgentModelClient.ModelConfig(
+                assistantId = bundle.getString("assistant_id").orEmpty(),
                 providerId = bundle.getString(KEY_PROVIDER_ID).orEmpty(),
                 providerName = bundle.getString(KEY_PROVIDER_NAME).orEmpty(),
                 providerType = bundle.getString(KEY_PROVIDER_TYPE).orEmpty()
@@ -560,9 +564,11 @@ internal object AgentRuntimeWire {
             .orEmpty()
     }
 
-    fun steerBundle(runId: String, text: String): Bundle = Bundle().apply {
+    fun steerBundle(runId: String, text: String, requestId: String = "", imagesJson: String = "[]"): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
         putString(KEY_STEER_TEXT, text)
+        putString("request_id", requestId)
+        putString("images_json", imagesJson)
     }
 
     fun steerTextFromBundle(bundle: Bundle): String =
@@ -572,10 +578,12 @@ internal object AgentRuntimeWire {
         runId: String,
         keepRecent: Int,
         targetTokens: Int,
+        allowCurrentTurn: Boolean = false,
     ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
         putInt(KEY_COMPACT_KEEP_RECENT, keepRecent)
         putInt(KEY_COMPACT_TARGET_TOKENS, targetTokens)
+        putBoolean("allow_current_turn_compaction", allowCurrentTurn)
     }
 
     fun compactKeepRecentFromBundle(bundle: Bundle): Int =
@@ -611,7 +619,7 @@ internal object AgentRuntimeWire {
     }
 
     /** 将 [AgentEvent] 打包为可跨进程传递的 [Bundle]。 */
-    fun eventToBundle(event: AgentEvent): Bundle = Bundle().apply {
+    fun eventToBundle(event: AgentEvent, historyDescriptor: ParcelFileDescriptor? = null): Bundle = Bundle().apply {
         when (event) {
             is AgentEvent.RunStarted -> {
                 putString(KEY_TYPE, "run_started")
@@ -695,6 +703,8 @@ internal object AgentRuntimeWire {
                 putString(KEY_TYPE, "user_supplement_received")
                 putInt("index", event.index)
                 putString("text", event.text)
+                putString("request_id", event.requestId)
+                putString("images_json", event.imagesJson)
             }
 
             is AgentEvent.ToolStarted -> {
@@ -752,7 +762,10 @@ internal object AgentRuntimeWire {
                 putInt("original_count", event.originalCount)
                 putInt("compacted_count", event.compactedCount)
                 putString("compressor_label", event.compressorLabel)
-                putString("history_json", encodeConversationHistory(event.history))
+                putBoolean("context_blocked", event.blocked)
+                putString("context_reason", event.reason)
+                if (historyDescriptor == null) putString("history_json", encodeConversationHistory(event.history))
+                else putParcelable(KEY_TRANSCRIPT_FD, historyDescriptor)
             }
 
             is AgentEvent.RunFinished -> {
@@ -847,6 +860,8 @@ internal object AgentRuntimeWire {
         "user_supplement_received" -> AgentEvent.UserSupplementReceived(
             index = bundle.getInt("index"),
             text = bundle.getString("text").orEmpty(),
+            requestId = bundle.getString("request_id").orEmpty(),
+            imagesJson = bundle.getString("images_json") ?: "[]",
         )
 
         "tool_started" -> AgentEvent.ToolStarted(
@@ -896,8 +911,11 @@ internal object AgentRuntimeWire {
             applied = bundle.getBoolean("applied"),
             originalCount = bundle.getInt("original_count"),
             compactedCount = bundle.getInt("compacted_count"),
-            history = decodeConversationHistory(bundle.getString("history_json")),
+            history = if (bundle.containsKey(KEY_TRANSCRIPT_FD)) AgentRuntimeTranscriptTransfer.readFromBundle(bundle)
+                else decodeConversationHistory(bundle.getString("history_json")),
             compressorLabel = bundle.getString("compressor_label").orEmpty(),
+            blocked = bundle.getBoolean("context_blocked", false),
+            reason = bundle.getString("context_reason").orEmpty(),
         )
 
         "run_finished" -> AgentEvent.RunFinished(

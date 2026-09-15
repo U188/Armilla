@@ -63,7 +63,7 @@ internal fun AgentModelPickerButton(
     isPaused: Boolean = false,
     popupAnchorTopPx: Int,
     popupMaxHeight: Dp,
-    onModelSelected: (String) -> Unit,
+    onModelSelected: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val menuState = rememberEtaMenuState()
@@ -108,8 +108,8 @@ internal fun AgentModelPickerButton(
                 onProviderExpandedChange = { providerId, expanded ->
                     expandedProviderIds = if (expanded) setOf(providerId) else emptySet()
                 },
-                onModelSelected = { modelId ->
-                    if (!state.isChanging) onModelSelected(modelId)
+                onModelSelected = { providerId, modelId ->
+                    if (!state.isChanging) onModelSelected(providerId, modelId)
                 },
             )
         }
@@ -121,7 +121,7 @@ private fun ModelPickerPopupContent(
     state: AgentModelPickerUiState,
     expandedProviderIds: Set<String>,
     onProviderExpandedChange: (String, Boolean) -> Unit,
-    onModelSelected: (String) -> Unit,
+    onModelSelected: (String, String) -> Unit,
 ) {
     val balances by ProviderBalanceStore.balances.collectAsState()
     state.providerGroups.forEachIndexed { groupIndex, group ->
@@ -141,8 +141,8 @@ private fun ModelPickerPopupContent(
                 group.models.forEach { model ->
                     ModelPickerRow(
                         model = model,
-                        selected = model.id == state.selectedModel?.id,
-                        onClick = { onModelSelected(model.id) },
+                        selected = model.id == state.selectedModel?.id && model.providerId == state.selectedModel?.providerId,
+                        onClick = { onModelSelected(model.providerId, model.id) },
                     )
                 }
             }

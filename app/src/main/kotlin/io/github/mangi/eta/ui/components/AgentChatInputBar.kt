@@ -140,7 +140,7 @@ internal fun AgentChatInputBar(
     isEditingMessage: Boolean,
     editHasLaterTurns: Boolean,
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
-    onModelSelected: (String) -> Unit,
+    onModelSelected: (String, String) -> Unit,
     onSubmit: (String) -> Unit,
     onStop: () -> Unit,
     onContinue: () -> Unit = {},
@@ -192,7 +192,7 @@ internal fun AgentChatInputBar(
     }
     val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, liveUsage)
     val compressionSendBlocked = isCompressingContext
-    val canSend = !contextSendBlocked && !compressionSendBlocked && (
+    val canSend = !modelPickerState.isChanging && modelPickerState.selectedModel != null && !contextSendBlocked && !compressionSendBlocked && (
         textFieldState.text.isNotBlank() ||
             pendingImages.isNotEmpty() ||
             pendingFileReferences.isNotEmpty()

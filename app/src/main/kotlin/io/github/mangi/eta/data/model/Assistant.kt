@@ -53,9 +53,8 @@ internal object AssistantPrompt {
 
 internal object AssistantStorage {
     fun id(raw: String): String {
-        val trimmed = raw.trim().ifBlank { AssistantPrompt.DEFAULT_ID }
-        val safe = trimmed.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        return safe.take(80).ifBlank { AssistantPrompt.DEFAULT_ID }
+        require(raw.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,79}"))) { "助手 ID 无效" }
+        return raw
     }
 }
 

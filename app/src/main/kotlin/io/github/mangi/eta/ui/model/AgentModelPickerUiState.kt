@@ -69,13 +69,6 @@ internal object AgentModelPickerProjector {
             ?.models
             ?.firstOrNull { it.id == selectedModelId && it.isEnabled }
             ?.let { model -> selectedProvider.toOption(model) }
-            ?: enabledProviders.asSequence()
-                .flatMap { provider ->
-                    provider.models.asSequence()
-                        .filter { it.isEnabled }
-                        .map { model -> provider.toOption(model) }
-                }
-                .firstOrNull { it.id == selectedModelId }
         val groups = enabledProviders
             .asSequence()
             .filter { it.apiKey.isNotBlank() }

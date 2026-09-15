@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -101,6 +102,7 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -168,30 +170,64 @@ fun AgentAppRoot(
     var conversationRenameTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var conversationDeleteTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var conversationMoveTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
-    var conversationExportTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
+    var conversationExportId by rememberSaveable { mutableStateOf<String?>(null) }
+    var conversationExportTitle by rememberSaveable { mutableStateOf("") }
+    var conversationExportBusy by remember { mutableStateOf(false) }
+    var conversationExportConfirmation by rememberSaveable { mutableStateOf(false) }
 
     val conversationExportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
-        val conversation = conversationExportTarget
-        conversationExportTarget = null
-        if (uri == null || conversation == null) return@rememberLauncherForActivityResult
+        val id = conversationExportId
+        val title = conversationExportTitle
+        conversationExportId = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (id == null) {
+            Toast.makeText(context, "导出目标已丢失，未写入文件，请重新选择会话。", Toast.LENGTH_LONG).show()
+            return@rememberLauncherForActivityResult
+        }
         uiScope.launch {
+            conversationExportBusy = true
+            var touchedDestination = false
+            val temporary = java.io.File(context.cacheDir, "conversation-export-${java.util.UUID.randomUUID()}.zip")
+            val validation = java.io.File(context.cacheDir, "conversation-export-check-${java.util.UUID.randomUUID()}")
             try {
-                val output = context.contentResolver.openOutputStream(uri)
-                    ?: error(context.getString(R.string.data_backup_file_open_failed))
-                output.use { agentState.exportConversation(conversation.id, it) }
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.conversation_exported, conversation.title.ifBlank { context.getString(R.string.conversation_unnamed) }),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            } catch (throwable: Throwable) {
-                Toast.makeText(
-                    context,
-                    throwable.message ?: context.getString(R.string.conversation_export_failed),
-                    Toast.LENGTH_LONG,
-                ).show()
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    temporary.outputStream().use { agentState.exportConversation(id, it) }
+                    io.github.mangi.eta.data.repository.BackupArchiveSafety.stageZip(temporary, validation)
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    touchedDestination = true
+                    val output = context.contentResolver.openOutputStream(uri, "wt")
+                        ?: error(context.getString(R.string.data_backup_file_open_failed))
+                    output.use { sink -> temporary.inputStream().use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            sink.write(buffer, 0, count)
+                        }
+                    } }
+                }
+                Toast.makeText(context, context.getString(R.string.conversation_exported, title), Toast.LENGTH_SHORT).show()
+            } catch (failure: Throwable) {
+                val cleaned = kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    runCatching { android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri) }.getOrDefault(false)
+                }
+                if (failure is kotlinx.coroutines.CancellationException) {
+                    if (!cleaned && touchedDestination) Toast.makeText(context, "导出已取消，目标文件可能不完整，请删除后重试。", Toast.LENGTH_LONG).show()
+                    throw failure
+                }
+                val detail = failure.message ?: context.getString(R.string.conversation_export_failed)
+                Toast.makeText(context, detail + if (!cleaned) {
+                    if (touchedDestination) "\n目标文件可能不完整，请删除后重试。" else "\n未写入备份；文件选择器创建的空文件可能仍保留。"
+                } else "", Toast.LENGTH_LONG).show()
+            } finally {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    temporary.delete()
+                    validation.deleteRecursively()
+                }
+                conversationExportBusy = false
             }
         }
     }
@@ -349,12 +385,13 @@ fun AgentAppRoot(
                 agentState.toggleConversationPinned(conversation.id)
             },
             onConversationExport = { conversation ->
-                conversationExportTarget = conversation
-                val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
-                val title = conversation.title.ifBlank { context.getString(R.string.conversation_unnamed) }
-                    .replace(Regex("""[\\/:*?"<>|]"""), "_")
-                    .take(40)
-                conversationExportLauncher.launch("代鱼-$title-$stamp.zip")
+                if (conversationExportBusy || conversationExportId != null) {
+                    Toast.makeText(context, "已有会话导出任务，请等待完成。", Toast.LENGTH_SHORT).show()
+                } else {
+                    conversationExportId = conversation.id
+                    conversationExportTitle = conversation.title.ifBlank { context.getString(R.string.conversation_unnamed) }
+                    conversationExportConfirmation = true
+                }
             },
             onOpenManageChats = { pushFromDrawer(AppRoute.ManageChats) },
             onSelectFolder = { folderId -> agentState.selectFolder(folderId) },
@@ -408,7 +445,7 @@ fun AgentAppRoot(
                             when (action) {
                                 is AgentHomeAction.ReasoningEffortChanged ->
                                     agentState.updateReasoningEffort(action.effort)
-                                is AgentHomeAction.ModelSelected -> agentState.selectModel(action.modelId)
+                                is AgentHomeAction.ModelSelected -> agentState.selectModel(action.modelId, action.providerId)
                                 is AgentHomeAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
                                 AgentHomeAction.StopRun -> agentState.pauseCurrentRun()
                                 AgentHomeAction.ContinueRun -> agentState.continuePausedGeneration()
@@ -468,7 +505,7 @@ fun AgentAppRoot(
                                 AgentChatAction.NavigateBack -> popRoute()
                                 is AgentChatAction.ReasoningEffortChanged ->
                                     agentState.updateReasoningEffort(action.effort)
-                                is AgentChatAction.ModelSelected -> agentState.selectModel(action.modelId)
+                                is AgentChatAction.ModelSelected -> agentState.selectModel(action.modelId, action.providerId)
                                 is AgentChatAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
                                 AgentChatAction.StopRun -> agentState.pauseCurrentRun()
                                 AgentChatAction.ContinueRun -> agentState.continuePausedGeneration()
@@ -838,6 +875,60 @@ fun AgentAppRoot(
                     modifier = Modifier.padding(top = 16.dp),
                 )
             }
+        }
+    }
+
+    agentState.contextBudgetPrompt?.takeIf {
+        it.conversationId == agentState.conversationPaneState.selectedConversationId
+    }?.let { prompt ->
+        WindowDialog(
+            show = true,
+            title = "上下文空间不足，任务已暂停",
+            summary = prompt.reason + "\n允许续行后，仅当前任务可压缩较早步骤，不改变全局设置。原文存档失败时不会应用该压缩。",
+            onDismissRequest = agentState::dismissContextBudgetPrompt,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "保持保护并暂停", onClick = agentState::dismissContextBudgetPrompt,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "仅本次允许压缩较早步骤", onClick = { agentState.allowCurrentRunCompaction(prompt.runId) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "停止任务，之后选择更大窗口模型", onClick = { agentState.stopBudgetBlockedRun(prompt.runId) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+
+    if (conversationExportConfirmation) {
+        WindowDialog(
+            show = true,
+            title = "导出单个会话",
+            summary = "包含本会话的消息、模型上下文历史和所引用的本地附件；不包含提供商配置、记忆、技能或整个工作区。" +
+                "\n这是未加密归档，消息和附件中的敏感内容不会自动脱敏。外部网址只保留链接。" +
+                "\n导入时创建新会话，不覆盖已有会话；继续对话需要在目标设备重新选择模型。目录附件和未导入应用附件目录的本地文件暂不支持。",
+            onDismissRequest = {
+                conversationExportConfirmation = false
+                conversationExportId = null
+            },
+        ) {
+            MiuixDialogActions(
+                confirmText = "选择保存位置",
+                onCancel = {
+                    conversationExportConfirmation = false
+                    conversationExportId = null
+                },
+                onConfirm = {
+                    conversationExportConfirmation = false
+                    val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+                    val title = conversationExportTitle.replace(Regex("""[\\/:*?"<>|]"""), "_").take(40)
+                    conversationExportLauncher.launch("代鱼-$title-$stamp.zip")
+                },
+            )
         }
     }
 

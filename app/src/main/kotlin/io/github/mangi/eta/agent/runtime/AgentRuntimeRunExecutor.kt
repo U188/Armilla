@@ -74,6 +74,7 @@ internal class AgentRuntimeRunExecutor(
         var response: AgentModelClient.ModelResponse.Text? = null
         var cancelled = false
         var checkpointRecorder: AgentRunCheckpointRecorder? = null
+        var unownedSkillRoot: java.io.File? = null
         val timing = AgentRunTiming(AndroidAgentLogger)
 
         val result = try {
@@ -93,17 +94,14 @@ internal class AgentRuntimeRunExecutor(
                 cacheRoot = appContext.cacheDir,
                 baseClient = AgentHttpClient.client,
             )
-            val assistant = AssistantRepository.active()
+            val assistant = requireNotNull(AssistantRepository.currentProfile(request.assistantId)) { "任务所属助手不存在，请重新发起任务" }
             val enabledSkillIds = assistant.enabledSkillIds.toSet()
-            val skillContext = SkillContext(
-                installedSkills = SkillRuntime.publishVisibleSkills(
-                    context = appContext,
-                    assistantId = assistant.id,
-                    entries = skillIndexService.listSkillsForManagement()
-                        .filter { it.installed && it.id in enabledSkillIds }
-                        .filter { SkillCompatibilityChecker.evaluate(it).available },
-                ),
-            )
+            val (runSkillsRoot, runSkillEntries) = SkillRuntime.createRunSkills(appContext, assistant.id,
+                skillIndexService.listSkillsForManagement(forceRefresh = true)
+                    .filter { it.installed && it.id in enabledSkillIds }
+                    .filter { SkillCompatibilityChecker.evaluate(it).available })
+            unownedSkillRoot = runSkillsRoot
+            val skillContext = SkillContext(installedSkills = runSkillEntries)
             val memoryEnabled = assistant.memoryEnabled
             val memoryContext = if (memoryEnabled) {
                 runCatching {
@@ -151,7 +149,7 @@ internal class AgentRuntimeRunExecutor(
                     request.config.deviceSensitiveActionTools &&
                         currentPermissions().deviceSensitiveActionTools
                 },
-                memoryToolsEnabled = { AssistantRepository.active().memoryEnabled },
+                memoryToolsEnabled = { AssistantRepository.currentProfile(assistant.id)?.memoryEnabled == true },
                 screenshotExcludedPackages = {
                     entrySurfaceGuard?.consumeScreenshotExcludedPackages().orEmpty()
                 },
@@ -192,8 +190,11 @@ internal class AgentRuntimeRunExecutor(
                 runAvailableSkillIds = skillContext.installedSkills.mapTo(mutableSetOf()) { it.id },
                 runSkillEntries = skillContext.installedSkills,
                 memoryAssistantId = assistant.id,
+                runSkillsRoot = runSkillsRoot,
                 pendingSkillConflict = pendingSkillConflict,
             )
+            unownedSkillRoot = null
+            toolExecutor = executor
             val routingExecutor = RoutingToolExecutor(
                 local = executor,
                 mcp = McpToolExecutor(mcpSnapshot),
@@ -210,25 +211,19 @@ internal class AgentRuntimeRunExecutor(
                 toolExecutor = routingExecutor,
                 images = request.images,
                 history = request.history,
-                skipHistoryTrimming = request.historyAlreadyCompacted,
+                // Runtime owns all request-budget decisions; never silently trim protected history here.
+                skipHistoryTrimming = true,
+                compactionArchive = io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, request.effectiveModelSessionId),
+                turnId = request.runId,
                 runController = runController,
                 skillContext = skillContext,
                 memoryContext = memoryContext,
                 skillContextProvider = {
-                    val current = AssistantRepository.active()
-                    val enabled = current.enabledSkillIds.toSet()
-                    SkillContext(
-                        installedSkills = SkillRuntime.publishVisibleSkills(
-                            context = appContext,
-                            assistantId = current.id,
-                            entries = skillIndexService.listSkillsForManagement()
-                                .filter { it.installed && it.id in enabled }
-                                .filter { SkillCompatibilityChecker.evaluate(it).available },
-                        ),
-                    )
+                    check(AssistantRepository.currentProfile(assistant.id) != null) { "任务所属助手已删除" }
+                    SkillContext(installedSkills = executor.currentSkillEntries())
                 },
                 memoryContextProvider = {
-                    val current = AssistantRepository.active()
+                    val current = requireNotNull(AssistantRepository.currentProfile(assistant.id)) { "任务所属助手已删除" }
                     if (!current.memoryEnabled) {
                         AgentMemoryContext.DISABLED
                     } else {
@@ -315,6 +310,7 @@ internal class AgentRuntimeRunExecutor(
         } finally {
             runCatching { toolsBinding?.close() }
             runCatching { toolExecutor?.close() }
+            unownedSkillRoot?.let { root -> runCatching { SkillRuntime.releaseRunSkills(appContext, root) } }
         }
 
         if (cancelled) {
@@ -405,6 +401,7 @@ internal class AgentRuntimeRunExecutor(
                 AgentContextCompactor.DEFAULT_TARGET_TOKENS,
             ).coerceIn(500, 4000),
             compressModelConfig = compressModelConfig,
+            strategy = io.github.mangi.eta.agent.model.AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY)),
         )
     }
 
@@ -418,10 +415,12 @@ internal class AgentRuntimeRunExecutor(
         val modelId = prefs?.takeIf { customEnabled }
             ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
         if (providerId.isNullOrBlank() || modelId.isNullOrBlank()) return fallback
-        return try {
-            RuntimeConfigRepository.configForProviderAndModel(providerId, modelId) ?: fallback
-        } catch (_: Throwable) {
-            fallback
+        val assistant = fallback.assistantId.takeIf { it.isNotBlank() }?.let {
+            runCatching { AssistantRepository.currentProfile(it) }.getOrNull()
         }
+        return runCatching {
+            RuntimeConfigRepository.configForProviderAndModel(providerId, modelId, assistant)
+        }.getOrNull()?.copy(assistantId = fallback.assistantId, systemPrompt = fallback.systemPrompt)
+            ?: fallback
     }
 }

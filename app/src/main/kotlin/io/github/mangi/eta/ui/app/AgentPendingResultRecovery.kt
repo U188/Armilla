@@ -9,6 +9,7 @@ import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeCode
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.decodeUserMessageImages
 
 /** 将 Runtime outbox 的结果幂等折叠回 App 会话。 */
 internal object AgentPendingResultRecovery {
@@ -111,10 +112,21 @@ internal object AgentPendingResultRecovery {
         var updated = messages
         supplements.sortedBy { it.index }.forEach { supplement ->
             val id = supplementMessageId(runId, supplement.index)
-            if (updated.any { it.id == id }) return@forEach
-            val lastUser = updated.lastOrNull { it is UserMessageUi } as? UserMessageUi
-            if (lastUser?.content == supplement.text) return@forEach
-            val userMessage = UserMessageUi(id = id, content = supplement.text)
+            val media = decodeUserMessageImages(supplement.imagesJson)
+            val existing = updated.indexOfFirst { it.id == id }
+            if (existing >= 0) {
+                val previous = updated[existing] as? UserMessageUi
+                if (previous != null && previous.images.isEmpty() && media.previews.isNotEmpty()) {
+                    updated = updated.toMutableList().also { it[existing] = previous.copy(
+                        images = media.previews, imageSources = media.sources,
+                        imageIsVideo = media.videoFlags, imageDurationsMs = media.durationsMs,
+                    ) }
+                }
+                return@forEach
+            }
+            val userMessage = UserMessageUi(id = id, content = supplement.text,
+                images = media.previews, imageSources = media.sources,
+                imageIsVideo = media.videoFlags, imageDurationsMs = media.durationsMs)
             // 实时追加必须接到当前列表末尾：steering 在本 turn 结束后才注入，
             // 用户消息应出现在正在生成的回答下面。插到流式助手前面时，
             // 跟底滚动会把补充挡在上一条用户消息下面，要等生成完才看得见。

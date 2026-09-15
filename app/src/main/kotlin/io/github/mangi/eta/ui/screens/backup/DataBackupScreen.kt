@@ -134,22 +134,17 @@ internal fun DataBackupScreen(
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                 SwitchPreference(
                     title = stringResource(R.string.data_backup_include_linux),
-                    summary = if (linuxSizeLabel != null) {
-                        stringResource(R.string.data_backup_include_linux_summary) + "\n" +
-                            stringResource(R.string.data_backup_linux_size, linuxSizeLabel)
-                    } else {
-                        stringResource(R.string.data_backup_include_linux_summary)
-                    },
-                    checked = includeLinuxEnvironment,
-                    onCheckedChange = { includeLinuxEnvironment = it },
-                    enabled = !busy,
+                    summary = "完整 Linux 环境安全恢复尚未开放，暂不支持导出；用户数据备份不受影响。",
+                    checked = false,
+                    onCheckedChange = {},
+                    enabled = false,
                 )
                 ArrowPreference(
                     title = stringResource(R.string.data_backup_export),
                     summary = if (busy) {
                         stringResource(R.string.data_backup_working)
                     } else {
-                        stringResource(R.string.data_backup_export_summary)
+                        stringResource(R.string.data_backup_export_summary) + "\n不导出 API Key、MCP Token 和自定义鉴权配置。对话、工作区等内容仍可能包含敏感信息，请妥善保管。"
                     },
                     enabled = !busy,
                     startAction = {
@@ -184,7 +179,7 @@ internal fun DataBackupScreen(
         WindowDialog(
             show = true,
             title = stringResource(R.string.data_backup_import_confirm_title),
-            summary = stringResource(R.string.data_backup_import_confirm_summary),
+            summary = stringResource(R.string.data_backup_import_confirm_summary) + "\n如果选择单会话归档，则导入为独立新会话，不覆盖已有会话或模型配置。",
             onDismissRequest = {
                 if (!busy) {
                     showImportDialog = false

@@ -68,7 +68,7 @@ internal fun decodeUserMessageImages(raw: String): DecodedUserMessageImages {
     for (index in 0 until array.length()) {
         val obj = array.optJSONObject(index)
         if (obj != null) {
-            val preview = obj.optString("preview").ifBlank { obj.optString("dataUrl") }
+            val preview = obj.optString("preview").ifBlank { obj.optString("dataUrl") }.ifBlank { obj.optString("source") }
             if (preview.isBlank()) continue
             val source = obj.optString("source").ifBlank { preview }
             val isVideo = obj.optString("kind").equals("video", ignoreCase = true) ||
@@ -102,25 +102,17 @@ internal fun attachUserImageSources(
     messages: List<AgentChatMessageUi>,
     history: List<AgentModelClient.ConversationMessage>,
 ): List<AgentChatMessageUi> {
-    val historySources = history.map(AgentConversationCodec::persistedImageSources)
-        .filter { it.isNotEmpty() }
-    if (historySources.isEmpty()) return messages
-    var next = 0
     return messages.map { message ->
-        if (message !is UserMessageUi || message.images.isEmpty()) {
+        if (message !is UserMessageUi || message.images.isEmpty() || message.imageSources.isNotEmpty()) {
             message
         } else {
-            val sources = historySources.getOrNull(next)
-            next += 1
-            when {
-                message.imageSources.isNotEmpty() -> message
-                sources != null && sources.size == message.images.size ->
-                    message.copy(
-                        imageSources = sources,
-                        imageIsVideo = sources.map(AgentVideoCodec::isVideoSource),
-                    )
-                else -> message
-            }
+            // Legacy histories lack attachment IDs. An ambiguous match must not be guessed.
+            val matches = history.filter { it.role == "user" && it.content == message.content }
+            val uniqueUiText = messages.count { it is UserMessageUi && it.content == message.content } == 1
+            val sources = matches.singleOrNull()?.takeIf { uniqueUiText }?.let(AgentConversationCodec::persistedImageSources)
+            if (sources != null && sources.size == message.images.size) {
+                message.copy(imageSources = sources, imageIsVideo = sources.map(AgentVideoCodec::isVideoSource))
+            } else message
         }
     }
 }

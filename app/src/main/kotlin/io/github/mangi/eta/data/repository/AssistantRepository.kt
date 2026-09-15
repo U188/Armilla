@@ -43,9 +43,14 @@ internal object AssistantRepository {
         applicationContext = context.applicationContext
         directory().mkdirs()
         avatarsDirectory().mkdirs()
-        val snapshot = migrateDefaultPrompt(readIndex() ?: seedDefault())
-        publish(snapshot)
-        refreshAssistantSkills(snapshot.activeId, publishVisible = true)
+        val active = withIndexLock {
+            val snapshot = migrateDefaultPrompt(readIndex() ?: seedDefault())
+            publish(snapshot)
+            snapshot.activeId
+        }
+        runCatching { refreshAssistantSkills(active, publishVisible = true) }.onFailure { error ->
+            io.github.mangi.eta.core.AndroidAgentLogger.error("Assistant skill startup publication failed: ${error.javaClass.simpleName}")
+        }
     }
 
     fun active(): AssistantProfile =
@@ -55,6 +60,14 @@ internal object AssistantRepository {
 
     fun profile(id: String): AssistantProfile? =
         profiles.value.firstOrNull { it.id == id }
+
+    /** Read the published index as well in the runtime process; never substitute the active assistant. */
+    fun currentProfile(id: String): AssistantProfile? =
+        if (isReady()) withIndexLock { profiles.value.firstOrNull { it.id == id } } else profile(id)
+
+    private fun validateProfiles(profiles: List<AssistantProfile>) {
+        require(profiles.map { io.github.mangi.eta.data.model.AssistantStorage.id(it.id) }.toSet().size == profiles.size) { "助手 ID 重复" }
+    }
 
     fun systemPrompt(): String {
         val assistant = if (::applicationContext.isInitialized) active() else defaultProfile()
@@ -80,30 +93,35 @@ internal object AssistantRepository {
         memoryEnabled: Boolean = true,
         enabledSkillIds: List<String> = AssistantDefaults.ENABLED_SKILL_IDS,
     ): AssistantProfile {
-        ensureReady()
-        val id = UUID.randomUUID().toString()
-        val created = AssistantProfile(
-            id = id,
-            name = name.trim().ifBlank { "新助手" },
-            prompt = prompt,
-            avatarFileName = avatarFileName,
-            createdAt = System.currentTimeMillis(),
-            memoryEnabled = memoryEnabled,
-            enabledSkillIds = enabledSkillIds,
-        )
-        val snapshot = Snapshot(activeId.value, profiles.value + created)
-        writeIndex(snapshot)
-        publish(snapshot)
-        return created
+        return withIndexLock {
+            ensureReady()
+            val id = UUID.randomUUID().toString()
+            val created = AssistantProfile(
+                id = id,
+                name = name.trim().ifBlank { "新助手" },
+                prompt = prompt,
+                avatarFileName = avatarFileName,
+                createdAt = System.currentTimeMillis(),
+                memoryEnabled = memoryEnabled,
+                enabledSkillIds = enabledSkillIds,
+            )
+            val snapshot = Snapshot(activeId.value, profiles.value + created)
+            writeIndex(snapshot)
+            publish(snapshot)
+            created
+        }.also { created ->
+            if (::applicationContext.isInitialized) {
+                runCatching { refreshAssistantSkills(created.id, publishVisible = created.id == activeId.value) }
+            }
+        }
     }
 
     @Synchronized
     fun duplicate(id: String): AssistantProfile {
         ensureReady()
-        val source = requireNotNull(profile(id)) { "助手不存在" }
-        val copyName = source.name.trim().ifBlank { AssistantPrompt.DEFAULT_NAME } + " 副本"
+        val source = requireNotNull(currentProfile(id)) { "助手不存在" }
         val created = create(
-            name = copyName,
+            name = source.name.trim().ifBlank { AssistantPrompt.DEFAULT_NAME } + " 副本",
             prompt = source.prompt,
             memoryEnabled = source.memoryEnabled,
             enabledSkillIds = source.enabledSkillIds,
@@ -112,16 +130,15 @@ internal object AssistantRepository {
         if (::applicationContext.isInitialized) {
             SkillRuntime.copyAssistantSkills(applicationContext, source.id, created.id)
         }
-        source.avatarFileName?.let { copyAvatar(it, created.id) }?.let { fileName ->
-            return update(created.copy(avatarFileName = fileName))
-        }
-        return created
+        return source.avatarFileName?.let { copyAvatar(it, created.id) }?.let { fileName ->
+            update(created.copy(avatarFileName = fileName))
+        } ?: created
     }
 
     @Synchronized
-    fun enableSkills(skillIds: Collection<String>) {
+    fun enableSkills(skillIds: Collection<String>, assistantId: String = active().id) {
         if (!isReady() || skillIds.isEmpty()) return
-        val current = active()
+        val current = requireNotNull(currentProfile(assistantId)) { "助手不存在" }
         val merged = (current.enabledSkillIds + skillIds).distinct()
         if (merged == current.enabledSkillIds) return
         update(current.copy(enabledSkillIds = merged))
@@ -129,92 +146,114 @@ internal object AssistantRepository {
 
     @Synchronized
     fun update(profile: AssistantProfile): AssistantProfile {
-        ensureReady()
-        require(profiles.value.any { it.id == profile.id }) { "助手不存在" }
-        val updated = profile.copy(name = profile.name.trim().ifBlank { AssistantPrompt.DEFAULT_NAME })
-        val snapshot = Snapshot(
-            activeId = activeId.value,
-            profiles = profiles.value.map { if (it.id == updated.id) updated else it },
-        )
-        writeIndex(snapshot)
-        publish(snapshot)
+        val (updated, publishVisible) = withIndexLock {
+            ensureReady()
+            require(profiles.value.any { it.id == profile.id }) { "助手不存在" }
+            val next = profile.copy(name = profile.name.trim().ifBlank { AssistantPrompt.DEFAULT_NAME })
+            val snapshot = Snapshot(
+                activeId = activeId.value,
+                profiles = profiles.value.map { if (it.id == next.id) next else it },
+            )
+            writeIndex(snapshot)
+            publish(snapshot)
+            next to (next.id == snapshot.activeId)
+        }
         if (::applicationContext.isInitialized) {
-            refreshAssistantSkills(updated.id, publishVisible = updated.id == snapshot.activeId)
+            refreshAssistantSkills(updated.id, publishVisible = publishVisible)
         }
         return updated
     }
 
     @Synchronized
     fun delete(id: String) {
-        ensureReady()
-        val remaining = profiles.value.filterNot { it.id == id }
-        require(remaining.isNotEmpty()) { "必须保留至少一个助手" }
-        val nextActive = if (activeId.value == id) remaining.first().id else activeId.value
-        avatarFile(profile(id)?.avatarFileName)?.delete()
+        val nextActive = withIndexLock {
+            ensureReady()
+            val remaining = profiles.value.filterNot { it.id == id }
+            require(remaining.isNotEmpty()) { "必须保留至少一个助手" }
+            val next = if (activeId.value == id) remaining.first().id else activeId.value
+            val avatar = avatarFile(profile(id)?.avatarFileName)
+            val snapshot = Snapshot(next, remaining)
+            writeIndex(snapshot)
+            publish(snapshot)
+            avatar?.delete()
+            next
+        }
         AgentMemoryRepository.delete(id)
         if (::applicationContext.isInitialized) {
             SkillRuntime.deleteAssistantSkills(applicationContext, id)
-        }
-        val snapshot = Snapshot(nextActive, remaining)
-        writeIndex(snapshot)
-        publish(snapshot)
-        if (nextActive != id) {
-            refreshAssistantSkills(nextActive, publishVisible = true)
+            if (nextActive != id) {
+                refreshAssistantSkills(nextActive, publishVisible = true)
+            }
         }
     }
 
     @Synchronized
-    fun exportSnapshot(): AssistantBackupSnapshot {
+    fun exportSnapshot(): AssistantBackupSnapshot = withIndexLock {
         ensureReady()
-        return AssistantBackupSnapshot(activeId = activeId.value, profiles = profiles.value)
+        AssistantBackupSnapshot(activeId = activeId.value, profiles = profiles.value)
     }
 
     @Synchronized
     fun importSnapshot(snapshot: AssistantBackupSnapshot) {
-        ensureReady()
-        val profiles = snapshot.profiles.ifEmpty { listOf(defaultProfile(System.currentTimeMillis())) }
-        val active = snapshot.activeId.takeIf { id -> profiles.any { it.id == id } } ?: profiles.first().id
-        val next = migrateDefaultPrompt(Snapshot(active, profiles))
-        writeIndex(next)
-        publish(next)
-        refreshAssistantSkills(next.activeId, publishVisible = true)
+        val active = withIndexLock {
+            ensureReady()
+            val profiles = snapshot.profiles.ifEmpty { listOf(defaultProfile(System.currentTimeMillis())) }
+            validateProfiles(profiles)
+            val selected = snapshot.activeId.takeIf { id -> profiles.any { it.id == id } } ?: profiles.first().id
+            val next = migrateDefaultPrompt(Snapshot(selected, profiles))
+            writeIndex(next)
+            publish(next)
+            next.activeId
+        }
+        refreshAssistantSkills(active, publishVisible = true)
     }
 
     fun exportAvatars(): Map<String, ByteArray> {
         if (!::applicationContext.isInitialized) return emptyMap()
         val dir = avatarsDirectory()
         if (!dir.isDirectory) return emptyMap()
-        return dir.listFiles().orEmpty()
-            .filter { it.isFile && it.name.isNotBlank() }
-            .associate { it.name to it.readBytes() }
+        require(!java.nio.file.Files.isSymbolicLink(dir.toPath())) { "头像目录不能是符号链接" }
+        val budget = BackupBlobBudget(maxTotalBytes = 4L * 1024 * 1024, maxFiles = 1_000)
+        val result = linkedMapOf<String, ByteArray>()
+        java.nio.file.Files.newDirectoryStream(dir.toPath()).use { entries ->
+            for (entry in entries) {
+                val file = entry.toFile()
+                require(file.isFile) { "头像目录包含非文件条目" }
+                result[file.name] = budget.read(file)
+            }
+        }
+        return result
     }
 
     fun importAvatars(files: Map<String, ByteArray>) {
         if (!::applicationContext.isInitialized) return
         val dir = avatarsDirectory()
-        dir.mkdirs()
-        dir.listFiles().orEmpty().forEach { it.delete() }
+        require(files.keys.all { it.isNotBlank() && File(it).name == it && !it.contains('\\') }) { "头像文件名无效" }
+        check(dir.mkdirs() || dir.isDirectory) { "无法创建头像目录" }
+        dir.listFiles().orEmpty().forEach { check(it.delete()) { "无法清理旧头像" } }
         files.forEach { (name, bytes) ->
             val safe = File(name).name
-            if (safe.isBlank() || safe != name) return@forEach
             File(dir, safe).writeBytes(bytes)
         }
     }
 
     @Synchronized
     fun select(id: String) {
-        ensureReady()
-        require(profiles.value.any { it.id == id }) { "助手不存在" }
-        if (activeId.value == id) return
-        val snapshot = Snapshot(id, profiles.value)
-        writeIndex(snapshot)
-        publish(snapshot)
-        refreshAssistantSkills(id, publishVisible = true)
+        val changed = withIndexLock {
+            ensureReady()
+            require(profiles.value.any { it.id == id }) { "助手不存在" }
+            if (activeId.value == id) return@withIndexLock false
+            val snapshot = Snapshot(id, profiles.value)
+            writeIndex(snapshot)
+            publish(snapshot)
+            true
+        }
+        if (changed) refreshAssistantSkills(id, publishVisible = true)
     }
 
     private fun refreshAssistantSkills(assistantId: String, publishVisible: Boolean) {
         if (!::applicationContext.isInitialized) return
-        runCatching {
+        run {
             val enabled = profile(assistantId)?.enabledSkillIds?.toSet().orEmpty()
             val entries = SkillRuntime.createIndexService(applicationContext)
                 .listSkillsForManagement()
@@ -230,7 +269,7 @@ internal object AssistantRepository {
     @Synchronized
     fun saveAvatar(id: String, bitmap: Bitmap): AssistantProfile {
         ensureReady()
-        val current = requireNotNull(profile(id)) { "助手不存在" }
+        val current = requireNotNull(currentProfile(id)) { "助手不存在" }
         val fileName = "$id.png"
         val target = File(avatarsDirectory(), fileName)
         val scaled = scaleAvatar(bitmap)
@@ -244,7 +283,7 @@ internal object AssistantRepository {
     @Synchronized
     fun clearAvatar(id: String): AssistantProfile {
         ensureReady()
-        val current = requireNotNull(profile(id)) { "助手不存在" }
+        val current = requireNotNull(currentProfile(id)) { "助手不存在" }
         avatarFile(current.avatarFileName)?.delete()
         return update(current.copy(avatarFileName = null))
     }
@@ -284,28 +323,46 @@ internal object AssistantRepository {
     }
 
     private fun publish(snapshot: Snapshot) {
+        validateProfiles(snapshot.profiles)
         _profiles.value = snapshot.profiles
         _activeId.value = snapshot.activeId.takeIf { id -> snapshot.profiles.any { it.id == id } }
             ?: snapshot.profiles.first().id
     }
 
     private fun readIndex(): Snapshot? {
-        val file = indexFile()
-        if (!file.isFile) return null
-        return runCatching {
-            json.decodeFromString<Snapshot>(file.readText())
-                .takeIf { it.profiles.isNotEmpty() }
-        }.getOrNull()
+        val file = android.util.AtomicFile(indexFile())
+        if (!file.baseFile.isFile && !File(file.baseFile.path + ".bak").isFile) return null
+        return file.openRead().bufferedReader().use { json.decodeFromString<Snapshot>(it.readText()) }
+            .also { require(it.profiles.isNotEmpty()); validateProfiles(it.profiles) }
     }
 
     private fun writeIndex(snapshot: Snapshot) {
-        val target = indexFile()
-        target.parentFile?.mkdirs()
-        val temporary = File(target.parentFile, "${target.name}.tmp")
-        temporary.writeText(json.encodeToString(snapshot))
-        if (!temporary.renameTo(target)) {
-            target.writeText(json.encodeToString(snapshot))
-            temporary.delete()
+        validateProfiles(snapshot.profiles)
+        val file = android.util.AtomicFile(indexFile())
+        file.baseFile.parentFile?.mkdirs()
+        val output = file.startWrite()
+        try {
+            output.write(json.encodeToString(snapshot).toByteArray(Charsets.UTF_8))
+            file.finishWrite(output)
+        } catch (error: Throwable) {
+            file.failWrite(output)
+            throw error
+        }
+    }
+
+    private val indexLockHeld = ThreadLocal<Boolean>()
+
+    private inline fun <T> withIndexLock(block: () -> T): T = synchronized(this) {
+        if (indexLockHeld.get() == true) return@synchronized block()
+        check(directory().mkdirs() || directory().isDirectory)
+        java.io.RandomAccessFile(File(directory(), "index.lock"), "rw").use { file ->
+            file.channel.lock().use {
+                indexLockHeld.set(true)
+                try {
+                    readIndex()?.let(::publish)
+                    block()
+                } finally { indexLockHeld.remove() }
+            }
         }
     }
 

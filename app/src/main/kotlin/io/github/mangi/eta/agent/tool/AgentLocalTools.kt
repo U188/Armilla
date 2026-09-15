@@ -26,6 +26,7 @@ import io.github.mangi.eta.agent.skill.SkillLoader
 import io.github.mangi.eta.agent.skill.SkillPackageInstaller
 import io.github.mangi.eta.agent.skill.SkillParser
 import io.github.mangi.eta.agent.skill.SkillResourceReader
+import io.github.mangi.eta.agent.skill.SkillRunAuthorization
 import io.github.mangi.eta.agent.skill.SkillRuntime
 import io.github.mangi.eta.agent.skill.SkillResourceReadResult
 import io.github.mangi.eta.agent.skill.GitHubSkillRepositoryParser
@@ -75,9 +76,7 @@ internal class AgentLocalTools(
     private val deviceSensitiveActionToolsEnabled: () -> Boolean = {
         Prefs.isEnabled(Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS)
     },
-    private val memoryToolsEnabled: () -> Boolean = {
-        AssistantRepository.active().memoryEnabled
-    },
+    private val memoryToolsEnabled: (() -> Boolean)? = null,
     private val screenshotExcludedPackages: () -> Set<String> = { emptySet() },
     private val screenObservationProvider: (
         (AgentScreenObservationContract.Options) -> RootShellDeviceController.Observation
@@ -93,6 +92,7 @@ internal class AgentLocalTools(
     runAvailableSkillIds: Set<String> = emptySet(),
     runSkillEntries: List<SkillIndexEntry> = emptyList(),
     memoryAssistantId: String = AssistantPrompt.DEFAULT_ID,
+    private val runSkillsRoot: File? = null,
     pendingSkillConflict: PendingSkillConflictCapability? = null,
     private val rootAvailable: () -> Boolean = { RootAccess.isGranted },
 ) : AgentModelClient.ToolExecutor, AutoCloseable {
@@ -108,6 +108,7 @@ internal class AgentLocalTools(
     )
     private val imageTools = AgentImageTools(context, rootCommandExecutor, rootAvailable)
     private val terminalController = RootShellTerminalController(
+        processSupervisor = io.github.mangi.eta.agent.terminal.ShellProcessSupervisor(skillsDirectoryProvider = { runSkillsRoot }),
         logger = logger,
         rootAvailable = rootAvailable,
         linuxRootfsPath = AlpineEnvironmentPaths.rootfsDir(context).absolutePath,
@@ -117,6 +118,7 @@ internal class AgentLocalTools(
             }
         },
         detachedSupervisor = DetachedTaskSupervisor(
+            skillsDirectoryProvider = { runSkillsRoot },
             logger = logger,
             recordsFile = DetachedTaskSupervisor.defaultRecordsFile(context),
             linuxRootfsPath = AlpineEnvironmentPaths.rootfsDir(context).absolutePath,
@@ -148,6 +150,12 @@ internal class AgentLocalTools(
         publishedObservation.set(PublishedObservation())
         AgentBrowserSession.interruptAgentAction(browserRunId)
         terminalController.interruptAll()
+        kotlin.concurrent.thread(name = "agent-skill-view-release", isDaemon = true) {
+            terminalController.closeAll()
+            runSkillsRoot?.let {
+                runCatching { SkillRuntime.releaseRunSkills(context, it, retain = terminalController.hasRunningOwnedDaemons()) }
+            }
+        }
         rootCommandExecutor.close()
         githubSkillSource?.close()
         inspectedGitHubSnapshots.clear()
@@ -174,6 +182,11 @@ internal class AgentLocalTools(
 
     private fun executeInternal(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =
         runCatching {
+            if (AssistantRepository.isReady() && AssistantRepository.currentProfile(memoryAssistantId) == null) {
+                terminalController.interruptAll()
+                terminalController.stopOwnedDaemons()
+                return@runCatching textResult(errorResult("ASSISTANT_DELETED", "任务所属助手已删除，工具未执行"))
+            }
             val args = JSONObject(toolCall.argumentsJson.ifBlank { "{}" })
             if (AgentToolRequirements.find(toolCall.name) != null &&
                 AgentToolRequirements.rootDenied(toolCall.name, args, rootAvailable())
@@ -283,6 +296,8 @@ internal class AgentLocalTools(
     }
 
     private fun terminalTool(block: () -> String): String {
+        liveSkillEntries()
+        if (skillAuthorizationChanged.get() || skillTreeMutationUncertain.get()) return errorResult("NEXT_TURN_REQUIRED", "本轮技能授权已撤销，终端会话已关闭；请开启下一轮任务")
         if (!terminalToolsEnabled()) {
             return errorResult("TERMINAL_TOOLS_DISABLED", "请先启用终端/文件工具")
         }
@@ -297,7 +312,7 @@ internal class AgentLocalTools(
     }
 
     private fun memoryToolPermissionError(toolName: String): AgentModelClient.ToolResult? {
-        if (toolName !in MEMORY_TOOL_NAMES || memoryToolsEnabled()) return null
+        if (toolName !in MEMORY_TOOL_NAMES || (memoryToolsEnabled?.invoke() ?: AgentMemoryRepository.isEnabled(memoryAssistantId))) return null
         return AgentModelClient.ToolResult(
             content = errorResult("MEMORY_DISABLED", "当前助手未启用记忆"),
             sensitive = true,
@@ -860,36 +875,59 @@ internal class AgentLocalTools(
     }
 
 
-    private val liveSkillCache = AtomicReference<Pair<Long, List<SkillIndexEntry>>?>(null)
+    private val skillAuthorizationChanged = AtomicBoolean(false)
+    private val skillAuthorizationLock = Any()
+    @Volatile private var lastConfirmedSkillEntries: List<SkillIndexEntry> = runSkillEntries
+
+    fun currentSkillEntries(): List<SkillIndexEntry> = if (skillTreeMutationUncertain.get()) emptyList() else
+        liveSkillEntries().filter { runSkillsRoot != null || SkillParser.normalizeSkillLookup(it.id) !in mutatedSkillIds }
 
     private fun liveSkillEntries(): List<SkillIndexEntry> {
-        val now = SystemClock.uptimeMillis()
-        liveSkillCache.get()?.let { (at, entries) ->
-            if (now - at < 400L) return entries
+        if (runSkillsRoot == null) {
+            return runSkillEntries.filter { File(it.skillFilePath).isFile }
         }
-        val indexService = skillIndexService
-        val appSkillsRoot = runCatching { SkillRuntime.skillsRoot(context).canonicalFile }.getOrNull()
-        val indexRoot = runCatching { indexService?.skillsRoot?.canonicalFile }.getOrNull()
-        val entries = if (
-            AssistantRepository.isReady() &&
-            indexService != null &&
-            appSkillsRoot != null &&
-            indexRoot == appSkillsRoot
-        ) {
-            val enabled = AssistantRepository.active().enabledSkillIds.toSet()
-            indexService.listSkillsForManagement()
-                .filter { it.installed && it.id in enabled }
-                .filter { SkillCompatibilityChecker.evaluate(it).available }
-        } else if (runSkillEntries.isNotEmpty()) {
-            runSkillEntries
-        } else if (indexService != null && runAvailableSkillIds.isNotEmpty()) {
-            indexService.listInstalledSkills()
-                .filter { it.id in runAvailableSkillIds }
-        } else {
-            emptyList()
+        synchronized(skillAuthorizationLock) {
+            val decision = skillAuthorizationDecision()
+            val (entries, confirmed) = SkillRunAuthorization.apply(
+                snapshot = runSkillEntries,
+                idOf = { it.id },
+                stillPresent = { File(it.skillFilePath).isFile },
+                decision = decision,
+                previous = lastConfirmedSkillEntries,
+            )
+            if (confirmed) {
+                val revoked = runSkillEntries.map { it.id }.toSet() - entries.map { it.id }.toSet()
+                if (revoked.isNotEmpty() && skillAuthorizationChanged.compareAndSet(false, true)) {
+                    terminalController.interruptAll()
+                    terminalController.stopOwnedDaemons()
+                }
+                if (revoked.isNotEmpty()) {
+                    SkillRuntime.pruneRunSkills(context, runSkillsRoot, entries.map { it.id }.toSet())
+                }
+                lastConfirmedSkillEntries = entries
+            }
+            return entries
         }
-        liveSkillCache.set(now to entries)
-        return entries
+    }
+
+    private fun skillAuthorizationDecision(): SkillRunAuthorization.Decision {
+        val profileResult = runCatching {
+            if (!AssistantRepository.isReady()) error("assistant repository unavailable")
+            AssistantRepository.currentProfile(memoryAssistantId)
+        }
+        val installedResult = runCatching {
+            skillIndexService?.listSkillsForManagement(forceRefresh = false)
+                ?.filter { it.installed }
+                ?.map { it.id }
+                ?.toSet()
+        }
+        return SkillRunAuthorization.decide(
+            repositoryReady = AssistantRepository.isReady(),
+            profileLookupFailed = profileResult.isFailure,
+            profileEnabledIds = profileResult.getOrNull()?.enabledSkillIds?.toSet(),
+            installedLookupFailed = installedResult.isFailure || (runSkillsRoot != null && skillIndexService == null),
+            installedIds = installedResult.getOrNull(),
+        )
     }
 
     private fun resolveRunSkill(skillId: String): SkillIndexEntry? {
@@ -898,6 +936,8 @@ internal class AgentLocalTools(
         val entries = liveSkillEntries()
         return entries.firstOrNull { SkillParser.normalizeSkillLookup(it.id) == normalized }
             ?: entries.firstOrNull { SkillParser.normalizeSkillLookup(it.name) == normalized }
+            ?: entries.firstOrNull { skillId == it.rootPath || skillId == it.skillFilePath ||
+                skillId == "/var/minis/skills/${it.id}" || skillId == "/var/minis/skills/${it.id}/SKILL.md" }
     }
 
     // ==================== Skills tools ====================
@@ -952,8 +992,8 @@ internal class AgentLocalTools(
         val skillId = args.optString("skillId").trim()
         if (skillId.isBlank()) return errorResult("MISSING_PARAM", "缺少 skillId")
         val maxChars = args.optInt("maxChars", 16_000).coerceIn(512, 64_000)
-        val entry = resolveRunSkill(skillId) ?: indexService.findInstalledSkill(skillId)
-            ?: return errorResult("NOT_FOUND", "未找到 skill：$skillId")
+        val entry = resolveRunSkill(skillId)
+            ?: return if (SkillParser.normalizeSkillLookup(skillId) in mutatedSkillIds) nextTurnRequired(skillId) else errorResult("NOT_FOUND", "未找到 skill：$skillId")
         if (!isVisibleInCurrentRun(entry.id)) return nextTurnRequired(entry.id)
         val compat = SkillCompatibilityChecker.evaluate(entry)
         if (!compat.available) return errorResult("INCOMPATIBLE", compat.reason ?: "当前环境不可用")
@@ -992,8 +1032,8 @@ internal class AgentLocalTools(
         val skillId = args.getString("skillId").trim()
         val relativePath = args.getString("relativePath").trim()
         val maxChars = args.optInt("maxChars", 16_000).coerceIn(512, 64_000)
-        val entry = resolveRunSkill(skillId) ?: indexService.findInstalledSkill(skillId)
-            ?: return errorResult("NOT_FOUND", "未找到已启用 Skill：$skillId")
+        val entry = resolveRunSkill(skillId)
+            ?: return if (SkillParser.normalizeSkillLookup(skillId) in mutatedSkillIds) nextTurnRequired(skillId) else errorResult("NOT_FOUND", "未找到已启用 Skill：$skillId")
         if (!isVisibleInCurrentRun(entry.id)) return nextTurnRequired(entry.id)
         val compatibility = SkillCompatibilityChecker.evaluate(entry)
         if (!compatibility.available) {
@@ -1002,7 +1042,9 @@ internal class AgentLocalTools(
                 compatibility.reason ?: "当前环境不可用",
             )
         }
-        return when (val result = reader.readText(entry, relativePath)) {
+        val dataRead = relativePath.startsWith("data/") && runSkillsRoot != null
+        val readEntry = if (dataRead) entry.copy(rootPath = File(runSkillsRoot!!.parentFile, "skill-data/${entry.id}").canonicalPath) else entry
+        return when (val result = reader.readText(readEntry, if (dataRead) relativePath.removePrefix("data/") else relativePath)) {
             is SkillResourceReadResult.Success -> {
                 val truncated = result.text.length > maxChars
                 val visibleText = if (truncated) {
@@ -1247,16 +1289,7 @@ internal class AgentLocalTools(
 
     private fun isVisibleInCurrentRun(skillId: String): Boolean {
         val normalized = SkillParser.normalizeSkillLookup(skillId)
-        if (normalized in mutatedSkillIds) return false
-        val snapshotIds = when {
-            runSkillEntries.isNotEmpty() ->
-                runSkillEntries.map { SkillParser.normalizeSkillLookup(it.id) }.toSet()
-            runAvailableSkillIds.isNotEmpty() ->
-                runAvailableSkillIds.map(SkillParser::normalizeSkillLookup).toSet()
-            else -> emptySet()
-        }
-        if (snapshotIds.isNotEmpty()) return normalized in snapshotIds
-        return liveSkillEntries().any { SkillParser.normalizeSkillLookup(it.id) == normalized }
+        return currentSkillEntries().any { SkillParser.normalizeSkillLookup(it.id) == normalized }
     }
 
     private fun nextTurnRequired(skillId: String): String = errorResult(
@@ -1282,9 +1315,8 @@ internal class AgentLocalTools(
                         .put("name", skill.name),
                 )
             }
-            liveSkillCache.set(null)
-            runCatching {
-                AssistantRepository.enableSkills(result.installed.map { it.id })
+            val enableResult = runCatching {
+                AssistantRepository.enableSkills(result.installed.map { it.id }, memoryAssistantId)
             }
             JSONObject()
                 .put("ok", true)
@@ -1293,9 +1325,12 @@ internal class AgentLocalTools(
                 .put("commitSha", commitSha)
                 .put("selectedPaths", JSONArray(selectedPaths))
                 .put("installed", installed)
-                .put("available", "next_turn")
+                .put("available", if (enableResult.isSuccess) "next_turn" else "installed_not_enabled")
+                .put("enabled", enableResult.isSuccess)
+                .put("enableError", if (enableResult.isSuccess) JSONObject.NULL else "ASSISTANT_ENABLE_FAILED")
                 .put("scriptsExecuted", false)
-                .put("message", "Skill 已安装并启用，将从下一轮对话开始可用；安装过程未执行脚本")
+                .put("message", if (enableResult.isSuccess) "Skill 已安装并启用，新版本从下一轮任务开始可用；本轮已批准的旧快照不变，安装过程未执行脚本"
+                    else "Skill 文件已安装，但未能为本轮所属助手启用；请在该助手设置中检查。安装过程未执行脚本")
                 .toString()
         }
         is SkillInstallResult.Conflict -> {

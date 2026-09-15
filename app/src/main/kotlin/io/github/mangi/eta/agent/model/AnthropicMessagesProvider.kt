@@ -115,6 +115,7 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                 convertTools(tools)?.let { request.put("tools", it) }
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
                 ProviderReasoning.applyAnthropicRequest(request, config)
+                config.summaryOutputLimit?.let { request.put("max_tokens", it) }
             }
     }
 

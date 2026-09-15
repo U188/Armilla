@@ -79,6 +79,7 @@ internal data class ProviderModelEntity(
     @ColumnInfo(name = "input_modalities_json") val inputModalitiesJson: String,
     @ColumnInfo(name = "output_modalities_json") val outputModalitiesJson: String,
     @ColumnInfo(name = "attachment") val attachment: Boolean?,
+    @ColumnInfo(name = "vision_override") val visionOverride: Boolean? = null,
     @ColumnInfo(name = "tool_call") val toolCall: Boolean?,
     @ColumnInfo(name = "reasoning") val reasoning: Boolean?,
     @ColumnInfo(name = "reasoning_capabilities_json", defaultValue = "'null'")
@@ -227,6 +228,7 @@ private fun Model.toEntity(providerId: String): ProviderModelEntity =
         inputModalitiesJson = ProviderJson.encodeStrings(inputModalities),
         outputModalitiesJson = ProviderJson.encodeStrings(outputModalities),
         attachment = attachment,
+        visionOverride = visionOverride,
         toolCall = toolCall,
         reasoning = reasoning,
         reasoningCapabilitiesJson = ProviderJson.encodeReasoningCapabilities(reasoningCapabilities),
@@ -254,13 +256,12 @@ private fun ProviderModelEntity.toDomain(): Model =
         sortOrder = sortOrder,
         contextWindow = contextWindow,
         contextWindowOverride = contextWindowOverride,
-        inputModalities = ProviderJson.decodeStrings(inputModalitiesJson).ifEmpty {
-            listOf(Model.TEXT_MODALITY)
-        },
+        inputModalities = ProviderJson.decodeStrings(inputModalitiesJson),
         outputModalities = ProviderJson.decodeStrings(outputModalitiesJson).ifEmpty {
             listOf(Model.TEXT_MODALITY)
         },
         attachment = attachment,
+        visionOverride = visionOverride,
         toolCall = toolCall,
         reasoning = reasoning,
         reasoningCapabilities = ProviderJson.decodeReasoningCapabilities(reasoningCapabilitiesJson),

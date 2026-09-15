@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -64,6 +64,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_20_21,
                         MIGRATION_21_22,
                         MIGRATION_22_23,
+                        MIGRATION_23_24,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -144,6 +145,13 @@ internal abstract class EtaDatabase : RoomDatabase() {
 
         internal val MIGRATION_21_22 = Migration(21, 22) { database ->
             rebuildModelProvidersWithBalanceOption(database)
+        }
+
+        internal val MIGRATION_23_24 = Migration(23, 24) { database ->
+            database.execSQL("ALTER TABLE provider_models ADD COLUMN vision_override INTEGER")
+            // Older versions mixed user choices and remote metadata in attachment.
+            // Preserve existing explicit values; resetting automatic clears only the new override.
+            database.execSQL("UPDATE provider_models SET vision_override = attachment WHERE attachment IS NOT NULL")
         }
 
         internal val MIGRATION_22_23 = Migration(22, 23) { database ->

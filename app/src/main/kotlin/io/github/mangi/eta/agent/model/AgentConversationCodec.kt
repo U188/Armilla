@@ -38,7 +38,7 @@ internal object AgentConversationCodec {
         encodeBounded(messages, MAX_IPC_TRANSCRIPT_CHARS)
 
     fun encodeTranscriptForDrain(messages: List<AgentModelClient.ConversationMessage>): String =
-        encodeBounded(messages, MAX_DRAIN_TRANSCRIPT_CHARS)
+        encodeBounded(messages.map { it.copy(turnId = "") }, MAX_DRAIN_TRANSCRIPT_CHARS)
 
     fun encodeTranscriptForStorage(messages: List<AgentModelClient.ConversationMessage>): String =
         encodeBounded(messages, MAX_STORAGE_TRANSCRIPT_CHARS)
@@ -64,6 +64,7 @@ internal object AgentConversationCodec {
         JSONObject()
             .put("role", message.role)
             .also { target ->
+                if (message.turnId.isNotBlank()) target.put(AgentTurnIdentity.JSON_KEY, message.turnId)
                 when {
                     message.contentJson.isNotBlank() ->
                         target.put("content", JSONTokener(message.contentJson).nextValue())
@@ -84,6 +85,7 @@ internal object AgentConversationCodec {
         val contentValue = message.opt("content")
         return AgentModelClient.ConversationMessage(
             role = message.optString("role"),
+            turnId = message.optString(AgentTurnIdentity.JSON_KEY).take(128),
             content = (contentValue as? String).orEmpty(),
             contentJson = if (
                 contentValue == null ||
@@ -335,6 +337,9 @@ internal object AgentConversationCodec {
         val bounded = messages.map(::sanitizeMessage).toMutableList()
         var encoded = json.encodeToString(bounded)
         if (encoded.length <= maxChars) return encoded
+        require(messages.none { it.turnId.isNotBlank() }) {
+            "受保护会话超过持久化容量上限；未截断或丢弃原消息，请压缩历史后重试"
+        }
 
         val notice = AgentModelClient.ConversationMessage(
             role = "system",
@@ -365,28 +370,29 @@ internal object AgentConversationCodec {
     ): AgentModelClient.ConversationMessage =
         message.copy(
             role = message.role.take(32),
-            content = message.content.take(MAX_CONTENT_CHARS),
-            contentJson = sanitizeContentJson(message.contentJson),
-            toolCallId = message.toolCallId.take(256),
-            reasoningContent = message.reasoningContent.take(MAX_REASONING_CHARS),
-            toolCallsJson = sanitizeToolCallsJson(message.toolCallsJson),
+            content = if (message.turnId.isNotBlank()) message.content else message.content.take(MAX_CONTENT_CHARS),
+            contentJson = sanitizeContentJson(message.contentJson, message.turnId.isNotBlank()),
+            toolCallId = if (message.turnId.isNotBlank()) message.toolCallId else message.toolCallId.take(256),
+            reasoningContent = if (message.turnId.isNotBlank()) message.reasoningContent else message.reasoningContent.take(MAX_REASONING_CHARS),
+            toolCallsJson = sanitizeToolCallsJson(message.toolCallsJson, message.turnId.isNotBlank()),
+            turnId = message.turnId.take(128),
         )
 
-    private fun sanitizeContentJson(raw: String): String {
+    private fun sanitizeContentJson(raw: String, preserveText: Boolean = false): String {
         if (raw.isBlank()) return ""
         val content = runCatching { JSONTokener(raw).nextValue() }.getOrNull()
         val sanitized = when (content) {
-            is JSONArray -> sanitizeContentArray(content)
-            is JSONObject -> sanitizeContentObject(content)
+            is JSONArray -> sanitizeContentArray(content, preserveText)
+            is JSONObject -> sanitizeContentObject(content, preserveText)
             else -> return ""
         }
-        return sanitized.toString().takeIf { it.length <= MAX_CONTENT_CHARS }
+        return sanitized.toString().takeIf { preserveText || it.length <= MAX_CONTENT_CHARS }
             ?: JSONArray()
                 .put(JSONObject().put("type", "text").put("text", IMAGE_OMITTED_TEXT))
                 .toString()
     }
 
-    private fun sanitizeContentArray(source: JSONArray): JSONArray {
+    private fun sanitizeContentArray(source: JSONArray, preserveText: Boolean = false): JSONArray {
         val target = JSONArray()
         var omittedImage = false
         for (index in 0 until source.length()) {
@@ -411,7 +417,7 @@ internal object AgentConversationCodec {
                     item.has("source") -> {
                     omittedImage = true
                 }
-                else -> target.put(sanitizeContentObject(item))
+                else -> target.put(sanitizeContentObject(item, preserveText))
             }
         }
         if (omittedImage) {
@@ -420,17 +426,21 @@ internal object AgentConversationCodec {
         return target
     }
 
-    private fun sanitizeContentObject(source: JSONObject): JSONObject =
+    private fun sanitizeContentObject(source: JSONObject, preserveText: Boolean = false): JSONObject =
         JSONObject(source.toString()).also { target ->
             target.remove("image_url")
             target.remove("source")
-            if (target.has("text")) {
+            if (!preserveText && target.has("text")) {
                 target.put("text", target.optString("text").take(MAX_CONTENT_CHARS / 2))
             }
         }
 
-    private fun sanitizeToolCallsJson(raw: String): String {
+    private fun sanitizeToolCallsJson(raw: String, preserveText: Boolean = false): String {
         if (raw.isBlank()) return ""
+        if (preserveText) {
+            JSONArray(raw) // Validate rather than silently rewriting/dropping protected arguments.
+            return raw
+        }
         val source = runCatching { JSONArray(raw) }.getOrNull() ?: return ""
         val target = JSONArray()
         for (index in 0 until minOf(source.length(), MAX_TOOL_CALLS_PER_MESSAGE)) {

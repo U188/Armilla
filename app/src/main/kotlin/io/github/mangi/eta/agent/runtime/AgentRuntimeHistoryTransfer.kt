@@ -60,7 +60,7 @@ internal object AgentRuntimeHistoryTransfer {
     fun readFromBundle(bundle: Bundle): List<AgentModelClient.ConversationMessage> {
         bundle.getParcelable(AgentRuntimeWire.KEY_HISTORY_FD, ParcelFileDescriptor::class.java)
             ?.use { descriptor ->
-                val bytes = ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
+                val bytes = ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readNBytes(MAX_HISTORY_FILE_BYTES.toInt() + 1) }
                 if (bytes.size > MAX_HISTORY_FILE_BYTES) {
                     throw AgentRuntimeWire.PayloadTooLargeException(bytes.size)
                 }

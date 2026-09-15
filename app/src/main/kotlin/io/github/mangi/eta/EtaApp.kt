@@ -69,6 +69,9 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         ProviderRepository.init(this)
         AssistantRepository.init(this)
         McpServerRepository.init(this)
+        runBlocking(Dispatchers.IO) {
+            io.github.mangi.eta.data.repository.EtaBackupRepository.recoverInterruptedImport(this@EtaApp)
+        }
         XposedServiceHelper.registerListener(this)
         applicationScope.launch {
             LinuxEnvironmentSettingsRepository.initialize(this@EtaApp)

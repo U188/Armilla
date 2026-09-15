@@ -48,10 +48,11 @@ internal object AgentRuntimeTranscriptTransfer {
 
         val file = File(cacheDirectory, "transcript-${UUID.randomUUID()}.json")
         val encoded = AgentConversationCodec.encodeTranscriptForIpc(transcript)
-        if (encoded.length > MAX_TRANSCRIPT_FILE_BYTES) {
+        val bytes = encoded.toByteArray(Charsets.UTF_8)
+        if (bytes.size > MAX_TRANSCRIPT_FILE_BYTES) {
             throw AgentRuntimeWire.PayloadTooLargeException(encoded.length)
         }
-        file.writeText(encoded, Charsets.UTF_8)
+        file.writeBytes(bytes)
         val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             ?: throw IllegalStateException("无法打开 transcript 文件描述符")
         return PreparedTranscript(descriptor, file)
@@ -64,7 +65,7 @@ internal object AgentRuntimeTranscriptTransfer {
                 ParcelFileDescriptor::class.java,
             ) ?: return@runCatching null
             ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
-                val bytes = input.readBytes()
+                val bytes = input.readNBytes(MAX_TRANSCRIPT_FILE_BYTES.toInt() + 1)
                 if (bytes.size > MAX_TRANSCRIPT_FILE_BYTES) {
                     throw AgentRuntimeWire.PayloadTooLargeException(bytes.size)
                 }

@@ -16,6 +16,8 @@ data class Model(
     val inputModalities: List<String> = listOf(TEXT_MODALITY),
     val outputModalities: List<String> = listOf(TEXT_MODALITY),
     val attachment: Boolean? = null,
+    /** User override, independent of provider metadata. */
+    val visionOverride: Boolean? = null,
     val toolCall: Boolean? = null,
     val reasoning: Boolean? = null,
     val reasoningCapabilities: ModelReasoningCapabilities? = null,
@@ -43,7 +45,7 @@ data class Model(
         }
 
     val supportsVision: Boolean
-        get() = attachment ?: VisionChatModels.matches(this)
+        get() = visionOverride ?: attachment ?: VisionChatModels.matches(this)
 
     val supportsVideo: Boolean
         get() = inputModalities.any { it.equals(VIDEO_MODALITY, ignoreCase = true) }

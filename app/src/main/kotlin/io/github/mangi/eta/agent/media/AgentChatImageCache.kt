@@ -9,7 +9,7 @@ import java.io.File
 import java.util.UUID
 
 /**
- * 非视觉模型看不到聊天附图。把原图落到应用缓存，会话里只传可读路径给 read_image。
+ * 将原始附件落盘，UI 预览和模型能力相互独立。纯文本模型只能接收路径，不能通过 read_image 获得视觉能力。
  * 不写入用户工作区；删除会话或变成孤儿后清理，避免缓存无限涨。
  */
 internal class AgentChatImageCache(context: Context) {

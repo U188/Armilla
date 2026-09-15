@@ -124,11 +124,12 @@ internal class AgentRuntimeClient(
         }
     }
 
-    fun steerRun(runId: String, text: String): Boolean {
-        if (runId.isBlank() || text.isBlank()) return false
+    fun steerRun(runId: String, text: String, requestId: String = "", imagesJson: String = "[]"): Boolean {
+        if (runId.isBlank() || text.isBlank() || text.length > 64_000 || requestId.length > 128) return false
+        if (runCatching { io.github.mangi.eta.agent.model.AgentSupplementMedia.persistedImages(imagesJson) }.isFailure) return false
         return withRuntimeMessenger(false) { serviceMessenger ->
             val msg = Message.obtain(null, AgentRuntimeWire.MSG_STEER_RUN)
-            msg.data = AgentRuntimeWire.steerBundle(runId, text)
+            msg.data = AgentRuntimeWire.steerBundle(runId, text, requestId, imagesJson)
             serviceMessenger.send(msg)
             true
         }
@@ -152,11 +153,11 @@ internal class AgentRuntimeClient(
         }
     }
 
-    fun compactRun(runId: String, keepRecent: Int, targetTokens: Int): Boolean {
+    fun compactRun(runId: String, keepRecent: Int, targetTokens: Int, allowCurrentTurn: Boolean = false): Boolean {
         if (runId.isBlank()) return false
         return withRuntimeMessenger(false) { serviceMessenger ->
             val msg = Message.obtain(null, AgentRuntimeWire.MSG_COMPACT_RUN)
-            msg.data = AgentRuntimeWire.compactBundle(runId, keepRecent, targetTokens)
+            msg.data = AgentRuntimeWire.compactBundle(runId, keepRecent, targetTokens, allowCurrentTurn)
             serviceMessenger.send(msg)
             true
         }

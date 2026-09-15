@@ -28,6 +28,8 @@ internal class AgentLoop(
     private val sessionId: String = java.util.UUID.randomUUID().toString(),
     private val compactPolicy: CompactPolicy = CompactPolicy.Disabled,
     private val systemCount: Int = 0,
+    private val compactionArchive: AgentCompactionArchive? = null,
+    private val turnId: String = java.util.UUID.randomUUID().toString(),
     private val onHistoryCompacted: () -> Unit = {},
     private val compactHistory: ((
         List<AgentModelClient.ConversationMessage>,
@@ -40,6 +42,7 @@ internal class AgentLoop(
         val keepRecentMessages: Int,
         val targetTokens: Int,
         val compressModelConfig: AgentModelClient.ModelConfig?,
+        val strategy: AgentCompressionStrategy = AgentCompressionStrategy.PRESERVE_TURN,
     ) {
         companion object {
             val Disabled = CompactPolicy(
@@ -69,27 +72,59 @@ internal class AgentLoop(
     private var lastUsage: AgentTokenUsage? = null
     private var lastUsageMessageCount: Int = 0
     private var suppressThinkingForNextRequest = false
+    private var activeTurnStart = (messages.length() - systemCount - 1).coerceAtLeast(0)
+    private var compactionFailure = ""
+    private var currentRoundTools = tools
+    private var manualBudgetAttempt = false
+    private var budgetKeepRecent = compactPolicy.keepRecentMessages
+    private var overflowPending = false
+    private var overflowRecoveryAttempts = 0
+    private var lastFailedCompaction: Pair<String, Int>? = null
 
     fun reasoningSnapshot(): String = accumulatedReasoning.toString().trim()
 
     fun sensitiveToolCallIdsSnapshot(): Set<String> = sensitiveToolCallIds.toSet()
 
     fun run(): Result {
+        // Only annotate messages created by this run. The current user entry is initially last.
+        messages.optJSONObject(messages.length() - 1)?.put(AgentTurnIdentity.JSON_KEY, turnId)
         var round = 1
 
         while (true) {
             runController.throwIfCancelled()
             appendPendingSteeringMessage()
+            currentRoundTools = toolsForRound?.invoke() ?: tools
             maybeCompactBeforeRound(round)
+            var reductions = 0
+            while (requestOverBudget() || overflowPending) {
+                if (reductions++ < 3 && overflowRecoveryAttempts <= 1 && tryBudgetCompaction(round)) {
+                    overflowPending = false
+                    continue
+                }
+                runController.pause()
+                onEvent(AgentEvent.ContextCompacted(round, false, messages.length(), messages.length(),
+                    blocked = true, reason = compactionFailure.ifBlank {
+                        "上下文空间不足；受保护历史未删除。可保持暂停、仅本次允许压缩较早步骤，或停止后选择更大窗口模型。"
+                    }))
+                runController.throwIfCancelled()
+                reductions = 0
+                appendPendingSteeringMessage()
+                currentRoundTools = toolsForRound?.invoke() ?: tools
+                maybeCompactBeforeRound(round)
+                if (manualBudgetAttempt) overflowRecoveryAttempts = 0
+            }
             emitProjectedPrompt(round)
 
-            val roundTools = toolsForRound?.invoke() ?: tools
+            manualBudgetAttempt = false
+            val roundTools = currentRoundTools
             toolCallValidator = AgentToolCallValidator(roundTools)
             val reasoningLengthBeforeRound = accumulatedReasoning.length
             val completedRound = try {
                 modelRetry.complete(
                     initialRound = round,
-                    request = ProviderRequest(requestConfigForRound(), messages, roundTools, sessionId),
+                    request = ProviderRequest(requestConfigForRound(),
+                        AgentRequestMediaPolicy.filter(messages, config.supportsVision, config.supportsVideo),
+                        roundTools, sessionId),
                     provider = provider,
                     controller = runController,
                     onEvent = onEvent,
@@ -107,10 +142,16 @@ internal class AgentLoop(
                     },
                     discardAttemptReasoning = { accumulatedReasoning.setLength(reasoningLengthBeforeRound) },
                 )
-            } finally {
-                // 同一回合的重试仍需原始观察；整个回合结束后才移除截图。
-                discardPendingToolImageMessage()
+            } catch (failure: AgentModelFailure) {
+                if (failure.code != "CONTEXT_WINDOW_EXCEEDED") throw failure
+                overflowPending = true
+                overflowRecoveryAttempts++
+                compactionFailure = "提供方确认上下文超限。只在缩减成功后有限重试；否则保持暂停，不删除受保护历史。"
+                continue
             }
+            // Failed/overflowed requests keep their image observation until a successful request.
+            discardPendingToolImageMessage()
+            overflowRecoveryAttempts = 0
             round = completedRound.round
             val providerResponse = completedRound.response
 
@@ -134,7 +175,7 @@ internal class AgentLoop(
                     AgentConversationCodec.assistantHistoryMessage(
                         source = assistantMessage,
                         toolCalls = toolCalls,
-                    )
+                    ).put(AgentTurnIdentity.JSON_KEY, turnId)
                 )
                 onEvent(
                     AgentEvent.AssistantReceived(
@@ -225,108 +266,170 @@ internal class AgentLoop(
      * 自动压缩从第二轮开始按阈值判断；手动/强制压缩可在第一轮立刻执行。
      * 工具批次跑完后才会回到这里，因此不会拆掉当前工具循环。
      */
+    private fun historyForCompaction() = (systemCount.coerceIn(0, messages.length()) until messages.length())
+        .map { AgentConversationCodec.fromJsonObject(messages.getJSONObject(it)) }
+
+    private fun estimatedRequestTokens(): Int = maxOf(
+        AgentContextBudget.estimate(messages) + AgentContextBudget.countTokens(currentRoundTools.toString()),
+        projectedPromptTokens() ?: 0,
+    )
+
+    private fun requestOverBudget(): Boolean {
+        val safeHistory = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds)
+        val storedChars = safeHistory.sumOf { AgentConversationCodec.toJsonObject(it).toString().length.toLong() }
+        if (storedChars > AgentConversationCodec.MAX_CONVERSATION_CHECKPOINT_CHARS - 128_000) {
+            compactionFailure = "本轮历史接近本机持久化容量上限；已暂停，未截断受保护原文。可允许压缩较早步骤或停止任务。"
+            return true
+        }
+        val window = config.contextWindow?.takeIf { it > 0 } ?: return false
+        return estimatedRequestTokens() > AgentCompressionBoundary.inputLimit(window, AgentCompressionBoundary.outputReserve(config))
+    }
+
     private fun maybeCompactBeforeRound(round: Int) {
-        val forced = runController.hasPendingCompact
-        if (!forced && (round <= 1 || !compactPolicy.enabled)) return
-        val compressConfig = compactPolicy.compressModelConfig ?: return
-        val override = if (forced) runController.takePendingCompact() else null
-        val keepRecent = AgentContextCompactor.coerceKeepRecent(
-            override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
-        )
-        val targetTokens = (override?.targetTokens ?: compactPolicy.targetTokens).coerceIn(500, 4000)
-        val policy = compactPolicy.copy(
-            keepRecentMessages = keepRecent,
-            targetTokens = targetTokens,
-        )
-        val originalCount = messages.length()
-        val history = AgentConversationCodec.transcript(messages, systemCount.coerceIn(0, originalCount))
-        val estimated = projectedPromptTokens()
-            ?: history.sumOf { AgentContextBudget.countMessage(it) }.takeIf { it > 0 }
-        if (
-            !forced &&
-            !AgentContextCompactor.shouldCompress(
-                history = history,
-                contextWindow = compactPolicy.contextWindow,
-                keepRecentMessages = keepRecent,
-                estimatedTokens = estimated,
-            )
-        ) {
+        val override = runController.takePendingCompact()
+        val forced = override != null
+        if (forced) { manualBudgetAttempt = true; lastFailedCompaction = null }
+        if (!forced && (!compactPolicy.enabled || overflowPending)) return
+        val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
+        if (!forced && (round <= 1 || estimatedRequestTokens() < window * 0.8)) return
+        val keep = AgentContextCompactor.coerceKeepRecent(override?.keepRecentMessages ?: compactPolicy.keepRecentMessages)
+        budgetKeepRecent = keep
+        val history = historyForCompaction()
+        val cut = runCatching { AgentCompressionBoundary.protectedStart(history, keep, activeTurnStart) }.getOrDefault(0)
+        if (cut <= 0) {
+            if (forced) onEvent(AgentEvent.ContextCompacted(round, false, messages.length(), messages.length(),
+                reason = "当前历史均在保护范围内，没有可压缩的旧历史。"))
             return
         }
-        onEvent(AgentEvent.ContextCompactionStarted(round = round))
-        val compressed = runCatching {
-            if (compactHistory != null) {
-                val rewritten = compactHistory.invoke(history, policy)
-                if (rewritten != history) {
-                    AgentContextCompactor.rebuildConversation(
-                        messages,
-                        systemCount.coerceIn(0, messages.length()),
-                        rewritten,
-                    )
-                    rewritten
-                } else {
-                    null
-                }
-            } else {
-                val config = AgentContextCompactor.Config(
-                    targetTokens = targetTokens,
-                    keepRecentMessages = keepRecent,
-                    compressModelConfig = compressConfig,
-                )
-                if (forced) {
-                    val rewritten = AgentContextCompactor.compress(
-                        history = history,
-                        config = config,
-                        toolExecutor = toolExecutor,
-                    )
-                    if (rewritten != history) {
-                        AgentContextCompactor.rebuildConversation(
-                            messages,
-                            systemCount.coerceIn(0, messages.length()),
-                            rewritten,
-                        )
-                        rewritten
-                    } else {
-                        null
-                    }
-                } else {
-                    AgentContextCompactor.compactMessages(
-                        messages = messages,
-                        systemCount = systemCount,
-                        contextWindow = compactPolicy.contextWindow,
-                        config = config,
-                        estimatedTokens = estimated,
-                        toolExecutor = toolExecutor,
-                    )
-                }
-            }
-        }.getOrNull()
-        if (compressed != null) {
-            lastUsage = AgentTokenUsage(
-                inputTokens = compressed.sumOf { AgentContextBudget.countMessage(it) }.takeIf { it > 0 },
-            )
-            lastUsageMessageCount = messages.length()
-            onHistoryCompacted()
-            onEvent(
-                AgentEvent.ContextCompacted(
-                    round = round,
-                    applied = true,
-                    originalCount = originalCount,
-                    compactedCount = messages.length(),
-                    history = compressed,
-                    compressorLabel = compressorLabel(compressConfig),
-                )
-            )
-        } else {
-            onEvent(
-                AgentEvent.ContextCompacted(
-                    round = round,
-                    applied = false,
-                    originalCount = originalCount,
-                    compactedCount = originalCount,
-                )
-            )
+        if (applyCompaction(round, history, cut, override?.targetTokens ?: compactPolicy.targetTokens)) overflowPending = false
+    }
+
+    private fun tryBudgetCompaction(round: Int): Boolean {
+        if (!compactPolicy.enabled && !manualBudgetAttempt && !runController.allowCurrentTurnCompaction) return false
+        val history = historyForCompaction()
+        val normalCut = runCatching { AgentCompressionBoundary.protectedStart(history, budgetKeepRecent, activeTurnStart) }.getOrDefault(0)
+        if (normalCut > 0 && pruneOversizedToolResults(round, systemCount + normalCut)) return true
+        if (normalCut > 0 && applyCompaction(round, history, normalCut, compactPolicy.targetTokens)) return true
+        val mayRelax = compactPolicy.strategy == AgentCompressionStrategy.CONTINUE_TASK || runController.allowCurrentTurnCompaction
+        if (!mayRelax) return false
+        if (compactionArchive == null) {
+            compactionFailure = "未提供原文存档与回读能力，不能压缩受保护轮次。"
+            return false
         }
+        if (pruneOversizedToolResults(round)) return true
+        val cut = runCatching { AgentCompressionBoundary.continuationStart(history,
+            if (overflowPending) 1 else maxOf(1024, (config.contextWindow ?: 0) / 6)) }.getOrDefault(0)
+        if (cut <= 0) return false
+        return applyCompaction(round, history, cut, compactPolicy.targetTokens)
+    }
+
+    /** Lossy pruning is permitted only after the caller has opted into continuation. */
+    private fun pruneOversizedToolResults(round: Int, endExclusive: Int = messages.length()): Boolean {
+        val archive = compactionArchive ?: return false
+        val replacements = mutableListOf<Pair<Int, JSONObject>>()
+        val checkpoints = mutableListOf<String>()
+        try {
+            for (index in systemCount until endExclusive) {
+                val original = messages.getJSONObject(index)
+                if (original.optString("role") != "tool" || original.optString("tool_call_id") in sensitiveToolCallIds) continue
+                val text = original.opt("content") as? String ?: continue
+                if (text.codePointCount(0, text.length()) <= 8192 || text.contains("[Eta tool output pruned;")) continue
+                val id = archive.save(listOf(AgentConversationCodec.fromJsonObject(original)))
+                archive.record(id, "started")
+                val head = text.offsetByCodePoints(0, 4096)
+                val tail = text.offsetByCodePoints(text.length, -1024)
+                val shorter = text.substring(0, head) + "\n[Eta tool output pruned; original: context-checkpoint:$id; read_compacted_history]\n" + text.substring(tail)
+                val copy = JSONObject(original.toString()).put("content", shorter)
+                if (AgentContextBudget.countTokens(shorter) >= AgentContextBudget.countTokens(text)) continue
+                archive.record(id, "ready")
+                replacements += index to copy
+                checkpoints += id
+            }
+        } catch (failure: Exception) {
+            compactionFailure = failure.message ?: "工具原文存档失败，未应用修剪"
+            return false
+        }
+        if (replacements.isEmpty()) return false
+        runController.throwIfCancelled()
+        replacements.forEach { (index, message) -> messages.put(index, message) }
+        lastUsage = null
+        lastUsageMessageCount = 0
+        onHistoryCompacted()
+        onEvent(AgentEvent.ContextCompacted(round, true, messages.length(), messages.length(),
+            history = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds),
+            compressorLabel = "工具输出预算修剪（原文可回读）"))
+        checkpoints.forEach { runCatching { archive.record(it, "committed") } }
+        return true
+    }
+
+    private fun applyCompaction(round: Int, history: List<AgentModelClient.ConversationMessage>, cut: Int, target: Int): Boolean {
+        val compressConfig = compactPolicy.compressModelConfig ?: return false
+        val original = messages.toString()
+        val originalCount = messages.length()
+        if (lastFailedCompaction == (original to cut)) return false
+        onEvent(AgentEvent.ContextCompactionStarted(round))
+        var savedCheckpoint: String? = null
+        val rewritten = try {
+            val prefix = history.take(cut)
+            require(prefix.none { message ->
+                message.toolCallId in sensitiveToolCallIds || sensitiveToolCallIds.any { id -> message.toolCallsJson.contains(id) }
+            }) { "待压缩范围包含不允许持久化的工具内容；已保留原文，请先完成或结束本轮。" }
+            savedCheckpoint = compactionArchive?.save(prefix)
+            savedCheckpoint?.let { compactionArchive?.record(it, "started") }
+            val compressed = if (compactHistory != null) {
+                compactHistory.invoke(history, compactPolicy.copy(keepRecentMessages = budgetKeepRecent, targetTokens = target.coerceIn(500, 4000)))
+            } else AgentContextCompactor.compress(
+                history, AgentContextCompactor.Config(target.coerceIn(500, 4000), compactPolicy.keepRecentMessages, compressConfig),
+                keepStartOverride = cut, controller = runController,
+                replay = if (compressConfig.providerType == config.providerType && compressConfig.baseUrl == config.baseUrl &&
+                    compressConfig.model == config.model && compressConfig.openAiEndpointMode == config.openAiEndpointMode)
+                    AgentContextCompactor.ReplayContext(
+                        JSONArray().also { a -> for (i in 0 until systemCount) a.put(messages.getJSONObject(i)) },
+                        JSONArray().also { a -> for (i in systemCount until systemCount + cut) a.put(messages.getJSONObject(i)) },
+                        currentRoundTools, sessionId,
+                    ) else null,
+            )
+            val tail = history.drop(cut)
+            require(compressed.size >= tail.size && compressed.takeLast(tail.size) == tail) { "摘要后受保护尾部发生变化" }
+            require(compressed != history) { "没有可压缩历史" }
+            runController.throwIfCancelled()
+            require(messages.toString() == original) { "摘要生成期间上下文已变化，未应用摘要" }
+            val withPointers = savedCheckpoint?.let {
+                requireNotNull(compactionArchive).attachReferences(prefix, it, compressed, tail.size)
+            } ?: compressed
+            require(withPointers.sumOf { AgentContextBudget.countMessage(it).toLong() } < history.sumOf { AgentContextBudget.countMessage(it).toLong() }) {
+                "摘要及索引未减少上下文，已保留原文"
+            }
+            savedCheckpoint?.let { compactionArchive?.record(it, "ready") }
+            withPointers
+        } catch (failure: Exception) {
+            savedCheckpoint?.let { runCatching { compactionArchive?.record(it, "failed") } }
+            if (runController.isCancelled || failure is io.github.mangi.eta.agent.runtime.AgentRunCancelledException) throw failure
+            lastFailedCompaction = original to cut
+            compactionFailure = failure.message ?: "压缩失败，原文保留"
+            onEvent(AgentEvent.ContextCompacted(round, false, originalCount, originalCount, reason = compactionFailure))
+            return false
+        }
+        val removed = history.size - rewritten.size
+        activeTurnStart = if (cut <= activeTurnStart) (activeTurnStart - removed).coerceAtLeast(0) else 0
+        // Never reserialize the kept live tail through the persistence DTO. That would strip
+        // provider-only response items, images, and long tool bodies even in protected mode.
+        val keptJson = (systemCount + cut until messages.length()).map { messages.getJSONObject(it) }
+        val prefixJson = (0 until systemCount).map { messages.getJSONObject(it) }
+        val newPrefix = rewritten.dropLast(history.size - cut)
+        while (messages.length() > 0) messages.remove(messages.length() - 1)
+        prefixJson.forEach(messages::put)
+        newPrefix.forEach { messages.put(AgentConversationCodec.toJsonObject(it)) }
+        keptJson.forEach(messages::put)
+        lastUsage = null
+        lastUsageMessageCount = 0
+        compactionFailure = ""
+        onHistoryCompacted()
+        onEvent(AgentEvent.ContextCompacted(round, true, originalCount, messages.length(),
+            history = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds),
+            compressorLabel = compressorLabel(compressConfig)))
+        savedCheckpoint?.let { runCatching { compactionArchive?.record(it, "committed") } }
+        return true
     }
 
     private fun requestConfigForRound(): AgentModelClient.ModelConfig {
@@ -346,14 +449,14 @@ internal class AgentLoop(
     }
 
     private fun appendPendingSteeringMessage(): Boolean {
-        val supplement = runController.pollSteeringMessage() ?: return false
-        messages.put(AgentConversationCodec.userTextMessage(steeringPrompt(supplement)))
+        val supplement = runController.pollSteeringInput() ?: return false
+        messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
         return true
     }
 
     private fun appendPendingSteeringOrSeal(): Boolean {
-        val supplement = runController.pollSteeringOrSeal() ?: return false
-        messages.put(AgentConversationCodec.userTextMessage(steeringPrompt(supplement)))
+        val supplement = runController.pollSteeringInputOrSeal() ?: return false
+        messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
         return true
     }
 
@@ -368,7 +471,7 @@ internal class AgentLoop(
                 AgentContextCompactor.steeringUserContent(
                     "请从上次中断的地方继续，不要重复已经写过的内容，也不要从头开始。",
                 ),
-            ),
+            ).put(AgentTurnIdentity.JSON_KEY, turnId),
         )
         suppressThinkingForNextRequest = true
     }
@@ -397,7 +500,9 @@ internal class AgentLoop(
         )
 
         val result = try {
-            toolExecutor.execute(toolCall)
+            if (toolCall.name == AgentCompactionArchive.TOOL && compactionArchive != null) {
+                compactionArchive.read(toolCall.argumentsJson)
+            } else toolExecutor.execute(toolCall)
         } catch (throwable: Exception) {
             runController.throwIfCancelled()
             AgentModelClient.ToolResult(
@@ -492,7 +597,7 @@ internal class AgentLoop(
     ) {
         // Provider 要求同一 assistant 批次的全部 tool result 连续出现；图片观察统一放在批次之后。
         outcomes.forEach { outcome ->
-            messages.put(AgentConversationCodec.toolResultMessage(outcome.call, outcome.result))
+            messages.put(AgentConversationCodec.toolResultMessage(outcome.call, outcome.result).put(AgentTurnIdentity.JSON_KEY, turnId))
         }
 
         val imageOutcomes = outcomes.filter { outcome -> outcome.result.images.isNotEmpty() }
@@ -508,7 +613,7 @@ internal class AgentLoop(
         pendingToolImageMessage = AgentConversationCodec.userMessage(
             text = "Latest observation image(s) returned by tool(s): $toolNames.",
             images = images,
-        ).also(messages::put)
+        ).put(AgentTurnIdentity.JSON_KEY, turnId).also(messages::put)
 
         imageOutcomes.forEach { outcome ->
             onEvent(

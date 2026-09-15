@@ -33,6 +33,20 @@ class AgentRuntimeWireTest {
         return pipe[0]
     }
 
+    @Test fun assistantIdentityTravelsWithConfigAndMissingIdentityDoesNotUseActiveAssistant() {
+        val config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid", apiKey = "test",
+            model = "test", systemPrompt = "A", assistantId = "assistant-a")
+        val request = AgentRuntimeWire.RunRequest(runId = "identity", prompt = "test", config = config, images = emptyList())
+        val bundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor())
+        bundle.remove(AgentRuntimeWire.KEY_HISTORY_FD)
+        bundle.putParcelableArrayList(AgentRuntimeWire.KEY_HISTORY, java.util.ArrayList())
+        val restored = AgentRuntimeWire.runRequestFromBundle(bundle)
+        assertEquals("assistant-a", restored.assistantId)
+        assertEquals("assistant-a", restored.config.assistantId)
+        bundle.remove("assistant_id")
+        assertEquals("", AgentRuntimeWire.runRequestFromBundle(bundle).assistantId)
+    }
+
     @Test
     fun modelSessionSurvivesIpcAndLegacyRequestsUseConversationIdentity() {
         val request = AgentRuntimeWire.RunRequest(

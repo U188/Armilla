@@ -62,9 +62,8 @@ internal class AgentMemoryStore(
     private val memoryDir: File,
 ) {
     private val atomicFile = AtomicFile(File(memoryDir, FILE_NAME))
-    private val lock = Any()
 
-    fun snapshot(): AgentMemorySnapshot = synchronized(lock) {
+    fun snapshot(): AgentMemorySnapshot = withStorageLock {
         snapshotLocked()
     }
 
@@ -72,7 +71,7 @@ internal class AgentMemoryStore(
         query: String? = null,
         startLine: Int = DEFAULT_START_LINE,
         maxChars: Int = DEFAULT_READ_CHARS,
-    ): AgentMemoryReadResult = synchronized(lock) {
+    ): AgentMemoryReadResult = withStorageLock {
         val snapshot = snapshotLocked()
         val boundedChars = maxChars.coerceIn(MIN_READ_CHARS, MAX_READ_CHARS)
         if (query.isNullOrBlank()) {
@@ -82,10 +81,10 @@ internal class AgentMemoryStore(
         }
     }
 
-    fun mutate(mutation: AgentMemoryMutation): AgentMemoryWriteResult = synchronized(lock) {
+    fun mutate(mutation: AgentMemoryMutation): AgentMemoryWriteResult = withStorageLock {
         val current = snapshotLocked()
         if (mutation.revision != current.revision) {
-            return@synchronized AgentMemoryWriteResult.Conflict(current)
+            return@withStorageLock AgentMemoryWriteResult.Conflict(current)
         }
         val updated = when (mutation) {
             is AgentMemoryMutation.ReplaceRange -> replaceRange(current, mutation)
@@ -96,16 +95,46 @@ internal class AgentMemoryStore(
         AgentMemoryWriteResult.Success(snapshotOf(updated))
     }
 
-    fun replaceAll(content: String): AgentMemorySnapshot = synchronized(lock) {
+    fun replaceAll(content: String): AgentMemorySnapshot = withStorageLock {
         writeLocked(content)
         snapshotOf(content)
     }
 
+    fun replaceAll(content: String, revision: String): AgentMemorySnapshot = withStorageLock {
+        if (snapshotLocked().revision != revision) throw AgentMemoryException("MEMORY_CONFLICT", "记忆已被其他操作更新，草稿已保留；请先重新读取并合并。")
+        writeLocked(content)
+        snapshotOf(content)
+    }
+
+    fun delete() = withStorageLock(allowDeleted = true) {
+        deletedMarker().writeText("deleted")
+        check(!memoryDir.exists() || memoryDir.deleteRecursively()) { "无法删除助手记忆" }
+    }
+
+    fun restore(content: String): AgentMemorySnapshot = withStorageLock(allowDeleted = true) {
+        writeLocked(content)
+        check(!deletedMarker().exists() || deletedMarker().delete()) { "无法恢复助手记忆" }
+        snapshotOf(content)
+    }
+
+    private fun deletedMarker() = File(memoryDir.parentFile, ".memory-locks/${memoryDir.name}.deleted")
+
+    private fun <T> withStorageLock(allowDeleted: Boolean = false, block: () -> T): T = synchronized(FILE_LOCK) {
+        val directory = File(memoryDir.parentFile, ".memory-locks")
+        check(directory.mkdirs() || directory.isDirectory) { "无法创建记忆锁目录" }
+        java.io.RandomAccessFile(File(directory, "${memoryDir.name}.lock"), "rw").use { file ->
+            file.channel.lock().use {
+                if (!allowDeleted && deletedMarker().exists()) throw AgentMemoryException("ASSISTANT_DELETED", "助手已删除，记忆操作未执行")
+                block()
+            }
+        }
+    }
+
     private fun snapshotLocked(): AgentMemorySnapshot {
         val file = atomicFile.baseFile
-        if (!file.exists()) return snapshotOf("")
+        if (!file.exists() && !File(file.path + ".bak").exists()) return snapshotOf("")
         val bytes = try {
-            atomicFile.openRead().use { it.readBytes() }
+            atomicFile.openRead().use { it.readNBytes(MAX_FILE_BYTES + 1) }
         } catch (throwable: IOException) {
             throw AgentMemoryException(
                 code = "MEMORY_READ_FAILED",
@@ -284,6 +313,7 @@ internal class AgentMemoryStore(
             }
 
     companion object {
+        private val FILE_LOCK = Any()
         const val MAX_FILE_BYTES = 1024 * 1024
         const val DEFAULT_READ_CHARS = 12_000
         const val MAX_READ_CHARS = 32_000
@@ -328,32 +358,50 @@ internal object AgentMemoryRepository {
     fun replaceAll(
         content: String,
         assistantId: String = currentAssistantId(),
-    ): AgentMemorySnapshot = storeFor(assistantId).replaceAll(content)
+        revision: String? = null,
+    ): AgentMemorySnapshot = if (revision == null) storeFor(assistantId).replaceAll(content)
+        else storeFor(assistantId).replaceAll(content, revision)
 
     fun exportAll(): Map<String, String> {
         ensureInitialized()
         val exported = linkedMapOf<String, String>()
         val memoryRoot = File(rootDir, ROOT_NAME)
-        val ids = buildSet {
-            add(currentAssistantId())
-            AssistantRepository.profiles.value.forEach { add(it.id) }
-            memoryRoot.listFiles()
-                ?.filter { it.isDirectory }
-                ?.forEach { add(it.name) }
+        val ids = linkedSetOf(currentAssistantId())
+        AssistantRepository.profiles.value.forEach {
+            require(ids.size < 1_000) { "助手记忆数量超过备份限制" }
+            ids += it.id
         }
+        if (memoryRoot.isDirectory) {
+            require(!java.nio.file.Files.isSymbolicLink(memoryRoot.toPath())) { "记忆根目录不能是符号链接" }
+            java.nio.file.Files.newDirectoryStream(memoryRoot.toPath()).use { entries ->
+                var visited = 0
+                for (entry in entries) {
+                    require(++visited <= 2_000 && ids.size < 1_000) { "助手记忆目录超过备份限制" }
+                    require(!java.nio.file.Files.isSymbolicLink(entry)) { "记忆目录不能包含符号链接" }
+                    if (java.nio.file.Files.isDirectory(entry) && !entry.fileName.toString().startsWith(".")) ids += entry.fileName.toString()
+                }
+            }
+        }
+        var total = 0L
         ids.forEach { id ->
-            val content = storeFor(id).snapshot().content
-            if (content.isNotEmpty()) exported[AssistantStorage.id(id)] = content
+            val snapshot = storeFor(id).snapshot()
+            total += snapshot.byteSize
+            require(total <= 4L * 1024 * 1024) { "全部助手记忆超过 4 MiB 备份限制" }
+            if (snapshot.content.isNotEmpty()) exported[AssistantStorage.id(id)] = snapshot.content
         }
         return exported
     }
 
     fun importAll(memories: Map<String, String>, fallback: String = "") {
+        ensureInitialized()
+        val retained = if (memories.isEmpty()) setOf(AssistantPrompt.DEFAULT_ID) else memories.keys.map { AssistantStorage.id(it) }.toSet()
+        File(rootDir, ROOT_NAME).listFiles().orEmpty().filter { it.isDirectory && !it.name.startsWith(".") && it.name !in retained }
+            .forEach { delete(it.name) }
         if (memories.isNotEmpty()) {
-            memories.forEach { (id, content) -> replaceAll(content, id) }
+            memories.forEach { (id, content) -> storeFor(id).restore(content) }
             return
         }
-        replaceAll(fallback, AssistantPrompt.DEFAULT_ID)
+        storeFor(AssistantPrompt.DEFAULT_ID).restore(fallback)
     }
 
     fun copy(fromId: String, toId: String) {
@@ -363,20 +411,16 @@ internal object AgentMemoryRepository {
     }
 
     fun delete(assistantId: String) {
-        ensureInitialized()
-        val id = AssistantStorage.id(assistantId)
-        synchronized(lock) { stores.remove(id) }
-        File(rootDir, "$ROOT_NAME/$id").deleteRecursively()
+        storeFor(assistantId).delete()
     }
 
     fun enabledFlow(): Flow<Boolean> = SettingsDataStore.memoryEnabledFlow()
 
     fun isEnabled(assistantId: String = currentAssistantId()): Boolean =
-        AssistantRepository.profile(assistantId)?.memoryEnabled
-            ?: AssistantRepository.active().memoryEnabled
+        AssistantRepository.currentProfile(assistantId)?.memoryEnabled ?: false
 
     fun setEnabled(enabled: Boolean, assistantId: String = currentAssistantId()) {
-        val current = AssistantRepository.profile(assistantId) ?: AssistantRepository.active()
+        val current = requireNotNull(AssistantRepository.currentProfile(assistantId)) { "助手不存在" }
         AssistantRepository.update(current.copy(memoryEnabled = enabled))
     }
 

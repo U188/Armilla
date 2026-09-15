@@ -29,6 +29,8 @@ class EtaBackupRepositoryTest {
     fun setUp() {
         EtaDatabase.closeForTests()
         context.deleteDatabase("eta.db")
+        java.io.File(context.filesDir, "backup-restore").deleteRecursively()
+        io.github.mangi.eta.agent.runtime.AgentExecutionService.endBackupMaintenance()
         SettingsDataStore.init(context)
         ProviderRepository.init(context)
         AgentMemoryRepository.init(context)
@@ -104,7 +106,7 @@ class EtaBackupRepositoryTest {
         val restoredConversation = EtaDatabase.get(context).conversationDao().conversationEntities().single()
         assertEquals(provider.id, restoredConversation.providerId)
         assertEquals(provider.models.first().id, restoredConversation.modelId)
-        assertEquals("sk-backup-test", ProviderRepository.providerById(provider.id)?.apiKey)
+        assertEquals("", ProviderRepository.providerById(provider.id)?.apiKey)
         assertEquals(ModelSource.CATALOG, ProviderRepository.providerById(provider.id)?.models?.first()?.source)
     }
 

@@ -16,6 +16,7 @@ internal object ProotCommandBuilder {
         workspace: String = TerminalRuntime.userWorkspacePath,
         tempDirectory: File = TerminalRuntime.temporaryDirectory,
         publicStorageGranted: Boolean = TerminalRuntime.publicStorageGranted,
+        skillsDirectory: File? = TerminalRuntime.visibleSkillsDirectory(),
     ): String {
         val native = nativeDirectory ?: return "echo ETA_PROOT_UNAVAILABLE >&2; exit 127"
         val proot = File(native, "libproot_exec.so").absolutePath
@@ -35,7 +36,13 @@ internal object ProotCommandBuilder {
         else bind("$workspace/offloads", "/var/minis/offloads")
         if (browser != null) bind(browser.absolutePath, "/var/minis/browser")
         else bind("$workspace/browser", "/var/minis/browser")
-        TerminalRuntime.visibleSkillsDirectory()?.takeIf { it.isDirectory }?.let { bind(it.absolutePath, "/var/minis/skills") }
+        skillsDirectory?.takeIf { it.isDirectory }?.let { root ->
+            bind(root.absolutePath, "/var/minis/skills")
+            root.listFiles().orEmpty().filter { it.isDirectory && !it.name.startsWith(".") }.forEach { skill ->
+                val data = File(root.parentFile, "skill-data/${skill.name}").canonicalFile
+                if (data.isDirectory) bind(data.absolutePath, "/var/minis/skills/${skill.name}/data")
+            }
+        }
         bind(tempDirectory.absolutePath, "/dev/shm")
         if (publicStorageGranted && File("/storage/emulated/0").canRead()) bind("/storage/emulated/0")
         sharedMounts.filter {

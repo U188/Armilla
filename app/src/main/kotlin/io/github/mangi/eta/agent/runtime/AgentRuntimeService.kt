@@ -103,6 +103,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private val pendingResultTranscripts =
         ConcurrentHashMap<String, AgentRuntimeTranscriptTransfer.PreparedTranscript>()
 
+    private val pendingCompactionTransfers = ConcurrentHashMap<String, MutableList<AgentRuntimeTranscriptTransfer.PreparedTranscript>>()
+
     override fun onCreate() {
         super.onCreate()
         savedStateRegistryController.performRestore(null)
@@ -152,6 +154,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         windowManager = null
         pendingResultTranscripts.values.forEach { prepared -> runCatching { prepared.close() } }
         pendingResultTranscripts.clear()
+        pendingCompactionTransfers.values.forEach { transfers -> synchronized(transfers) { transfers.forEach { it.close() } } }
+        pendingCompactionTransfers.clear()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
     }
@@ -220,6 +224,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     requestSupplementForRun(
                         runId = AgentRuntimeWire.runIdFromBundle(data),
                         text = AgentRuntimeWire.steerTextFromBundle(data),
+                        requestId = data.getString("request_id").orEmpty(),
+                        imagesJson = data.getString("images_json") ?: "[]",
                     )
                 }
 
@@ -239,6 +245,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                         runId = AgentRuntimeWire.runIdFromBundle(data),
                         keepRecent = AgentRuntimeWire.compactKeepRecentFromBundle(data),
                         targetTokens = AgentRuntimeWire.compactTargetTokensFromBundle(data),
+                        allowCurrentTurn = data.getBoolean("allow_current_turn_compaction", false),
                     )
                 }
             }
@@ -310,7 +317,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         sessions.get(request.runId)?.cancel("已被同一任务的新请求替换")
         val session = AgentRuntimeSession(
             runId = request.runId,
-            eventSink = { event -> sendEventTo(replyTo, event) },
+            eventSink = { event -> sendEventTo(replyTo, event, request.runId) },
             resultSink = { result -> sendResultTo(replyTo, result) },
         )
         // Root 入口保留原有绑定服务生命周期；新增 FGS 不能成为厂商后台入口的新前置权限。
@@ -318,7 +325,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         val executionHeld = AgentExecutionService.acquire(
             this, "run:${request.runId}", allowBoundFallback = allowBoundFallback,
         ) { session.cancel("已停止") }
-        if (!executionHeld && !allowBoundFallback) {
+        if (!executionHeld && (!allowBoundFallback || AgentExecutionService.backupMaintenance)) {
             session.complete(AgentRuntimeWire.RunResult(
                 runId = request.runId, ok = false, content = "",
                 error = "无法启动后台执行服务，请返回 Eta 后重试",
@@ -506,17 +513,24 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         }
     }
 
-    private fun sendEventTo(
-        target: Messenger?,
-        event: AgentEvent,
-    ) {
-        runCatching {
+    private fun sendEventTo(target: Messenger?, event: AgentEvent, runId: String) {
+        if (target == null) return
+        var prepared: AgentRuntimeTranscriptTransfer.PreparedTranscript? = null
+        try {
+            if (event is AgentEvent.ContextCompacted && event.applied && event.history.isNotEmpty()) {
+                prepared = AgentRuntimeTranscriptTransfer.prepare(this, event.history)
+            }
             val msg = Message.obtain(null, AgentRuntimeWire.MSG_EVENT)
-            msg.data = AgentRuntimeWire.eventToBundle(event)
-            target?.send(msg)
-        }.onFailure { throwable ->
+            msg.data = AgentRuntimeWire.eventToBundle(event, prepared?.descriptor)
+            target.send(msg)
+            prepared?.let { transfer ->
+                val pending = pendingCompactionTransfers.computeIfAbsent(runId) { mutableListOf() }
+                synchronized(pending) { pending += transfer }
+            }
+        } catch (failure: Exception) {
+            prepared?.close()
             AndroidAgentLogger.warnThrottled("runtime_event_delivery_failed") {
-                "Agent runtime event delivery failed: type=${throwable.safeLogType()}"
+                "Agent runtime event delivery failed: type=${failure.safeLogType()}"
             }
         }
     }
@@ -552,6 +566,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private fun releaseResultTranscript(runId: String) {
         if (runId.isBlank()) return
         pendingResultTranscripts.remove(runId)?.close()
+        pendingCompactionTransfers.remove(runId)?.let { transfers -> synchronized(transfers) { transfers.forEach { it.close() } } }
     }
 
     private fun sendRequestIngestedTo(
@@ -601,7 +616,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             runId.isNotBlank() &&
             session != null &&
             session.attach(
-                eventSink = { event -> sendEventTo(replyTo, event) },
+                eventSink = { event -> sendEventTo(replyTo, event, runId) },
                 resultSink = { result -> sendResultTo(replyTo, result) },
                 onReplayComplete = { sendAttachRunResponse(runId, replyTo, attached = true) },
             )
@@ -725,9 +740,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         requestResume(overlayRunId.orEmpty())
     }
 
-    private fun requestCompactRun(runId: String, keepRecent: Int, targetTokens: Int) {
+    private fun requestCompactRun(runId: String, keepRecent: Int, targetTokens: Int, allowCurrentTurn: Boolean = false) {
         if (runId.isBlank()) return
-        sessions.get(runId)?.requestCompact(keepRecent, targetTokens)
+        sessions.get(runId)?.requestCompact(keepRecent, targetTokens, allowCurrentTurn)
     }
 
     private fun requestResume(runId: String) {
@@ -741,19 +756,23 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         }
     }
 
-    private fun requestSupplementForRun(runId: String, text: String) {
+    private fun requestSupplementForRun(runId: String, text: String, requestId: String = "", imagesJson: String = "[]") {
         if (runId.isBlank() || sessions.get(runId) == null) return
-        requestSupplement(text, runId)
+        requestSupplement(text, runId, requestId, imagesJson)
     }
 
-    private fun requestSupplement(text: String, runId: String? = overlayRunId) {
+    private fun requestSupplement(text: String, runId: String? = overlayRunId, requestId: String = "", imagesJson: String = "[]") {
         val supplementText = text.trim()
         if (supplementText.isBlank()) return
         val targetRunId = runId.orEmpty()
+        if (runCatching { io.github.mangi.eta.agent.model.AgentSupplementMedia.persistedImages(imagesJson) }.isFailure) return
+        if (requestId.isNotBlank() && synchronized(supplementsLock) {
+                supplementsByRunId[targetRunId]?.items?.any { it.requestId == requestId } == true
+            }) return
         setBubbleInputMode(focusable = false)
         sessions.get(targetRunId)?.let { session ->
-            val event = session.steer(supplementText) {
-                recordSupplementEvent(targetRunId, supplementText)
+            val event = session.steer(supplementText, imagesJson) {
+                recordSupplementEvent(targetRunId, supplementText, requestId, imagesJson)
             }
             if (event == null) {
                 if (!session.isTerminal) {
@@ -780,22 +799,28 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             request = completed.request,
             response = completed.response,
             supplement = supplementText,
+            requestId = requestId,
+            imagesJson = imagesJson,
         )
         startRun(continuationRequest)
     }
 
-    private fun recordSupplementEvent(runId: String, text: String): AgentEvent.UserSupplementReceived {
+    private fun recordSupplementEvent(runId: String, text: String, requestId: String = "", imagesJson: String = "[]"): AgentEvent.UserSupplementReceived {
         val supplement = synchronized(supplementsLock) {
             val extras = supplementsByRunId.getOrPut(runId) { RunSupplements() }
             AgentUiHandoffPayload.Supplement(
                 index = extras.nextIndex++,
                 text = text,
+                requestId = requestId,
+                imagesJson = imagesJson,
                 createdAt = System.currentTimeMillis(),
             ).also { extras.items += it }
         }
         return AgentEvent.UserSupplementReceived(
             index = supplement.index,
             text = supplement.text,
+            requestId = supplement.requestId,
+            imagesJson = supplement.imagesJson,
         )
     }
 

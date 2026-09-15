@@ -11,6 +11,8 @@ internal object AgentContinuationBuilder {
         supplement: String,
         newRunId: String = "run-${UUID.randomUUID()}",
         createdAt: Long = System.currentTimeMillis(),
+        requestId: String = "",
+        imagesJson: String = "[]",
     ): AgentRuntimeWire.RunRequest {
         val baseHistory = request.history +
             AgentModelClient.buildUserHistoryMessage(request.prompt, request.images) +
@@ -24,6 +26,8 @@ internal object AgentContinuationBuilder {
                 index = (payload.supplements.maxOfOrNull { it.index } ?: 0) + 1,
                 text = supplement,
                 createdAt = createdAt,
+                requestId = requestId,
+                imagesJson = imagesJson,
             )
             original.copy(
                 id = newRunId,
@@ -37,10 +41,28 @@ internal object AgentContinuationBuilder {
             runId = newRunId,
             modelSessionId = request.effectiveModelSessionId,
             prompt = supplement,
-            images = emptyList(),
+            images = continuationImages(supplement, imagesJson, request.config.supportsVision, request.config.supportsVideo),
             history = baseHistory,
             handoff = handoff,
         )
+    }
+
+    private fun continuationImages(text: String, raw: String, vision: Boolean, video: Boolean): List<AgentModelClient.ModelImage> {
+        if (io.github.mangi.eta.agent.model.AgentSupplementMedia.persistedImages(raw).isEmpty()) return emptyList()
+        val persisted = io.github.mangi.eta.agent.model.AgentSupplementMedia.userMessage(text, raw)
+        val hydrated = io.github.mangi.eta.agent.media.AgentHistoryImageHydrator.hydrate(
+            AgentModelClient.ConversationMessage(role = "user", content = text,
+                contentJson = persisted.getJSONArray("content").toString()), vision, video)
+        val parts = org.json.JSONArray(hydrated.contentJson)
+        return (0 until parts.length()).mapNotNull { index ->
+            val part = parts.optJSONObject(index) ?: return@mapNotNull null
+            val type = part.optString("type")
+            if (type != "image_url" && type != "video_url") return@mapNotNull null
+            AgentModelClient.ModelImage(reference = part.getJSONObject(type).getString("url"),
+                mimeType = if (type == "video_url") "video/mp4" else "image/jpeg",
+                bytes = (part.getJSONObject(type).getString("url").substringAfter("base64,", "").length.toLong() * 3 / 4).toInt(),
+                source = "steering")
+        }
     }
 
 }

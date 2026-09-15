@@ -789,11 +789,11 @@ private fun ModelEditDialog(
             }
         )
     }
-    val automaticVision = remember(model.id, model.modelId, model.inputModalities) {
-        VisionChatModels.matches(model.modelId, model.inputModalities)
+    val automaticVision = remember(model.id, modelId, model.attachment, model.inputModalities) {
+        modelId.trim() == model.modelId && VisionChatModels.matches(model)
     }
     var visionOverrideActive by remember(model.id, isNew) {
-        mutableStateOf(model.attachment != null)
+        mutableStateOf(model.visionOverride != null)
     }
     var visionEnabled by remember(model.id, isNew) {
         mutableStateOf(model.supportsVision)
@@ -822,13 +822,9 @@ private fun ModelEditDialog(
         contextWindowOverride = contextWindowOverrideText.trim()
             .takeIf(String::isNotEmpty)
             ?.toInt(),
-        attachment = if (visionOverrideActive) visionEnabled else null,
-        inputModalities = when {
-            !visionOverrideActive -> model.inputModalities
-            visionEnabled -> (model.inputModalities + Model.IMAGE_MODALITY).distinct()
-            else -> model.inputModalities.filterNot { it.equals(Model.IMAGE_MODALITY, ignoreCase = true) }
-                .ifEmpty { listOf(Model.TEXT_MODALITY) }
-        },
+        visionOverride = if (visionOverrideActive) visionEnabled else null,
+        attachment = model.attachment.takeIf { modelId.trim() == model.modelId },
+        inputModalities = if (modelId.trim() == model.modelId) model.inputModalities else listOf(Model.TEXT_MODALITY),
         reasoningOverride = reasoningEnabled.takeIf { reasoningOverrideActive },
         reasoningCapabilitiesOverride = if (reasoningOverrideActive && reasoningEnabled) {
             (model.effectiveReasoningCapabilities ?: suggestedReasoning).copy(
@@ -962,17 +958,25 @@ private fun ModelEditDialog(
                             .padding(top = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (reasoningOverrideActive || visionOverrideActive) {
+                        if (reasoningOverrideActive) {
                             TextButton(
                                 text = stringResource(R.string.ui_restore_automatic_8d4e1e),
                                 onClick = {
                                     TouchHaptics.click(view)
                                     resetAutomaticReasoning()
-                                    resetAutomaticVision()
                                 },
                                 enabled = !isSaving,
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.textButtonColorsPrimary(),
+                            )
+                        }
+                        if (visionOverrideActive) {
+                            TextButton(
+                                text = stringResource(R.string.ui_support_vision) + " · " +
+                                    stringResource(R.string.ui_restore_automatic_8d4e1e),
+                                onClick = { resetAutomaticVision() },
+                                enabled = !isSaving,
+                                modifier = Modifier.weight(1f),
                             )
                         }
                         onDelete?.let { delete ->

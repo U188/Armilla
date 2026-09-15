@@ -28,6 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.model.AgentCompressionStrategy
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
@@ -57,6 +58,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
             )
         )
     }
+    var strategy by remember { mutableStateOf(AgentCompressionStrategy.parse(prefs?.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, null))) }
     var keepRecentInput by remember { mutableStateOf(keepRecent.toString()) }
 
     val scope = rememberCoroutineScope()
@@ -90,6 +92,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
+                Prefs.Keys.AGENT_COMPRESSION_STRATEGY -> strategy = AgentCompressionStrategy.parse(prefs?.getString(key, null))
                 Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED -> enabled = prefs?.getBoolean(key, false) ?: false
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS -> targetTokens = prefs?.getInt(key, AgentContextCompactor.DEFAULT_TARGET_TOKENS) ?: AgentContextCompactor.DEFAULT_TARGET_TOKENS
                 Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT -> {
@@ -141,6 +144,33 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                         }
                     )
                 }
+            }
+        }
+
+        item(key = "compression_strategy") {
+            SmallTitle("压缩策略")
+            Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                AgentCompressionStrategy.entries.forEach { option ->
+                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(
+                            selected = strategy == option,
+                            enabled = prefs != null,
+                            onClick = {
+                                strategy = option
+                                prefs?.edit()?.putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)?.apply()
+                            },
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(if (option == AgentCompressionStrategy.PRESERVE_TURN) "完整保留本轮（默认）" else "优先持续执行")
+                            Text(if (option == AgentCompressionStrategy.PRESERVE_TURN)
+                                "最近 N 轮是保护范围；空间不足时暂停，不自动压缩本轮。" else
+                                "最近 N 轮是正常保留目标；空间仍不足时，可摘要较早步骤。原文在本机按会话保存，可分页回读；不保证无限续行。",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                Text("自动与手动压缩遵守同一策略。策略变更从下次任务生效；当前任务可在空间不足提示中单独授权。原文仅保存在当前安装内，尚不随会话导出或备份迁移；删除会话时清理。原文可能含敏感内容，标记为不持久化的工具结果不会存档。",
+                    modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
             }
         }
 

@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
-/** 把持久化的 image_file / video_file 在发往模型前还原成视觉输入，或变成可 read_image 的路径。 */
+/** 把持久化的 image_file / video_file 在发往模型前还原成视觉输入，或仅保留文件路径；纯文本模型不能通过 read_image 获得视觉能力。 */
 internal object AgentHistoryImageHydrator {
     const val TYPE_IMAGE_FILE = AgentConversationCodec.IMAGE_FILE_TYPE
     const val TYPE_VIDEO_FILE = AgentConversationCodec.VIDEO_FILE_TYPE
@@ -59,7 +59,8 @@ internal object AgentHistoryImageHydrator {
                     val path = item.optString("path")
                     val mime = item.optString("mime").ifBlank { "video/mp4" }
                     val file = File(path)
-                    val preview = file.takeIf { it.isFile }?.let { AgentVideoCodec.previewFromFile(it, path) }
+                    val preview = file.takeIf { supportsVision && !supportsVideo && it.isFile }
+                        ?.let { AgentVideoCodec.previewFromFile(it, path) }
                     restoredVideoPaths += path
                     preview?.durationMs?.takeIf { it > 0L }?.let { restoredVideoDurationsMs[path] = it }
                     if (supportsVideo) {

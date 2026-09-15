@@ -1,0 +1,50 @@
+package io.github.mangi.eta.agent.model
+
+import io.github.mangi.eta.agent.runtime.AgentEvent
+import io.github.mangi.eta.agent.runtime.AgentRuntimeTranscriptTransfer
+import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
+class AgentProtectedHistoryPersistenceTest {
+    @Test fun protectedLongTextAndArgumentsSurviveStorageSerialization() {
+        val text = "evidence".repeat(12_000)
+        val arguments = org.json.JSONArray().put(org.json.JSONObject().put("id", "call")
+            .put("type", "function").put("function", org.json.JSONObject().put("name", "terminal")
+                .put("arguments", org.json.JSONObject().put("command", "x".repeat(40_000)).toString()))).toString()
+        val history = listOf(AgentModelClient.ConversationMessage("assistant", "", toolCallsJson = arguments, turnId = "turn"),
+            AgentModelClient.ConversationMessage("tool", text, toolCallId = "call", turnId = "turn"))
+        assertEquals(history, AgentConversationCodec.decodeTranscript(AgentConversationCodec.encodeTranscriptForStorage(history)))
+    }
+
+    @Test fun protectedOverflowIsExplicitInsteadOfDroppingOldMessages() {
+        val history = listOf(AgentModelClient.ConversationMessage("user", "x".repeat(1_100_000), turnId = "turn"))
+        assertThrows(IllegalArgumentException::class.java) { AgentConversationCodec.encodeConversationCheckpoint(history) }
+        assertEquals(1_100_000, history.single().content.length)
+    }
+
+    @Test fun compactionHistoryTravelsOutOfBandWithItsFullTurnIdentity() {
+        val text = "original".repeat(12_000)
+        val history = listOf(AgentModelClient.ConversationMessage("user", text, turnId = "run-1"))
+        AgentRuntimeTranscriptTransfer.prepare(RuntimeEnvironment.getApplication(), history).use { prepared ->
+            val event = AgentEvent.ContextCompacted(2, true, 10, 1, history = history)
+            val bundle = AgentRuntimeWire.eventToBundle(event, prepared.descriptor)
+            assertFalse(bundle.containsKey("history_json"))
+            val decoded = AgentRuntimeWire.eventFromBundle(bundle) as AgentEvent.ContextCompacted
+            assertEquals(history, decoded.history)
+        }
+    }
+
+    @Test fun explicitContinuationConsentAndBlockedReasonRoundTrip() {
+        val bundle = AgentRuntimeWire.compactBundle("run", 1, 500, allowCurrentTurn = true)
+        assertTrue(bundle.getBoolean("allow_current_turn_compaction"))
+        val event = AgentEvent.ContextCompacted(1, false, 4, 4, blocked = true, reason = "original retained")
+        assertEquals(event, AgentRuntimeWire.eventFromBundle(AgentRuntimeWire.eventToBundle(event)))
+    }
+}

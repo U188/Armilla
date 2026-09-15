@@ -16,6 +16,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentModelPickerProjectorTest {
+    @Test fun unavailableProviderNeverFallsBackToAnotherProviderWithTheSameModelId() {
+        val result = AgentModelPickerProjector.project(listOf(provider(id = "other", models = listOf(model(id = "same")))), "deleted", "same")
+        assertNull(result.selectedModel)
+    }
+
+    @Test fun disabledProviderNeverFallsBackToEnabledPeer() {
+        val result = AgentModelPickerProjector.project(listOf(
+            provider(id = "bound", enabled = false, models = listOf(model(id = "same"))),
+            provider(id = "other", models = listOf(model(id = "same"))),
+        ), "bound", "same")
+        assertNull(result.selectedModel)
+    }
+
+    @Test fun disabledModelRemainsUnavailable() {
+        val result = AgentModelPickerProjector.project(listOf(
+            provider(id = "bound", models = listOf(model(id = "same", enabled = false))),
+            provider(id = "other", models = listOf(model(id = "same"))),
+        ), "bound", "same")
+        assertNull(result.selectedModel)
+    }
+
+    @Test fun sharedModelIdsResolveUsingTheExactProviderPair() {
+        val result = AgentModelPickerProjector.project(listOf(
+            provider(id = "first", models = listOf(model(id = "same"))),
+            provider(id = "bound", models = listOf(model(id = "same"))),
+        ), "bound", "same")
+        assertEquals("bound", result.selectedModel?.providerId)
+    }
+
     @Test
     fun project_keepsOnlyEnabledProvidersAndModelsAndResolvesSelection() {
         val selected = model(id = "model-selected", displayName = "GPT 5.6", contextWindow = 1_050_000)

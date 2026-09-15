@@ -78,7 +78,7 @@ internal object RuntimeConfigRepository {
         val settings = ProviderRepository.repairSelection()
         val provider = settings.selectedProviderId?.let { ProviderRepository.providerById(it) } ?: return null
         val model = provider.selectedOrFirstModel(settings.selectedModelId) ?: return null
-        return buildRuntimeConfig(provider, model)
+        return buildRuntimeConfig(provider, model, AssistantRepository.active())
     }
 
     suspend fun syncToRemotePreferences(service: XposedService?): Boolean {
@@ -96,9 +96,15 @@ internal object RuntimeConfigRepository {
     fun runtimeConfigJson(config: AgentModelClient.ModelConfig): String =
         json.encodeToString(config)
 
-    fun buildRuntimeConfig(provider: ProviderSetting, model: Model): AgentModelClient.ModelConfig {
-        val systemPrompt = AssistantRepository.systemPrompt()
-            .ifBlank { BuiltinProviders.DEFAULT_SYSTEM_PROMPT }
+    fun buildRuntimeConfig(
+        provider: ProviderSetting,
+        model: Model,
+        assistant: io.github.mangi.eta.data.model.AssistantProfile? = null,
+    ): AgentModelClient.ModelConfig {
+        val systemPrompt = assistant?.let {
+            io.github.mangi.eta.data.model.AssistantPrompt.build(it.name, it.prompt)
+        }?.ifBlank { BuiltinProviders.DEFAULT_SYSTEM_PROMPT }
+            ?: BuiltinProviders.DEFAULT_SYSTEM_PROMPT
         val sourceType = ProviderSourceRegistry.resolve(provider)
         val endpointMode = when (provider) {
             is OpenAiCompatibleProviderSetting -> provider.endpointMode
@@ -120,6 +126,7 @@ internal object RuntimeConfigRepository {
             model.preferredReasoningEffort ?: ReasoningEffort.OFF,
         ) ?: ReasoningEffort.OFF
         return AgentModelClient.ModelConfig(
+            assistantId = assistant?.id.orEmpty(),
             providerId = provider.id,
             providerName = provider.name,
             providerType = provider.runtimeProviderType,
@@ -164,10 +171,11 @@ internal object RuntimeConfigRepository {
     internal suspend fun configForProviderAndModel(
         providerId: String,
         modelId: String,
+        assistant: io.github.mangi.eta.data.model.AssistantProfile? = null,
     ): AgentModelClient.ModelConfig? {
-        val provider = ProviderRepository.providerById(providerId) ?: return null
+        val provider = ProviderRepository.providerById(providerId)?.takeIf { it.isEnabled } ?: return null
         val model = provider.models.firstOrNull { it.id == modelId && it.isEnabled } ?: return null
-        return buildRuntimeConfig(provider, model)
+        return buildRuntimeConfig(provider, model, assistant)
     }
 }
 

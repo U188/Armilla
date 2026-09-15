@@ -13,7 +13,9 @@ internal object OpenAiRequestMessages {
             }
             for (index in 0 until source.length()) {
                 val message = source.optJSONObject(index) ?: continue
-                if (message.optString("role") !in SYSTEM_ROLES) messages.put(message)
+                if (message.optString("role") !in SYSTEM_ROLES) {
+                    messages.put(JSONObject(message.toString()).also { it.remove(AgentTurnIdentity.JSON_KEY) })
+                }
             }
         }
     }

@@ -102,20 +102,14 @@ internal object AgentModelClient {
         terminalSessionIdentityProvider: (String) -> String? = { null },
         skipHistoryTrimming: Boolean = false,
         compactPolicy: AgentLoop.CompactPolicy = AgentLoop.CompactPolicy.Disabled,
+        compactionArchive: AgentCompactionArchive? = null,
+        turnId: String = java.util.UUID.randomUUID().toString(),
     ): ModelResponse.Text {
         config.validate()
         val initialCapabilities = capabilitiesProvider()
-        val configuredWindow = AgentContextCompactor.configuredContextWindow(config.contextWindow)
-        val trimmedHistory = if (skipHistoryTrimming || configuredWindow == null) {
-            history
-        } else {
-            val historyBudget = AgentContextBudget.historyBudget(
-                contextWindow = configuredWindow,
-                prompt = prompt,
-                images = images,
-            )
-            AgentContextBudget.trimHistory(history, historyBudget)
-        }
+        // Never trim by individual message count/size here. Runtime compaction selects balanced
+        // ranges and the loop pauses when the protected request cannot fit.
+        val trimmedHistory = AgentTurnIdentity.migrate(history)
         val outboundImages = images.filter { image ->
             if (image.isVideoMedia()) config.supportsVideo else config.supportsVision
         }
@@ -158,6 +152,7 @@ internal object AgentModelClient {
             for (index in 0 until additionalTools.length()) {
                 tools.put(additionalTools.opt(index))
             }
+            if (compactionArchive != null) tools.put(AgentCompactionArchive.tool())
             return tools
         }
         val tools = toolsFor(initialCapabilities)
@@ -187,6 +182,8 @@ internal object AgentModelClient {
             onEvent = onEvent,
             compactPolicy = compactPolicy,
             systemCount = systemCount,
+            compactionArchive = compactionArchive,
+            turnId = turnId,
             onHistoryCompacted = { transcriptStartIndex = messages.length() },
             toolsForRound = {
                 val capabilities = capabilitiesProvider()
@@ -277,6 +274,7 @@ internal object AgentModelClient {
         val model: String,
         val modelDisplayName: String = "",
         val contextWindow: Int? = null,
+        val summaryOutputLimit: Int? = null,
         val systemPrompt: String,
         val anthropicVersion: String = AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
         val openAiEndpointMode: String = OpenAiEndpointMode.CHAT_COMPLETIONS,
@@ -294,6 +292,7 @@ internal object AgentModelClient {
         val customBody: List<CustomBody> = emptyList(),
         val supportsVision: Boolean = false,
         val supportsVideo: Boolean = false,
+        val assistantId: String = "",
     ) {
         val effectiveReasoningEffort: ReasoningEffort
             get() = reasoningEffort ?: ReasoningEffort.fromLegacy(thinkingEnabled)
@@ -306,7 +305,8 @@ internal object AgentModelClient {
         val contentJson: String = "",
         val toolCallId: String = "",
         val reasoningContent: String = "",
-        val toolCallsJson: String = ""
+        val toolCallsJson: String = "",
+        val turnId: String = "",
     )
 
     fun interface ToolExecutor {

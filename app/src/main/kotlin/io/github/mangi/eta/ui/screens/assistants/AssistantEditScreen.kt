@@ -67,6 +67,7 @@ internal fun AssistantEditScreen(
     var enabledSkillIds by remember(assistantId) { mutableStateOf(original.enabledSkillIds.toSet()) }
     var persistedSkillIds by remember(assistantId) { mutableStateOf(original.enabledSkillIds.toSet()) }
     var memoryDraft by remember(assistantId) { mutableStateOf("") }
+    var memoryRevision by remember(assistantId) { mutableStateOf("") }
     var memorySaved by remember(assistantId) { mutableStateOf("") }
     var installedSkills by remember(assistantId) { mutableStateOf<List<SkillIndexEntry>>(emptyList()) }
     var cropBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -85,7 +86,7 @@ internal fun AssistantEditScreen(
 
     LaunchedEffect(assistantId) {
         val loaded = withContext(Dispatchers.IO) {
-            val snapshot = runCatching { AgentMemoryRepository.snapshot(assistantId).content }.getOrDefault("")
+            val snapshot = runCatching { AgentMemoryRepository.snapshot(assistantId) }.getOrNull()
             val skills = runCatching {
                 SkillRuntime.createIndexService(context.applicationContext)
                     .listSkillsForManagement()
@@ -93,8 +94,9 @@ internal fun AssistantEditScreen(
             }.getOrDefault(emptyList())
             snapshot to skills
         }
-        memoryDraft = loaded.first
-        memorySaved = loaded.first
+        memoryDraft = loaded.first?.content.orEmpty()
+        memorySaved = loaded.first?.content.orEmpty()
+        memoryRevision = loaded.first?.revision.orEmpty()
         installedSkills = loaded.second
     }
 
@@ -106,42 +108,44 @@ internal fun AssistantEditScreen(
     }
 
     fun persistAssistantToggles(nextMemory: Boolean = memoryEnabled, nextSkills: Set<String> = enabledSkillIds) {
-        scope.launch(Dispatchers.IO) {
-            val current = AssistantRepository.profile(assistantId) ?: return@launch
-            AssistantRepository.update(
-                current.copy(
-                    memoryEnabled = nextMemory,
-                    enabledSkillIds = nextSkills.toList(),
-                ),
-            )
-            withContext(Dispatchers.Main) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching {
+                val current = requireNotNull(AssistantRepository.currentProfile(assistantId)) { "助手不存在" }
+                AssistantRepository.update(current.copy(memoryEnabled = nextMemory, enabledSkillIds = nextSkills.toList()))
+            } }
+            if (result.isSuccess) {
                 persistedMemoryEnabled = nextMemory
                 persistedSkillIds = nextSkills
+            } else {
+                android.widget.Toast.makeText(context, result.exceptionOrNull()?.message ?: "技能目录发布失败，请重试", android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
 
     fun save() {
-        if (!dirty || saving || memoryOverLimit) return
+        if (!dirty || saving || memoryOverLimit || memoryRevision.isBlank()) return
+        val targetMemory = memoryDraft
+        val baseRevision = memoryRevision
+        val targetProfile = original.copy(name = name, prompt = prompt, avatarFileName = avatarFileName,
+            memoryEnabled = memoryEnabled, enabledSkillIds = enabledSkillIds.toList())
+        val memoryChanged = targetMemory != memorySaved
         saving = true
         scope.launch {
-            withContext(Dispatchers.IO) {
-                AssistantRepository.update(
-                    original.copy(
-                        name = name,
-                        prompt = prompt,
-                        avatarFileName = avatarFileName,
-                        memoryEnabled = memoryEnabled,
-                        enabledSkillIds = enabledSkillIds.toList(),
-                    ),
-                )
-                if (memoryDraft != memorySaved) {
-                    AgentMemoryRepository.replaceAll(memoryDraft, assistantId)
+            var savedSnapshot: io.github.mangi.eta.data.repository.AgentMemorySnapshot? = null
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (memoryChanged) savedSnapshot = AgentMemoryRepository.replaceAll(targetMemory, assistantId, baseRevision)
+                    AssistantRepository.update(targetProfile)
+                    RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
                 }
-                RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+            }
+            savedSnapshot?.let { snapshot ->
+                memoryRevision = snapshot.revision
+                memorySaved = snapshot.content
             }
             saving = false
-            onBack()
+            if (result.isSuccess) onBack()
+            else android.widget.Toast.makeText(context, result.exceptionOrNull()?.message ?: "保存失败，草稿已保留", android.widget.Toast.LENGTH_LONG).show()
         }
     }
 

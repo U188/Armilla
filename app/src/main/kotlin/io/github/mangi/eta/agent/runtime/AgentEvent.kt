@@ -119,7 +119,9 @@ internal sealed interface AgentEvent {
 
     data class UserSupplementReceived(
         val index: Int,
-        val text: String
+        val text: String,
+        val requestId: String = "",
+        val imagesJson: String = "[]",
     ) : AgentEvent {
         override fun toLogLine(): String =
             "user_supplement_received index=$index, chars=${text.length}"
@@ -195,6 +197,8 @@ internal sealed interface AgentEvent {
         val compactedCount: Int,
         val history: List<AgentModelClient.ConversationMessage> = emptyList(),
         val compressorLabel: String = "",
+        val blocked: Boolean = false,
+        val reason: String = "",
     ) : AgentEvent {
         override fun toLogLine(): String =
             "context_compacted round=$round, applied=$applied, $originalCount->$compactedCount"

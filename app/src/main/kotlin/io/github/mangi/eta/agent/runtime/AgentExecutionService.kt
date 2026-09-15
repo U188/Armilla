@@ -115,14 +115,24 @@ internal class AgentExecutionService : Service() {
         private val mainHandler = Handler(Looper.getMainLooper())
         @Volatile private var instance: AgentExecutionService? = null
 
+        @Volatile var backupMaintenance: Boolean = false
+            private set
+
+        @Synchronized fun beginBackupMaintenance() {
+            check(!backupMaintenance && leases.count() == 0) { "请先停止 Agent 任务并关闭终端会话，再备份或恢复" }
+            backupMaintenance = true
+        }
+
+        @Synchronized fun endBackupMaintenance() { backupMaintenance = false }
+
         /** 必须从有效的用户入口取得引用，再创建会话或子进程；失败时调用方不启动任务。 */
-        fun acquire(
+        @Synchronized fun acquire(
             context: Context,
             id: String,
             allowBoundFallback: Boolean = false,
             onStop: () -> Unit,
         ): Boolean {
-            if (instance?.startRejected == true) return false
+            if (backupMaintenance || instance?.startRejected == true) return false
             if (!leases.acquire(id, allowBoundFallback, onStop)) return true
             return try {
                 context.applicationContext.startForegroundService(Intent(context, AgentExecutionService::class.java))

@@ -118,6 +118,29 @@ internal interface ConversationDao {
     @Query("DELETE FROM conversation_context_checkpoints WHERE conversation_id = :conversationId")
     suspend fun deleteContextCheckpoint(conversationId: String)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertImportedConversation(conversation: ConversationEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertImportedMessages(messages: List<ConversationMessageEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertImportedCheckpoint(checkpoint: ConversationContextCheckpointEntity)
+
+    @Query("DELETE FROM conversations WHERE id = :id")
+    suspend fun deleteImportedConversation(id: String)
+
+    @Transaction
+    suspend fun importAsNewConversation(
+        conversation: ConversationEntity,
+        messages: List<ConversationMessageEntity>,
+        contextCheckpoint: ConversationContextCheckpointEntity?,
+    ) {
+        insertImportedConversation(conversation)
+        if (messages.isNotEmpty()) insertImportedMessages(messages)
+        contextCheckpoint?.let { insertImportedCheckpoint(it) }
+    }
+
     @Transaction
     suspend fun upsertConversation(
         conversation: ConversationEntity,

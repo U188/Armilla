@@ -123,6 +123,7 @@ internal object ModelRepository {
                                     customBody = stored.customBody,
                                     contextWindowOverride = stored.contextWindowOverride,
                                     reasoningOverride = stored.reasoningOverride,
+                                    visionOverride = stored.visionOverride,
                                     reasoningCapabilitiesOverride = stored.reasoningCapabilitiesOverride,
                                     preferredReasoningEffort = stored.preferredReasoningEffort,
                                     source = stored.source,

@@ -96,6 +96,11 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 mergeExtraBody(request, config.extraBodyJson)
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
                 ProviderReasoning.applyOpenAiCompatibleRequest(request, config)
+                config.summaryOutputLimit?.let {
+                    request.put("max_tokens", it)
+                    request.remove("max_completion_tokens")
+                    if (tools.length() == 0) { request.remove("tools"); request.remove("tool_choice") }
+                }
             }
     }
 

@@ -13,6 +13,7 @@ internal class ShellProcessSupervisor(
     private val setsidCommand: String = "setsid",
     private val rootAvailable: () -> Boolean = { TerminalRuntime.rootAvailable },
     private val userPtyExecutable: () -> File? = { TerminalRuntime.nativeExecutable("libeta_pty.so") },
+    private val skillsDirectoryProvider: () -> File? = TerminalRuntime::visibleSkillsDirectory,
 ) {
     private companion object {
         const val PROCESS_REAP_TIMEOUT_MS = 1_000L
@@ -294,13 +295,14 @@ internal class ShellProcessSupervisor(
         termType: String = "dumb",
     ): String {
         if (LinuxEnvironmentPaths.backendOf(rootfsPath) == LinuxExecutionBackend.PROOT) {
-            return ProotCommandBuilder.payload(rootfsPath, command, sharedMounts, termType)
+            return ProotCommandBuilder.payload(rootfsPath, command, sharedMounts, termType, skillsDirectory = skillsDirectoryProvider())
         }
         val rootfs = shellQuote(rootfsPath)
         val mode = if (command == null) "session" else "command"
         val payload = shellQuote(command.orEmpty())
         // name 经 SharedFolderMounts 校验只含 [A-Za-z0-9._-]，可安全拼进双引号路径。
-        val skillsDir = TerminalRuntime.visibleSkillsDirectory()?.takeIf { it.isDirectory }?.absolutePath
+        val skillsRoot = skillsDirectoryProvider()?.takeIf { it.isDirectory }
+        val skillsDir = skillsRoot?.absolutePath
         val offloadsDir = TerminalRuntime.minisOffloadsDirectory()?.absolutePath
             ?: "/data/local/tmp/eta/offloads"
         val browserDir = TerminalRuntime.minisBrowserDirectory()?.absolutePath
@@ -313,7 +315,11 @@ internal class ShellProcessSupervisor(
                 )
             }
             if (!skillsDir.isNullOrBlank()) {
-                add("eta_mount_optional ${shellQuote(skillsDir)} \"\$eta_rootfs/var/minis/skills\" bind")
+                add("eta_mount_required ${shellQuote(skillsDir)} \"\$eta_rootfs/var/minis/skills\" bind")
+            }
+            skillsRoot?.listFiles().orEmpty().filter { it.isDirectory && !it.name.startsWith(".") }.forEach { skill ->
+                val data = File(skillsRoot!!.parentFile, "skill-data/${skill.name}").canonicalFile
+                if (data.isDirectory) add("eta_mount_required ${shellQuote(data.absolutePath)} \"\$eta_rootfs/var/minis/skills/${skill.name}/data\" bind")
             }
             if (!offloadsDir.isNullOrBlank()) {
                 add("eta_mount_optional ${shellQuote(offloadsDir)} \"\$eta_rootfs/var/minis/offloads\" bind")

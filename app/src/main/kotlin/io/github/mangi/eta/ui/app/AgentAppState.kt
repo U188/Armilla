@@ -140,6 +140,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 internal class AgentAppState(
     context: Context,
@@ -155,9 +157,12 @@ internal class AgentAppState(
     private val runEventFlushJobs = mutableMapOf<String, Job>()
     private val runJobs = mutableMapOf<String, Job>()
     private val imageGenerationRunIds = mutableSetOf<String>()
+    private data class PendingSteerDraft(
+        val conversationId: String?, val imageIds: Set<String>, val fileIds: Set<String>,
+    )
+    private val pendingSteerDrafts = mutableMapOf<String, PendingSteerDraft>()
     private var compressionJob: Job? = null
     private var pendingManualCompress: PendingManualCompress? = null
-    private val pendingSteerTextByConversation = mutableMapOf<String, String>()
     private val autoCompressInterruptedIds = mutableSetOf<String>()
     private val pendingInRunCompactConversationIds = mutableSetOf<String>()
     private var pendingRetiredUsage = ConversationTokenUsageUi()
@@ -165,17 +170,56 @@ internal class AgentAppState(
     private var pendingRetiredMessages = 0
     private var pendingRetiredHeatmap = emptyMap<java.time.LocalDate, Int>()
     private val runCompressedDuringRun = mutableSetOf<String>()
+    data class ContextBudgetPrompt(val runId: String, val conversationId: String, val reason: String)
+    var contextBudgetPrompt by mutableStateOf<ContextBudgetPrompt?>(null)
+        private set
+    private val contextBudgetBlockedRuns = mutableMapOf<String, ContextBudgetPrompt>()
+
+    fun dismissContextBudgetPrompt() { contextBudgetPrompt = null }
+
+    fun allowCurrentRunCompaction(runId: String) {
+        val prompt = contextBudgetBlockedRuns[runId] ?: return
+        if (prompt.conversationId != selectedConversationId) return
+        scope.launch {
+            val sent = withContext(Dispatchers.IO) {
+                AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(runId,
+                    Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT),
+                    Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS),
+                    allowCurrentTurn = true)
+            }
+            if (sent) contextBudgetPrompt = null
+            else Toast.makeText(appContext, "未能联系 Runtime，任务仍保持暂停。", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun stopBudgetBlockedRun(runId: String) {
+        val prompt = contextBudgetBlockedRuns[runId] ?: return
+        if (prompt.conversationId != selectedConversationId) return
+        contextBudgetPrompt = null
+        abandonPausedRun()
+    }
+
     private val persistenceLock = Any()
-    private var persistenceJob: Job? = null
+    private var persistenceJob: Deferred<Boolean>? = null
+    private val conversationPersistenceMutex = Mutex()
+    private var conversationArchiveBusy = false
+    private var runtimeRefreshAfterArchive = false
+    private var bindingRefreshAfterArchive = false
+    private val deferredArchiveSaves = mutableListOf<Pair<kotlinx.coroutines.CompletableDeferred<Boolean>, (() -> Unit)?>>()
     private val runtimeRecoveryInProgress = AtomicBoolean(false)
     private val defaultThinkingEnabled = agentBooleanForUi(Prefs.Keys.AGENT_THINKING_ENABLED)
     private val initialConversations = AgentConversationStore.load(appContext)
     private var skillNoticeSequence = 0L
     private var pendingSkillZipUri: Uri? = null
     private var pendingSkillZipSha256: String? = null
+    private var selectionProviders: List<io.github.mangi.eta.data.model.ProviderSetting> = emptyList()
+    private var defaultProviderId: String? = null
+    private var defaultModelId: String? = null
+    private var modelBindingGeneration = 0L
+    private var memoryEditGeneration = 0L
+    private var overheadGeneration = 0L
+
     private var currentReasoningCapabilities: ModelReasoningCapabilities? = null
-    private var lastAppliedReasoningModelId: String? = null
-    @Volatile private var restoringConversationModel = false
     private var fileAttachmentOwnerVersion = 0L
     private val chatImageCache = AgentChatImageCache(appContext)
 
@@ -278,24 +322,29 @@ internal class AgentAppState(
     }
 
     fun refreshRequestOverhead() {
+        val overheadRequest = ++overheadGeneration
+        val state = homeState
+        val owner = selectedConversationId
+        val generation = modelBindingGeneration
+        val assistant = AssistantRepository.active()
         scope.launch(Dispatchers.IO) {
-            val tokens = runCatching { estimateRequestOverhead() }.getOrDefault(0)
+            val tokens = runCatching { estimateRequestOverhead(state, assistant) }.getOrDefault(0)
             withContext(Dispatchers.Main) {
+                if (overheadRequest != overheadGeneration || owner != selectedConversationId || generation != modelBindingGeneration || AssistantRepository.active().id != assistant.id) return@withContext
                 requestOverheadTokens = tokens
                 syncBilledOverhead(selectedConversationId, homeState.messages)
             }
         }
     }
 
-    private suspend fun estimateRequestOverhead(): Int {
-        val config = RuntimeConfigRepository.currentRuntimeConfig()?.copy(
+    private suspend fun estimateRequestOverhead(state: AgentChatHomeUiState, assistant: io.github.mangi.eta.data.model.AssistantProfile): Int {
+        val config = runtimeConfigForBoundModel(state, assistant)?.copy(
             terminalTools = agentBooleanForUi(Prefs.Keys.AGENT_TERMINAL_TOOLS),
             browserTools = agentBooleanForUi(Prefs.Keys.AGENT_BROWSER_TOOLS),
             deviceDirectTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_DIRECT_TOOLS),
             deviceSensitiveReadTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_SENSITIVE_READ_TOOLS),
             deviceSensitiveActionTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_SENSITIVE_ACTION_TOOLS),
         ) ?: return 0
-        val assistant = AssistantRepository.active()
         val enabledSkillIds = assistant.enabledSkillIds.toSet()
         val skillContext = SkillContext(
             installedSkills = runCatching {
@@ -349,53 +398,51 @@ internal class AgentAppState(
     }
 
     private fun observeRuntimeSelection() {
-        scope.launch(Dispatchers.IO) {
-            restoreSelectedConversationRuntimeModel()
-            combine(
-                RuntimeConfigRepository.selectedProviderIdFlow(),
-                RuntimeConfigRepository.selectedModelIdFlow(),
-                ProviderRepository.providersFlow(),
-            ) { providerId, modelId, providers ->
-                Triple(providerId, modelId, providers)
+        scope.launch {
+            combine(SettingsDataStore.settingsFlow(), ProviderRepository.providersFlow()) { settings, providers ->
+                Triple(settings.selectedProviderId, settings.selectedModelId, providers)
+            }.collectLatest { (providerId, modelId, providers) ->
+                if (selectionProviders != providers) modelBindingGeneration++
+                selectionProviders = providers
+                defaultProviderId = providerId
+                defaultModelId = modelId
+                refreshBoundModelPicker()
             }
-                .distinctUntilChanged()
-                .collectLatest { (providerId, modelId, providers) ->
-                    val pickerState = AgentModelPickerProjector.project(
-                        providers = providers,
-                        selectedProviderId = providerId,
-                        selectedModelId = modelId,
-                    )
-                    val capabilities = RuntimeConfigRepository.currentRuntimeConfig()
-                        ?.reasoningCapabilities
-                    withContext(Dispatchers.Main) {
-                        modelPickerState = pickerState.copy(
-                            isChanging = modelPickerState.isChanging,
-                        )
-                        applyReasoningCapabilities(capabilities)
-                        bindCurrentConversationModel(providerId, modelId)
-                        refreshRequestOverhead()
-                    }
-                }
         }
     }
 
-    private fun applyReasoningCapabilities(capabilities: ModelReasoningCapabilities?) {
-        val selectedModelId = modelPickerState.selectedModel?.id
-        val firstApply = lastAppliedReasoningModelId == null
-        val modelChanged = selectedModelId != lastAppliedReasoningModelId
-        lastAppliedReasoningModelId = selectedModelId
-        currentReasoningCapabilities = capabilities
-        val next = when {
-            restoringConversationModel -> homeState.withCurrentReasoningCapabilities()
-            firstApply && homeState.modelId.isNotBlank() -> homeState.withCurrentReasoningCapabilities()
-            firstApply -> restoreReasoningEffortOnFirstApply()
-            modelChanged -> homeState.withPreferredReasoningEffort()
-            else -> homeState.withCurrentReasoningCapabilities()
+    /** Global defaults are used only for an unbound draft; never write them over an existing binding. */
+    private fun refreshBoundModelPicker() {
+        if (conversationArchiveBusy) {
+            bindingRefreshAfterArchive = true
+            return
         }
-        val changed = next.reasoningEffort != homeState.reasoningEffort ||
-            next.availableReasoningEfforts != homeState.availableReasoningEfforts
-        updateCurrentConversation(next)
-        if (changed && selectedConversationId != null) persistConversations()
+        if (homeState.modelId.isBlank() && homeState.providerId.isBlank() && selectionProviders.isNotEmpty()) {
+            updateCurrentConversation(homeState.copy(providerId = defaultProviderId.orEmpty(), modelId = defaultModelId.orEmpty()))
+            if (selectedConversationId != null) persistConversations()
+        }
+        val provider = selectionProviders.firstOrNull { it.id == homeState.providerId && it.isEnabled }
+        val model = provider?.models?.firstOrNull { it.id == homeState.modelId && it.isEnabled }
+        val projected = AgentModelPickerProjector.project(selectionProviders, homeState.providerId, homeState.modelId)
+        modelPickerState = projected.copy(selectedModel = projected.selectedModel?.takeIf {
+            provider != null && model != null && it.providerId == provider.id && it.id == model.id
+        }, isChanging = false)
+        currentReasoningCapabilities = if (provider != null && model != null)
+            RuntimeConfigRepository.buildRuntimeConfig(provider, model, assistant = null).reasoningCapabilities else null
+        // Display effective choices, but retain the user's saved preference until they explicitly change it.
+        val next = homeState.copy(availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty())
+        if (next != homeState) {
+            val conversationId = selectedConversationId
+            if (conversationId == null) homeState = next else updateConversation(conversationId, next, updateTimestamp = false)
+        }
+        refreshRequestOverhead()
+    }
+
+    private fun rejectSendIfModelUnavailable(): Boolean {
+        val selected = modelPickerState.selectedModel
+        if (!modelPickerState.isChanging && selected != null && selected.providerId == homeState.providerId && selected.id == homeState.modelId) return false
+        Toast.makeText(appContext, "会话绑定的模型尚未就绪或已不可用，请明确选择模型后再发送。", Toast.LENGTH_LONG).show()
+        return true
     }
 
     private fun preferredReasoningEffortForCurrentModel(): ReasoningEffort {
@@ -409,34 +456,6 @@ internal class AgentAppState(
         return copy(
             thinkingEnabled = normalized.enablesReasoning,
             reasoningEffort = normalized,
-            availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
-        )
-    }
-
-    private fun AgentChatHomeUiState.withCurrentReasoningCapabilities(): AgentChatHomeUiState {
-        val normalized = currentReasoningCapabilities?.normalize(reasoningEffort) ?: ReasoningEffort.OFF
-        return copy(
-            thinkingEnabled = normalized.enablesReasoning,
-            reasoningEffort = normalized,
-            availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
-        )
-    }
-
-    private fun restoreReasoningEffortOnFirstApply(): AgentChatHomeUiState {
-        val preferred = modelPickerState.selectedModel?.preferredReasoningEffort
-        if (preferred != null) {
-            return homeState.withPreferredReasoningEffort()
-        }
-        val restored = currentReasoningCapabilities?.normalize(
-            homeState.reasoningEffort.takeUnless { it == ReasoningEffort.DEFAULT }
-                ?: ReasoningEffort.OFF,
-        ) ?: ReasoningEffort.OFF
-        if (restored != ReasoningEffort.OFF) {
-            persistPreferredReasoningEffort(restored)
-        }
-        return homeState.copy(
-            thinkingEnabled = restored.enablesReasoning,
-            reasoningEffort = restored,
             availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
         )
     }
@@ -477,6 +496,10 @@ internal class AgentAppState(
     }
 
     fun refreshRuntimeResults() {
+        if (conversationArchiveBusy) {
+            runtimeRefreshAfterArchive = true
+            return
+        }
         if (!runtimeRecoveryInProgress.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
             try {
@@ -488,140 +511,76 @@ internal class AgentAppState(
         }
     }
 
+
     fun refreshMemory() {
-        memoryState = memoryState.copy(isLoading = true, notice = null)
+        val owner = AssistantRepository.active().id
+        val generation = ++memoryEditGeneration
+        memoryState = AgentMemoryUiState(assistantId = owner, isLoading = true)
         scope.launch(Dispatchers.IO) {
-            runCatching {
-                val snapshot = AgentMemoryRepository.snapshot()
-                val enabled = AgentMemoryRepository.isEnabled()
-                val contextWindow = RuntimeConfigRepository.currentRuntimeConfig()?.contextWindow
-                Triple(snapshot, enabled, AgentMemoryContextBuilder.coreBudgetChars(contextWindow))
-            }.fold(
-                onSuccess = { (snapshot, enabled, coreBudget) ->
-                    withContext(Dispatchers.Main) {
-                        memoryState = AgentMemoryUiState(
-                            enabled = enabled,
-                            isLoading = false,
-                            draft = snapshot.content,
-                            savedContent = snapshot.content,
-                            draftBytes = snapshot.byteSize,
-                            coreBudgetChars = coreBudget,
-                        )
-                        refreshRequestOverhead()
-                    }
-                },
-                onFailure = { throwable ->
-                    AndroidAgentLogger.warnThrottled("agent_memory_ui_load_failed") {
-                        "Agent memory UI load failed: type=${throwable.safeLogType()}"
-                    }
-                    withContext(Dispatchers.Main) {
-                        memoryState = memoryState.copy(
-                            isLoading = false,
-                            notice = appContext.getString(R.string.state_ui_failed_to_read_memory_please_try_again_later_caeaa6),
-                        )
-                    }
-                },
-            )
+            val result = runCatching { AgentMemoryRepository.snapshot(owner) }
+            withContext(Dispatchers.Main) {
+                if (generation != memoryEditGeneration || memoryState.assistantId != owner) return@withContext
+                result.fold(onSuccess = { snapshot ->
+                    memoryState = AgentMemoryUiState(assistantId = owner, baseRevision = snapshot.revision,
+                        enabled = AgentMemoryRepository.isEnabled(owner), isLoading = false,
+                        draft = snapshot.content, savedContent = snapshot.content, draftBytes = snapshot.byteSize)
+                    refreshRequestOverhead()
+                }, onFailure = { error ->
+                    memoryState = memoryState.copy(isLoading = false, notice = error.message ?: "读取记忆失败")
+                })
+            }
         }
     }
 
     fun updateMemoryDraft(content: String) {
-        memoryState = memoryState.copy(
-            draft = content,
-            draftBytes = content.toByteArray(Charsets.UTF_8).size,
-            notice = null,
-        )
+        memoryState = memoryState.copy(draft = content, draftBytes = content.toByteArray(Charsets.UTF_8).size, notice = null)
     }
 
     fun setMemoryEnabled(enabled: Boolean) {
+        val owner = memoryState.assistantId.takeIf { it.isNotBlank() } ?: return
+        val generation = memoryEditGeneration
         scope.launch(Dispatchers.IO) {
-            runCatching { AgentMemoryRepository.setEnabled(enabled) }
-                .fold(
-                    onSuccess = {
-                        withContext(Dispatchers.Main) {
-                            memoryState = memoryState.copy(enabled = enabled, notice = null)
-                            refreshRequestOverhead()
-                        }
-                    },
-                    onFailure = { throwable ->
-                        AndroidAgentLogger.warnThrottled("agent_memory_toggle_failed") {
-                            "Agent memory setting update failed: type=${throwable.safeLogType()}"
-                        }
-                        withContext(Dispatchers.Main) {
-                            memoryState = memoryState.copy(notice = appContext.getString(R.string.state_ui_memory_switch_failed_to_save_83b5d6))
-                        }
-                    },
-                )
+            val result = runCatching { AgentMemoryRepository.setEnabled(enabled, owner) }
+            withContext(Dispatchers.Main) {
+                if (generation != memoryEditGeneration || memoryState.assistantId != owner) return@withContext
+                memoryState = if (result.isSuccess) memoryState.copy(enabled = enabled, notice = null)
+                    else memoryState.copy(notice = result.exceptionOrNull()?.message ?: "记忆开关保存失败")
+                refreshRequestOverhead()
+            }
         }
     }
 
     fun saveMemory() {
-        if (!memoryState.canSave) return
-        val target = memoryState.draft
-        memoryState = memoryState.copy(isSaving = true, notice = null)
-        scope.launch(Dispatchers.IO) {
-            runCatching { AgentMemoryRepository.replaceAll(target) }
-                .fold(
-                    onSuccess = { snapshot ->
-                        withContext(Dispatchers.Main) {
-                            memoryState = memoryState.copy(
-                                isSaving = false,
-                                savedContent = snapshot.content,
-                                draft = if (memoryState.draft == target) {
-                                    snapshot.content
-                                } else {
-                                    memoryState.draft
-                                },
-                                draftBytes = memoryState.draft.toByteArray(Charsets.UTF_8).size,
-                                notice = appContext.getString(R.string.state_ui_memory_saved_a2c61c),
-                            )
-                            refreshRequestOverhead()
-                        }
-                    },
-                    onFailure = { throwable ->
-                        AndroidAgentLogger.warnThrottled("agent_memory_ui_save_failed") {
-                            "Agent memory UI save failed: type=${throwable.safeLogType()}"
-                        }
-                        withContext(Dispatchers.Main) {
-                            memoryState = memoryState.copy(
-                                isSaving = false,
-                                notice = throwable.message ?: appContext.getString(R.string.state_ui_memory_save_failed_1f501e),
-                            )
-                        }
-                    },
-                )
-        }
+        if (memoryState.canSave) writeMemoryDraft(memoryState.draft)
     }
 
     fun clearMemory() {
-        if (memoryState.isSaving) return
-        memoryState = memoryState.copy(isSaving = true, notice = null)
+        if (!memoryState.isLoading && !memoryState.isSaving) writeMemoryDraft("")
+    }
+
+    private fun writeMemoryDraft(target: String) {
+        val state = memoryState
+        if (state.assistantId.isBlank() || state.baseRevision.isBlank() || state.isSaving) return
+        if (AssistantRepository.active().id != state.assistantId) {
+            memoryState = memoryState.copy(notice = "当前草稿属于另一助手，未保存；请返回原助手或重新读取。")
+            return
+        }
+        val generation = memoryEditGeneration
+        memoryState = state.copy(isSaving = true, notice = null)
         scope.launch(Dispatchers.IO) {
-            runCatching { AgentMemoryRepository.replaceAll("") }
-                .fold(
-                    onSuccess = {
-                        withContext(Dispatchers.Main) {
-                            memoryState = memoryState.copy(
-                                isSaving = false,
-                                draft = "",
-                                savedContent = "",
-                                draftBytes = 0,
-                                notice = appContext.getString(R.string.state_ui_memory_cleared_b415bb),
-                            )
-                        }
-                    },
-                    onFailure = { throwable ->
-                        AndroidAgentLogger.warnThrottled("agent_memory_ui_clear_failed") {
-                            "Agent memory UI clear failed: type=${throwable.safeLogType()}"
-                        }
-                        withContext(Dispatchers.Main) {
-                            memoryState = memoryState.copy(
-                                isSaving = false,
-                                notice = throwable.message ?: appContext.getString(R.string.state_ui_memory_clearing_failed_7f0aba),
-                            )
-                        }
-                    },
-                )
+            val result = runCatching { AgentMemoryRepository.replaceAll(target, state.assistantId, state.baseRevision) }
+            withContext(Dispatchers.Main) {
+                if (generation != memoryEditGeneration || memoryState.assistantId != state.assistantId) return@withContext
+                result.fold(onSuccess = { snapshot ->
+                    val draft = if (memoryState.draft == state.draft) snapshot.content else memoryState.draft
+                    memoryState = memoryState.copy(isSaving = false, baseRevision = snapshot.revision,
+                        savedContent = snapshot.content, draft = draft, draftBytes = draft.toByteArray(Charsets.UTF_8).size,
+                        notice = "记忆已保存")
+                    refreshRequestOverhead()
+                }, onFailure = { error ->
+                    memoryState = memoryState.copy(isSaving = false, notice = error.message ?: "记忆保存失败，草稿已保留")
+                })
+            }
         }
     }
 
@@ -629,41 +588,72 @@ internal class AgentAppState(
         memoryState = memoryState.copy(notice = null)
     }
 
+    private fun rejectConversationArchiveMutation(): Boolean {
+        if (!conversationArchiveBusy && !io.github.mangi.eta.agent.runtime.AgentExecutionService.backupMaintenance) return false
+        Toast.makeText(appContext, "正在导入或导出对话，请完成后再修改。", Toast.LENGTH_SHORT).show()
+        return true
+    }
+
+    private suspend fun <T> withConversationArchive(block: suspend () -> T): T = withContext(Dispatchers.Main.immediate) {
+        check(!conversationArchiveBusy) { "已有对话归档任务正在执行" }
+        check(!runtimeRecoveryInProgress.get() && !modelPickerState.isChanging && pendingManualCompress == null &&
+            runJobs.isEmpty() && compressionJob?.isActive != true &&
+            conversationsById.values.none { it.isStreaming || it.isCompressingContext }) { "请先等待对话任务或恢复完成" }
+        conversationArchiveBusy = true
+        try {
+            // Force a fresh save, and inspect its Boolean result instead of only joining a Job.
+            val saved = withContext(Dispatchers.Main.immediate) { persistConversations(allowArchive = true) }
+            check(saved.await()) { "当前对话保存失败，归档任务未开始，请重试" }
+            conversationPersistenceMutex.withLock { block() }
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main.immediate) {
+                conversationArchiveBusy = false
+                if (runtimeRefreshAfterArchive) {
+                    runtimeRefreshAfterArchive = false
+                    refreshRuntimeResults()
+                }
+                if (bindingRefreshAfterArchive) {
+                    bindingRefreshAfterArchive = false
+                    refreshBoundModelPicker()
+                }
+                val deferred = deferredArchiveSaves.toList()
+                deferredArchiveSaves.clear()
+                if (deferred.isNotEmpty()) scope.launch {
+                    val saved = persistConversations().await()
+                    deferred.forEach { (completion, callback) ->
+                        if (saved) callback?.invoke()
+                        completion.complete(saved)
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun exportBackup(
         output: OutputStream,
         options: EtaBackupExportOptions = EtaBackupExportOptions(),
-    ): EtaBackupSummary = EtaBackupRepository.export(appContext, output, options)
+    ): EtaBackupSummary = withConversationArchive { EtaBackupRepository.export(appContext, output, options) }
 
     suspend fun exportConversation(conversationId: String, output: OutputStream): EtaBackupSummary =
-        EtaBackupRepository.exportConversation(appContext, conversationId, output)
+        withConversationArchive { EtaBackupRepository.exportConversation(appContext, conversationId, output) }
 
-    suspend fun importBackup(input: InputStream): EtaBackupSummary {
-        val locallyBusy = withContext(Dispatchers.Main.immediate) {
-            runJobs.isNotEmpty() || conversationsById.values.any { it.isStreaming }
-        }
-        if (locallyBusy) {
-            throw IllegalStateException("请先停止正在运行的 Agent 任务")
-        }
-
+    suspend fun importBackup(input: InputStream): EtaBackupSummary = withConversationArchive {
         val activeRunQuery = withContext(Dispatchers.IO) {
             AgentRuntimeClient(appContext, AndroidAgentLogger).queryActiveRun()
         }
         when (val active = activeRunQuery) {
-            is AgentRuntimeClient.ActiveRunQuery.Known -> {
-                if (active.runId != null) {
-                    throw IllegalStateException("请先停止正在运行的 Agent 任务")
-                }
-            }
-            AgentRuntimeClient.ActiveRunQuery.Unavailable -> {
-                throw IllegalStateException("无法确认 Agent Runtime 状态，请稍后重试")
+            is AgentRuntimeClient.ActiveRunQuery.Known -> check(active.runId == null) { "请先停止正在运行的 Agent 任务" }
+            AgentRuntimeClient.ActiveRunQuery.Unavailable -> error("无法确认 Agent Runtime 状态，请稍后重试")
+        }
+        withContext(kotlinx.coroutines.NonCancellable) {
+            try {
+                EtaBackupRepository.import(appContext, input)
+            } finally {
+                // Even a failed commit-marker fsync may have committed metadata already.
+                // Never unlock with stale in-memory data capable of overwriting the database.
+                reloadConversationsAfterBackup()
             }
         }
-
-        val pendingPersistence = synchronized(persistenceLock) { persistenceJob }
-        pendingPersistence?.join()
-        val summary = EtaBackupRepository.import(appContext, input)
-        reloadConversationsAfterBackup()
-        return summary
     }
 
     private suspend fun reloadConversationsAfterBackup() {
@@ -681,23 +671,15 @@ internal class AgentAppState(
             selectedFolderId = null
             pendingNewConversationFolderId = null
             fileAttachmentOwnerVersion += 1
-            restoringConversationModel = true
             homeState = selectedConversationId
                 ?.let(conversationsById::get)
-                ?.let { state ->
-                    if (currentReasoningCapabilities != null) {
-                        state.withCurrentReasoningCapabilities()
-                    } else {
-                        state
-                    }
-                }
                 ?: newDraftChatState()
             conversationPaneState = conversationPaneState.copy(
                 selectedConversationId = selectedConversationId,
                 searchQuery = "",
             )
             refreshConversationSummaries()
-            restoreConversationRuntimeModel(homeState)
+            restoreConversationRuntimeModel()
         }
     }
 
@@ -917,6 +899,7 @@ internal class AgentAppState(
         if (archivedRuns.isEmpty()) return
 
         withContext(Dispatchers.Main) {
+            if (conversationArchiveBusy) return@withContext // Keep archive files for the next replay.
             val importedRunIds = archivedRuns.mapNotNull { archivedRun ->
                 importExternalRun(archivedRun)
             }
@@ -930,6 +913,7 @@ internal class AgentAppState(
     }
 
     suspend fun openAssistantConversation(conversationKey: String): Boolean {
+        if (withContext(Dispatchers.Main.immediate) { rejectConversationArchiveMutation() }) return false
         if (conversationKey.isBlank()) return false
         importArchivedExternalRuns()
         return withContext(Dispatchers.Main.immediate) {
@@ -1005,6 +989,7 @@ internal class AgentAppState(
     }
 
     fun updateReasoningEffort(effort: ReasoningEffort) {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.isStreaming && !homeState.isPaused) return
         val normalized = currentReasoningCapabilities?.normalize(effort) ?: ReasoningEffort.OFF
         if (normalized == homeState.reasoningEffort) return
@@ -1019,32 +1004,21 @@ internal class AgentAppState(
         persistPreferredReasoningEffort(normalized)
     }
 
-    fun selectModel(modelId: String) {
+    fun selectModel(modelId: String, providerId: String = "") {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.isStreaming && !homeState.isPaused) return
-        if (
-            modelPickerState.isChanging ||
-            modelPickerState.selectedModel?.id == modelId
-        ) {
-            return
-        }
+        val provider = selectionProviders.filter { it.isEnabled && (providerId.isBlank() || it.id == providerId) && it.models.any { m -> m.id == modelId && m.isEnabled } }.singleOrNull() ?: return
+        val model = provider.models.first { it.id == modelId && it.isEnabled }
+        if (homeState.providerId == provider.id && homeState.modelId == model.id) return
         if (homeState.isPaused) abandonPausedRun()
-        modelPickerState = modelPickerState.copy(isChanging = true)
-        scope.launch(Dispatchers.IO) {
-            try {
-                RuntimeConfigRepository.setSelectedModelId(modelId)
-                RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(appContext, appContext.getString(R.string.state_ui_model_switching_failed_please_try_again_later_4af439), Toast.LENGTH_SHORT).show()
-                }
-            } finally {
-                withContext(Dispatchers.Main) {
-                    modelPickerState = modelPickerState.copy(isChanging = false)
-                }
-            }
-        }
+        modelBindingGeneration++
+        val config = RuntimeConfigRepository.buildRuntimeConfig(provider, model, assistant = null)
+        updateCurrentConversation(homeState.copy(providerId = provider.id, modelId = model.id,
+            reasoningEffort = config.effectiveReasoningEffort, thinkingEnabled = config.effectiveReasoningEffort.enablesReasoning,
+            livePromptTokens = null))
+        billedOverheadTokens = null
+        refreshBoundModelPicker()
+        if (selectedConversationId != null) persistConversations()
     }
 
     fun updateSearchQuery(query: String) {
@@ -1103,16 +1077,12 @@ internal class AgentAppState(
     }
 
     fun selectConversation(conversationId: String) {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) cancelMessageEdit()
         val state = conversationsById[conversationId] ?: return
         fileAttachmentOwnerVersion += 1
         selectedConversationId = conversationId
-        restoringConversationModel = true
-        val resolvedState = if (currentReasoningCapabilities != null) {
-            state.withCurrentReasoningCapabilities()
-        } else {
-            state
-        }
+        val resolvedState = state
         conversationsById = conversationsById + (conversationId to resolvedState)
         homeState = resolvedState
         billedOverheadConversationId = null
@@ -1120,10 +1090,11 @@ internal class AgentAppState(
         syncBilledOverhead(conversationId, resolvedState.messages)
         conversationPaneState = conversationPaneState.copy(selectedConversationId = conversationId)
         persistConversations()
-        restoreConversationRuntimeModel(resolvedState)
+        restoreConversationRuntimeModel()
     }
 
     fun createConversation() {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) cancelMessageEdit()
         fileAttachmentOwnerVersion += 1
         selectedConversationId = null
@@ -1135,15 +1106,18 @@ internal class AgentAppState(
             selectedConversationId = null,
             searchQuery = "",
         )
+        restoreConversationRuntimeModel()
         refreshConversationSummaries()
     }
 
     fun selectFolder(folderId: String?) {
+        if (rejectConversationArchiveMutation()) return
         selectedFolderId = folderId
         refreshConversationSummaries()
     }
 
     fun createFolder(name: String) {
+        if (rejectConversationArchiveMutation()) return
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         val folder = ConversationFolderUi(
@@ -1158,6 +1132,7 @@ internal class AgentAppState(
     }
 
     fun renameFolder(folderId: String, name: String) {
+        if (rejectConversationArchiveMutation()) return
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         conversationFolders = conversationFolders.map { folder ->
@@ -1168,6 +1143,7 @@ internal class AgentAppState(
     }
 
     fun deleteFolder(folderId: String) {
+        if (rejectConversationArchiveMutation()) return
         conversationFolders = conversationFolders.filterNot { it.id == folderId }
         conversationFolderIds = conversationFolderIds.filterValues { it != folderId }
         if (selectedFolderId == folderId) selectedFolderId = null
@@ -1177,6 +1153,7 @@ internal class AgentAppState(
     }
 
     fun moveConversationToFolder(conversationId: String, folderId: String?) {
+        if (rejectConversationArchiveMutation()) return
         if (conversationId !in conversationsById) return
         conversationFolderIds = if (folderId.isNullOrBlank()) {
             conversationFolderIds - conversationId
@@ -1188,6 +1165,7 @@ internal class AgentAppState(
     }
 
     fun toggleConversationPinned(conversationId: String) {
+        if (rejectConversationArchiveMutation()) return
         if (conversationId !in conversationsById) return
         conversationPinned = if (conversationId in conversationPinned) {
             conversationPinned - conversationId
@@ -1199,6 +1177,7 @@ internal class AgentAppState(
     }
 
     fun deleteAllConversations() {
+        if (rejectConversationArchiveMutation()) return
         val ids = conversationsById.keys.toList()
         if (ids.isEmpty()) return
         conversationsById.forEach { (id, state) ->
@@ -1218,10 +1197,19 @@ internal class AgentAppState(
         homeState = emptyChatState(false).withPreferredReasoningEffort()
         conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
         refreshConversationSummaries()
-        persistConversations()
+        val deletion = persistConversations()
+        scope.launch(Dispatchers.IO) {
+            if (deletion.await()) {
+                ids.forEach { id ->
+                    runCatching { io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, id).delete() }
+                        .onFailure { AndroidAgentLogger.warn("压缩原文清理失败：${it.javaClass.simpleName}") }
+                }
+            }
+        }
     }
 
     fun deleteConversation(conversationId: String) {
+        if (rejectConversationArchiveMutation()) return
         val wasSelected = selectedConversationId == conversationId
         conversationsById[conversationId]?.let { state ->
             retainDeletedConversation(state.messages, conversationUpdatedAt[conversationId])
@@ -1237,7 +1225,7 @@ internal class AgentAppState(
             val nextId = conversationsById.keys.firstOrNull()
             if (nextId != null) {
                 selectedConversationId = nextId
-                homeState = conversationsById.getValue(nextId).withCurrentReasoningCapabilities()
+                homeState = conversationsById.getValue(nextId)
                 conversationsById = conversationsById + (nextId to homeState)
             } else {
                 selectedConversationId = null
@@ -1245,11 +1233,21 @@ internal class AgentAppState(
             }
         }
         conversationPaneState = conversationPaneState.copy(selectedConversationId = selectedConversationId)
+        if (wasSelected) restoreConversationRuntimeModel()
         refreshConversationSummaries()
-        persistConversations()
+        val deletion = persistConversations()
+        scope.launch(Dispatchers.IO) {
+            if (deletion.await()) {
+                listOf(conversationId).forEach { id ->
+                    runCatching { io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, id).delete() }
+                        .onFailure { AndroidAgentLogger.warn("压缩原文清理失败：${it.javaClass.simpleName}") }
+                }
+            }
+        }
     }
 
     fun renameConversation(conversationId: String, title: String) {
+        if (rejectConversationArchiveMutation()) return
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
         conversationTitles = conversationTitles + (conversationId to trimmed)
@@ -1259,9 +1257,15 @@ internal class AgentAppState(
     }
 
     fun sendCurrentMessage(submittedText: String? = null) {
+        if (rejectConversationArchiveMutation()) return
+        if (io.github.mangi.eta.agent.runtime.AgentExecutionService.backupMaintenance) {
+            Toast.makeText(appContext, "正在恢复备份，请等待完成。", Toast.LENGTH_SHORT).show()
+            return
+        }
         val prompt = (submittedText ?: homeState.input).trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
+        if (!homeState.isStreaming && rejectSendIfModelUnavailable()) return
         if (homeState.isStreaming || homeState.isPaused) {
             if (
                 prompt.isNotBlank() ||
@@ -1326,12 +1330,28 @@ internal class AgentAppState(
             selectedConversationId = id
             assignPendingFolder(id)
         }
+        if (conversationId !in conversationsById) {
+            updateConversation(conversationId, homeState)
+            refreshConversationSummaries()
+        }
         val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true)
         val supportsVideo = modelPickerState.selectedModel?.supportsVideo ?: false
         if (pendingImages.isNotEmpty()) {
+            val ownerState = homeState
+            val ownerGeneration = modelBindingGeneration
+            val ownerAssistant = AssistantRepository.active().id
             scope.launch(Dispatchers.IO) {
                 val staged = stageChatImages(conversationId, pendingImages)
                 withContext(Dispatchers.Main) {
+                    if (staged.size != pendingImages.size || staged.any { it == null }) {
+                        Toast.makeText(appContext, "附件保存失败，消息未发送，附件仍保留。", Toast.LENGTH_LONG).show()
+                        return@withContext
+                    }
+                    if (selectedConversationId != conversationId || modelBindingGeneration != ownerGeneration ||
+                        homeState != ownerState || AssistantRepository.active().id != ownerAssistant) {
+                        Toast.makeText(appContext, "发送准备期间会话或配置发生变化，未发送；请返回原草稿重试。", Toast.LENGTH_LONG).show()
+                        return@withContext
+                    }
                     if (homeState.isStreaming || rejectSendIfCompressing()) return@withContext
                     val outbound = pendingImages.filter { image ->
                         if (image.isVideo) supportsVideo || supportsVision else supportsVision
@@ -1377,6 +1397,7 @@ internal class AgentAppState(
         editBoundary: AgentConversationRevisionReducer.Boundary?,
         conversationId: String,
     ) {
+        if (conversationId != selectedConversationId || rejectSendIfModelUnavailable()) return
         autoCompressInterruptedIds.remove(conversationId)
         if (rejectSendIfCompressing()) return
         val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
@@ -1468,6 +1489,7 @@ internal class AgentAppState(
         }
 
     fun beginMessageEdit(messageId: String) {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) return
         if (rejectSendIfCompressing()) return
         abortActiveRunForRevision()
@@ -1508,6 +1530,7 @@ internal class AgentAppState(
     }
 
     fun cancelMessageEdit() {
+        if (rejectConversationArchiveMutation()) return
         val edit = homeState.messageEdit ?: return
         updateCurrentConversation(
             homeState.copy(
@@ -1525,6 +1548,7 @@ internal class AgentAppState(
         }
 
     fun deleteMessageTurn(messageId: String) {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) return
         abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
@@ -1551,6 +1575,7 @@ internal class AgentAppState(
     }
 
     fun branchConversation(messageId: String) {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) cancelMessageEdit()
         val sourceId = selectedConversationId ?: return
         val snapshot = conversationsById[sourceId] ?: homeState
@@ -1598,12 +1623,15 @@ internal class AgentAppState(
     }
 
     fun regenerateMessage(messageId: String) {
+        if (rejectConversationArchiveMutation()) return
         regenerateMessage(messageId, ignoreCompression = false)
     }
 
     private fun regenerateMessage(messageId: String, ignoreCompression: Boolean) {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) return
         if (!ignoreCompression && rejectSendIfCompressing()) return
+        if (rejectSendIfModelUnavailable()) return
         abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
         val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
@@ -1629,6 +1657,9 @@ internal class AgentAppState(
         }
         if (!ignoreCompression && boundary.contextWasCompacted) showCompactedRevisionNotice()
         if (images.isNotEmpty()) {
+            val ownerState = homeState
+            val ownerGeneration = modelBindingGeneration
+            val ownerAssistant = AssistantRepository.active().id
             scope.launch(Dispatchers.IO) {
                 val extra = if (parsed.references.isEmpty()) {
                     stageChatImages(conversationId, images).filterNotNull()
@@ -1647,6 +1678,9 @@ internal class AgentAppState(
                     )
                 }
                 withContext(Dispatchers.Main) {
+                    if (selectedConversationId != conversationId || homeState != ownerState ||
+                        modelBindingGeneration != ownerGeneration || AssistantRepository.active().id != ownerAssistant ||
+                        rejectSendIfModelUnavailable()) return@withContext
                     if (homeState.isStreaming || rejectSendIfCompressing()) return@withContext
                     val runId = "run-${UUID.randomUUID()}"
                     launchConversationRun(
@@ -1752,11 +1786,12 @@ internal class AgentAppState(
     /**
      * 尝试压缩对话历史，失败时回退原历史。
      */
-    private fun tryCompressHistory(
+    private suspend fun tryCompressHistory(
         history: List<AgentModelClient.ConversationMessage>,
         compressModelConfig: AgentModelClient.ModelConfig?,
         targetTokens: Int? = null,
         keepRecent: Int? = null,
+        conversationId: String? = null,
     ): List<AgentModelClient.ConversationMessage> {
         val resolvedTargetTokens = targetTokens ?: Prefs.getInt(
             Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
@@ -1771,10 +1806,38 @@ internal class AgentAppState(
             keepRecentMessages = AgentContextCompactor.coerceKeepRecent(resolvedKeepRecent),
             compressModelConfig = compressModelConfig,
         )
-        return runCatching {
-            AgentContextCompactor.compress(history, config)
-        }.getOrElse {
-            AndroidAgentLogger.warn("auto compress failed: ${it.message}")
+        return try {
+            runInterruptible {
+                val cut = AgentContextCompactor.recentKeepStartIndex(history, config.keepRecentMessages)
+                if (cut <= 0) return@runInterruptible history
+                val archive = conversationId?.let { io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, it) }
+                    ?: error("缺少会话身份，无法保存压缩原文")
+                val prefix = history.take(cut)
+                val id = archive.save(prefix)
+                archive.record(id, "started")
+                try {
+                    val summary = AgentContextCompactor.compress(history, config)
+                    val result = archive.attachReferences(prefix, id, summary, history.size - cut)
+                    require(result.sumOf { AgentContextBudget.countMessage(it).toLong() } < history.sumOf { AgentContextBudget.countMessage(it).toLong() }) { "摘要及索引未缩小上下文" }
+                    archive.record(id, "ready")
+                    result
+                } catch (failure: Throwable) {
+                    runCatching { archive.record(id, "failed") }
+                    throw failure
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (Thread.currentThread().isInterrupted || failure is InterruptedException ||
+                failure is io.github.mangi.eta.agent.runtime.AgentRunCancelledException) {
+                throw CancellationException("摘要已取消").also { it.initCause(failure) }
+            }
+            AndroidAgentLogger.warn("压缩失败，保留原文：${failure.javaClass.simpleName}")
+            withContext(Dispatchers.Main) {
+                if (conversationId == selectedConversationId) Toast.makeText(appContext,
+                    failure.message ?: "压缩失败，原历史保持不变", Toast.LENGTH_LONG).show()
+            }
             history
         }
     }
@@ -1795,12 +1858,15 @@ internal class AgentAppState(
         if (resolvedProviderId.isNullOrBlank() || resolvedModelId.isNullOrBlank()) {
             return fallback
         }
-        return try {
-            RuntimeConfigRepository.configForProviderAndModel(resolvedProviderId, resolvedModelId)
-                ?: fallback
-        } catch (_: Throwable) {
-            fallback
+        val assistant = fallback?.assistantId?.takeIf { it.isNotBlank() }?.let {
+            runCatching { AssistantRepository.currentProfile(it) }.getOrNull()
         }
+        return RuntimeConfigRepository.configForProviderAndModel(resolvedProviderId, resolvedModelId, assistant)
+            ?.let { resolved ->
+                fallback?.let { source ->
+                    resolved.copy(assistantId = source.assistantId, systemPrompt = source.systemPrompt)
+                } ?: resolved
+            }
     }
 
     private fun launchConversationRun(
@@ -1815,26 +1881,37 @@ internal class AgentAppState(
         reasoningEffort: ReasoningEffort,
         skipAutoCompress: Boolean = false,
     ) {
+        val runProvider = selectionProviders.firstOrNull { it.id == state.providerId && it.isEnabled }
+        val runModel = runProvider?.models?.firstOrNull { it.id == state.modelId && it.isEnabled }
+        if (runProvider == null || runModel == null) {
+            Toast.makeText(appContext, "绑定模型已不可用，未发送。请重新选择。", Toast.LENGTH_LONG).show()
+            return
+        }
+        val runAssistant = AssistantRepository.active()
+        val runConfig = RuntimeConfigRepository.buildRuntimeConfig(runProvider, runModel, runAssistant)
+        val runModelOption = AgentModelPickerProjector.project(listOf(runProvider), runProvider.id, runModel.id).selectedModel
+        val runOverhead = requestOverheadTokens
+        val runBilledOverhead = billedOverheadTokens
+        val taggedUserHistoryMessage = userHistoryMessage.copy(turnId = runId)
         runConversationIds[runId] = conversationId
         runOverheadTokens[runId] = requestOverheadTokens
-        pendingSteerTextByConversation.remove(conversationId)
-        val generateVideo = selectedModelGeneratesVideos()
-        val generateImage = !generateVideo && selectedModelGeneratesImages()
+        val generateVideo = runModel.supportsVideoGeneration
+        val generateImage = !generateVideo && runModel.supportsImageGeneration
         if (generateImage || generateVideo) {
             imageGenerationRunIds += runId
         }
 
         val willCompress = !generateImage && !generateVideo && !skipAutoCompress && shouldAutoCompress(
             history = history,
-            contextWindow = compressionContextWindow(),
+            contextWindow = runConfig.contextWindow,
             estimatedTokens = liveContextUsage(
                 history = history,
                 currentInput = prompt,
                 pendingImages = images,
-                selectedModel = modelPickerState.selectedModel,
+                selectedModel = runModelOption,
                 billedContextTokens = billedPromptTokens(state),
-                requestOverheadTokens = requestOverheadTokens,
-                billedOverheadTokens = billedOverheadTokens,
+                requestOverheadTokens = runOverhead,
+                billedOverheadTokens = runBilledOverhead,
             ).contextTokens,
         )
         val runMessages = if (generateImage || generateVideo) {
@@ -1852,7 +1929,7 @@ internal class AgentAppState(
                 isStreaming = true,
                 isPaused = false,
                 isCompressingContext = willCompress,
-                history = history + userHistoryMessage,
+                history = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(history) + taggedUserHistoryMessage,
                 messages = runMessages,
                 messageEdit = null,
             )
@@ -1879,11 +1956,11 @@ internal class AgentAppState(
             val permittedReasoningEffort = if (
                 agentBooleanForUi(Prefs.Keys.AGENT_THINKING_ENABLED)
             ) {
-                reasoningEffort
+                runConfig.reasoningCapabilities?.normalize(reasoningEffort) ?: ReasoningEffort.OFF
             } else {
                 ReasoningEffort.OFF
             }
-            val config = runtimeConfigForBoundModel(state)?.copy(
+            val config = runConfig.copy(
                 terminalTools = agentBooleanForUi(Prefs.Keys.AGENT_TERMINAL_TOOLS),
                 browserTools = agentBooleanForUi(Prefs.Keys.AGENT_BROWSER_TOOLS),
                 deviceDirectTools = agentBooleanForUi(Prefs.Keys.AGENT_DEVICE_DIRECT_TOOLS),
@@ -1894,20 +1971,6 @@ internal class AgentAppState(
                 thinkingEnabled = permittedReasoningEffort.enablesReasoning,
                 reasoningEffort = permittedReasoningEffort,
             )
-            if (config == null) {
-                withContext(Dispatchers.Main) {
-                    applyRunResult(
-                        runId,
-                        AgentRuntimeWire.RunResult(
-                            runId = runId,
-                            ok = false,
-                            content = "",
-                            error = appContext.getString(R.string.state_ui_please_configure_the_model_provider_and_model_fi_a36e15),
-                        )
-                    )
-                }
-                return@launch
-            }
             if (generateVideo) {
                 executeVideoGeneration(
                     runId = runId,
@@ -1928,7 +1991,7 @@ internal class AgentAppState(
                 )
                 return@launch
             }
-            val supportsVideo = modelPickerState.selectedModel?.supportsVideo == true
+            val supportsVideo = config.supportsVideo
             val modelImages = images.map { p ->
                 p.toOutboundModelImage(supportsVideo).copy(source = "user_attach")
             }
@@ -1937,10 +2000,10 @@ internal class AgentAppState(
                 history = history,
                 currentInput = prompt,
                 pendingImages = images,
-                selectedModel = modelPickerState.selectedModel,
+                selectedModel = runModelOption,
                 billedContextTokens = billedPromptTokens(state),
-                requestOverheadTokens = requestOverheadTokens,
-                billedOverheadTokens = billedOverheadTokens,
+                requestOverheadTokens = runOverhead,
+                billedOverheadTokens = runBilledOverhead,
             ).contextTokens
             val pendingInRunCompact = withContext(Dispatchers.Main) {
                 pendingInRunCompactConversationIds.remove(conversationId)
@@ -1949,7 +2012,7 @@ internal class AgentAppState(
                 pendingInRunCompact ||
                     shouldAutoCompress(
                         history,
-                        compressionContextWindow(config.contextWindow),
+                        config.contextWindow,
                         estimatedTokens,
                     )
             )
@@ -1962,13 +2025,14 @@ internal class AgentAppState(
                 val compressed = tryCompressHistory(
                     history = history,
                     compressModelConfig = compressModelConfig,
+                    conversationId = conversationId,
                 )
                 withContext(Dispatchers.Main) {
                     applyCompressedHistoryToConversation(
                         conversationId = conversationId,
                         originalHistory = history,
                         compressedHistory = compressed,
-                        userHistoryMessage = userHistoryMessage,
+                        userHistoryMessage = taggedUserHistoryMessage,
                         compressorLabel = compressorLabel(compressModelConfig),
                     )
                     setConversationCompressing(conversationId, false)
@@ -1981,6 +2045,7 @@ internal class AgentAppState(
                 AgentRuntimeClient(appContext, AndroidAgentLogger).run(
                     request = AgentRuntimeWire.RunRequest(
                         runId = runId,
+                        assistantId = runAssistant.id,
                         prompt = prompt,
                         config = config,
                         images = modelImages,
@@ -2249,11 +2314,13 @@ internal class AgentAppState(
     ) {
         if (compressedHistory == originalHistory) return
         val current = conversationsById[conversationId] ?: return
+        val expected = originalHistory + userHistoryMessage
+        if (current.history.map { it.copy(turnId = "") } != expected.map { it.copy(turnId = "") }) return
         updateConversation(
             conversationId,
             current.copy(
                 isCompressingContext = false,
-                history = compressedHistory + userHistoryMessage,
+                history = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(compressedHistory) + userHistoryMessage,
                 livePromptTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = current.messages,
@@ -2520,7 +2587,6 @@ internal class AgentAppState(
         }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
-        conversationId?.let(pendingSteerTextByConversation::remove)
         conversationId?.let(pendingInRunCompactConversationIds::remove)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
@@ -2546,6 +2612,7 @@ internal class AgentAppState(
     }
 
     fun abandonPausedRun() {
+        if (rejectConversationArchiveMutation()) return
         if (!homeState.isPaused) return
         abortActiveRunForRevision()
         Toast.makeText(
@@ -2556,13 +2623,23 @@ internal class AgentAppState(
     }
 
     fun selectAssistant(id: String) {
+        if (rejectConversationArchiveMutation()) return
         if (homeState.isStreaming && !homeState.isPaused) return
         if (AssistantRepository.activeId.value == id) return
         if (homeState.isPaused) abandonPausedRun()
         scope.launch(Dispatchers.IO) {
             AssistantRepository.select(id)
             RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
-            withContext(Dispatchers.Main) { refreshRequestOverhead() }
+            withContext(Dispatchers.Main) {
+                val discarded = memoryState.hasUnsavedChanges &&
+                    memoryState.assistantId.isNotBlank() &&
+                    memoryState.assistantId != id
+                refreshMemory()
+                if (discarded) {
+                    Toast.makeText(appContext, "已切换助手，未保存的记忆草稿未写入。", Toast.LENGTH_LONG).show()
+                }
+                refreshRequestOverhead()
+            }
         }
     }
 
@@ -2574,6 +2651,8 @@ internal class AgentAppState(
     }
 
     private fun abortConversationRun(conversationId: String?, startPendingCompress: Boolean) {
+        contextBudgetBlockedRuns.entries.removeAll { it.value.conversationId == conversationId }
+        if (contextBudgetPrompt?.conversationId == conversationId) contextBudgetPrompt = null
         val runId = runIdForConversation(conversationId)
         if (runId != null) {
             imageGenerationRunIds.remove(runId)
@@ -2614,8 +2693,10 @@ internal class AgentAppState(
     }
 
     fun continuePausedGeneration() {
+        if (rejectConversationArchiveMutation()) return
         val runId = activeRunIdForSelectedConversation() ?: return
         if (!homeState.isPaused) return
+        contextBudgetBlockedRuns[runId]?.let { contextBudgetPrompt = it; return }
         if (rejectSendIfCompressing()) return
         scope.launch(Dispatchers.IO) {
             AgentRuntimeClient(appContext, AndroidAgentLogger).resumeRun(runId)
@@ -2624,6 +2705,7 @@ internal class AgentAppState(
     }
 
     fun steerCurrentRun(text: String) {
+        if (rejectConversationArchiveMutation()) return
         val runId = activeRunIdForSelectedConversation() ?: return
         if (runId in imageGenerationRunIds) return
         if (rejectSendIfCompressing()) return
@@ -2646,34 +2728,67 @@ internal class AgentAppState(
             return
         }
         val conversationId = selectedConversationId
-        val initialSteer = prompt.ifBlank { "请查看我补充的附件。" }
-        if (conversationId != null) {
-            pendingSteerTextByConversation[conversationId] = initialSteer
-        }
-        updateCurrentConversation(
-            homeState.copy(
-                pendingImages = emptyList(),
-                pendingFileReferences = emptyList(),
-            ),
-        )
+        if (pendingSteerDrafts.values.any { it.conversationId == conversationId }) return
+        val requestId = UUID.randomUUID().toString()
+        pendingSteerDrafts[requestId] = PendingSteerDraft(conversationId,
+            pendingImages.map { it.id }.toSet(), pendingFileReferences.map { it.id }.toSet())
         scope.launch(Dispatchers.IO) {
-            val staged = if (conversationId != null && pendingImages.isNotEmpty()) {
-                stageChatImages(conversationId, pendingImages).filterNotNull()
-            } else {
-                emptyList()
-            }
-            val steerText = AgentFileReferencePromptCodec.format(
-                prompt,
-                fileReferences + staged,
-            ).ifBlank { "请查看我补充的附件。" }
-            val shouldSteer = withContext(Dispatchers.Main) {
-                if (conversationId != null) {
-                    pendingSteerTextByConversation[conversationId] = steerText
+          try {
+            // Preserve position and reject partial staging, rather than silently shifting sources.
+            val staged = conversationId?.let { stageChatImages(it, pendingImages) }.orEmpty()
+            if (staged.size != pendingImages.size || staged.any { it == null }) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "附件保存失败，追问未发送，附件仍保留。", Toast.LENGTH_LONG).show()
                 }
-                !rejectSendIfCompressing()
+                return@launch
             }
-            if (!shouldSteer) return@launch
-            AgentRuntimeClient(appContext, AndroidAgentLogger).steerRun(runId, steerText)
+            val references = staged.filterNotNull()
+            val previews = pendingImages.mapIndexed { index, image ->
+                if (image.isVideo) {
+                    val bytes = AgentChatImageCache.readBytes(image.dataUrl)
+                    val preview = bytes?.let { chatImageCache.stage(conversationId!!, it, "preview-${image.id}.jpg") }
+                    preview?.absolutePath ?: image.dataUrl
+                } else references[index].absolutePath
+            }
+            val imagesJson = io.github.mangi.eta.ui.model.encodeUserMessageImages(
+                previews, references.map { it.absolutePath },
+                pendingImages.map { it.isVideo }, pendingImages.map { it.durationMs },
+            )
+            // Never put a large base64 preview into Binder; leave the draft intact on failure.
+            if (imagesJson.length > 64_000) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "附件预览保存失败，追问未发送。", Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
+            val steerText = AgentFileReferencePromptCodec.format(prompt, fileReferences + references)
+                .ifBlank { "请查看我补充的附件。" }
+            val sent = AgentRuntimeClient(appContext, AndroidAgentLogger)
+                .steerRun(runId, steerText, requestId, imagesJson)
+            withContext(Dispatchers.Main) {
+                if (!sent) {
+                    Toast.makeText(appContext, "追问未送达，附件仍保留，请重试。", Toast.LENGTH_LONG).show()
+                }
+            }
+            if (sent) {
+                // Only the accepted event clears a draft, not a successful Binder send.
+                kotlinx.coroutines.delay(15_000)
+                withContext(Dispatchers.Main) {
+                    if (requestId in pendingSteerDrafts) {
+                        Toast.makeText(appContext, "尚未收到追问确认，附件仍保留。请先检查会话，避免重复发送。", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+          } catch (failure: Exception) {
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            withContext(Dispatchers.Main) {
+                Toast.makeText(appContext, "追问发送失败，附件仍保留。", Toast.LENGTH_LONG).show()
+            }
+          } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) {
+                pendingSteerDrafts.remove(requestId)
+            }
+          }
         }
         if (homeState.isPaused) {
             continuePausedGeneration()
@@ -3191,7 +3306,18 @@ internal class AgentAppState(
             }
 
             is AgentEvent.UserSupplementReceived -> {
-                insertSupplementMessage(runId, event.index, event.text, persist = persistSupplement)
+                pendingSteerDrafts.remove(event.requestId)?.let { draft ->
+                    val id = draft.conversationId
+                    val state = id?.let(conversationsById::get)
+                    if (id != null && state != null) {
+                        updateConversation(id, state.copy(
+                            pendingImages = state.pendingImages.filterNot { it.id in draft.imageIds },
+                            pendingFileReferences = state.pendingFileReferences.filterNot { it.id in draft.fileIds },
+                        ))
+                    }
+                }
+                insertSupplementMessage(runId, event.index, event.text, persist = persistSupplement,
+                    requestId = event.requestId, imagesJson = event.imagesJson)
             }
 
             is AgentEvent.ToolStarted -> {
@@ -3268,8 +3394,14 @@ internal class AgentAppState(
                 applyRuntimeCompactedHistory(runId, event)
             }
 
+            is AgentEvent.ProviderRequestStarted -> {
+                if (contextBudgetBlockedRuns.remove(runId) != null) {
+                    if (contextBudgetPrompt?.runId == runId) contextBudgetPrompt = null
+                    conversationIdForRun(runId)?.let { id -> conversationsById[id]?.let { updateConversation(id, it.copy(isPaused = false)) } }
+                }
+            }
+
             is AgentEvent.RunStarted,
-            is AgentEvent.ProviderRequestStarted,
             is AgentEvent.ProviderResponseStarted,
             is AgentEvent.ToolImagesAttached,
             is AgentEvent.RoundStarted,
@@ -3281,6 +3413,15 @@ internal class AgentAppState(
         val conversationId = conversationIdForRun(runId) ?: return
         if (!event.applied || event.history.isEmpty()) {
             setConversationCompressing(conversationId, false)
+            pendingInRunCompactConversationIds.remove(conversationId)
+            if (event.blocked) {
+                val prompt = ContextBudgetPrompt(runId, conversationId, event.reason)
+                contextBudgetBlockedRuns[runId] = prompt
+                if (selectedConversationId == conversationId) contextBudgetPrompt = prompt
+                conversationsById[conversationId]?.let { updateConversation(conversationId, it.copy(isPaused = true)) }
+            } else if (event.reason.isNotBlank() && selectedConversationId == conversationId) {
+                Toast.makeText(appContext, event.reason, Toast.LENGTH_LONG).show()
+            }
             return
         }
         runCompressedDuringRun.add(runId)
@@ -3325,12 +3466,14 @@ internal class AgentAppState(
             maybeAutoCompressDuringTurn(conversationId, runId)
             return
         }
-        val contextWindow = compressionContextWindow()
+        val boundModel = AgentModelPickerProjector.project(selectionProviders, state.providerId, state.modelId).selectedModel
+            ?.takeIf { it.providerId == state.providerId && it.id == state.modelId } ?: return
+        val contextWindow = boundModel.contextWindow
         val estimatedTokens = liveContextUsage(
             history = state.history,
             currentInput = "",
             pendingImages = emptyList(),
-            selectedModel = modelPickerState.selectedModel,
+            selectedModel = boundModel,
             billedContextTokens = billedPromptTokens(state),
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
@@ -3360,10 +3503,10 @@ internal class AgentAppState(
             conversationsById[conversationId]
         } ?: return
         val originalHistory = snapshot.history
-        val fallback = runtimeConfigForBoundModel(snapshot)
-            ?: RuntimeConfigRepository.currentRuntimeConfig()
+        val fallback = runtimeConfigForBoundModel(snapshot, assistant = null)
+            ?: return
         val compressModelConfig = resolveCompressModelConfig(fallback)
-        val compressed = tryCompressHistory(originalHistory, compressModelConfig)
+        val compressed = tryCompressHistory(originalHistory, compressModelConfig, conversationId = conversationId)
         if (compressed == originalHistory) return
         withContext(Dispatchers.Main) {
             val latest = conversationsById[conversationId] ?: return@withContext
@@ -3395,6 +3538,8 @@ internal class AgentAppState(
         result: AgentRuntimeWire.RunResult,
         acknowledgeRuntimeResult: Boolean = false,
     ) {
+        contextBudgetBlockedRuns.remove(runId)
+        if (contextBudgetPrompt?.runId == runId) contextBudgetPrompt = null
         flushPendingRunDelta(runId)
         runJobs.remove(runId)
         imageGenerationRunIds.remove(runId)
@@ -3416,7 +3561,6 @@ internal class AgentAppState(
         }
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
-        conversationId?.let(pendingSteerTextByConversation::remove)
         conversationId?.let(pendingInRunCompactConversationIds::remove)
         runMessageProjector.clearRun(runId)
         runConversationIds.remove(runId)
@@ -3535,6 +3679,8 @@ internal class AgentAppState(
         index: Int,
         text: String,
         persist: Boolean = true,
+        requestId: String = "",
+        imagesJson: String = "[]",
     ) {
         updateMessages(runId) { messages ->
             AgentPendingResultRecovery.mergeSupplements(
@@ -3543,6 +3689,8 @@ internal class AgentAppState(
                     AgentUiHandoffPayload.Supplement(
                         index = index,
                         text = text,
+                        requestId = requestId,
+                        imagesJson = imagesJson,
                         createdAt = System.currentTimeMillis(),
                     )
                 ),
@@ -3850,7 +3998,13 @@ internal class AgentAppState(
         pendingRetiredHeatmap = pendingRetiredHeatmap + (day to ((pendingRetiredHeatmap[day] ?: 0) + 1))
     }
 
-    private fun persistConversations(onSaved: (() -> Unit)? = null): Deferred<Boolean> {
+    private fun persistConversations(allowArchive: Boolean = false, onSaved: (() -> Unit)? = null): Deferred<Boolean> {
+        if (conversationArchiveBusy && !allowArchive) {
+            return kotlinx.coroutines.CompletableDeferred<Boolean>().also { deferredArchiveSaves += it to onSaved }
+        }
+        if (io.github.mangi.eta.agent.runtime.AgentExecutionService.backupMaintenance) {
+            return kotlinx.coroutines.CompletableDeferred(false)
+        }
         val selected = selectedConversationId
         val conversations = conversationsById
         val titles = conversationTitles
@@ -3871,24 +4025,26 @@ internal class AgentAppState(
             scope.async(Dispatchers.IO) {
                 try {
                     previous?.join()
-                    AgentConversationStore.save(
-                        context = appContext,
-                        selectedConversationId = selected,
-                        conversationsById = conversations,
-                        titles = titles,
-                        updatedAt = timestamps,
-                        folderIds = folderIds,
-                        pinnedIds = pinnedIds,
-                        folders = folders,
-                    )
-                    SettingsDataStore.addRetiredUsage(
-                        inputTokens = retired.inputTokens,
-                        outputTokens = retired.outputTokens,
-                        cachedTokens = retired.cachedTokens,
-                        conversations = retiredConversations,
-                        messages = retiredMessages,
-                        heatmap = retiredHeatmap,
-                    )
+                    conversationPersistenceMutex.withLock {
+                        AgentConversationStore.save(
+                            context = appContext,
+                            selectedConversationId = selected,
+                            conversationsById = conversations,
+                            titles = titles,
+                            updatedAt = timestamps,
+                            folderIds = folderIds,
+                            pinnedIds = pinnedIds,
+                            folders = folders,
+                        )
+                        SettingsDataStore.addRetiredUsage(
+                            inputTokens = retired.inputTokens,
+                            outputTokens = retired.outputTokens,
+                            cachedTokens = retired.cachedTokens,
+                            conversations = retiredConversations,
+                            messages = retiredMessages,
+                            heatmap = retiredHeatmap,
+                        )
+                    }
                     onSaved?.invoke()
                     true
                 } catch (cancelled: CancellationException) {
@@ -3930,80 +4086,17 @@ internal class AgentAppState(
             )
             .withPreferredReasoningEffort()
 
-    private fun bindCurrentConversationModel(providerId: String?, modelId: String?) {
-        val boundProvider = providerId.orEmpty()
-        val boundModel = modelId.orEmpty()
-        if (restoringConversationModel) {
-            restoringConversationModel = false
-            return
-        }
-        if (boundProvider.isBlank() || boundModel.isBlank()) return
-        val conversationId = selectedConversationId
-        if (conversationId == null) {
-            if (homeState.providerId != boundProvider || homeState.modelId != boundModel) {
-                homeState = homeState.copy(providerId = boundProvider, modelId = boundModel)
-            }
-            return
-        }
-        val current = conversationsById[conversationId] ?: homeState
-        if (current.providerId == boundProvider && current.modelId == boundModel) return
-        updateCurrentConversation(current.copy(providerId = boundProvider, modelId = boundModel))
-        persistConversations()
-    }
-
-    private fun restoreConversationRuntimeModel(state: AgentChatHomeUiState) {
-        val modelId = state.modelId
-        if (modelId.isBlank()) {
-            restoringConversationModel = false
-            bindCurrentConversationModel(
-                modelPickerState.selectedModel?.providerId,
-                modelPickerState.selectedModel?.id,
-            )
-            return
-        }
-        if (modelPickerState.selectedModel?.id == modelId) {
-            restoringConversationModel = false
-            return
-        }
-        scope.launch(Dispatchers.IO) {
-            val applied = RuntimeConfigRepository.setSelectedModelIdIfPresent(modelId)
-            if (applied) {
-                RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
-            } else {
-                withContext(Dispatchers.Main) {
-                    restoringConversationModel = false
-                    bindCurrentConversationModel(
-                        modelPickerState.selectedModel?.providerId,
-                        modelPickerState.selectedModel?.id,
-                    )
-                }
-            }
-        }
-    }
-
-    private suspend fun restoreSelectedConversationRuntimeModel() {
-        val state = selectedConversationId?.let(conversationsById::get) ?: homeState
-        val modelId = state.modelId
-        if (modelId.isBlank()) return
-        val currentModelId = runCatching { SettingsDataStore.settings().selectedModelId }.getOrNull()
-        if (currentModelId == modelId) return
-        restoringConversationModel = true
-        val applied = RuntimeConfigRepository.setSelectedModelIdIfPresent(modelId)
-        if (applied) {
-            RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
-        } else {
-            restoringConversationModel = false
-        }
+    private fun restoreConversationRuntimeModel() {
+        modelBindingGeneration++
+        refreshBoundModelPicker()
     }
 
     private suspend fun runtimeConfigForBoundModel(
         state: AgentChatHomeUiState,
+        assistant: io.github.mangi.eta.data.model.AssistantProfile? = null,
     ): AgentModelClient.ModelConfig? {
-        if (state.providerId.isNotBlank() && state.modelId.isNotBlank()) {
-            RuntimeConfigRepository.configForProviderAndModel(state.providerId, state.modelId)
-                ?.let { return it }
-        }
-        return RuntimeConfigRepository.currentRuntimeConfig()
+        if (state.providerId.isBlank() || state.modelId.isBlank()) return null
+        return RuntimeConfigRepository.configForProviderAndModel(state.providerId, state.modelId, assistant)
     }
 
     private companion object {
@@ -4046,6 +4139,10 @@ internal class AgentAppState(
         keepRecent: Int,
         onFinished: (Boolean) -> Unit,
     ) {
+        if (rejectConversationArchiveMutation()) {
+            onFinished(false)
+            return
+        }
         persistCompressPreferences(providerId, modelId, targetTokens, keepRecent)
         val runInFlight = homeState.isStreaming || homeState.isPaused
         if (compressionJob?.isActive == true) {
@@ -4098,16 +4195,17 @@ internal class AgentAppState(
         if (runId != null && runId in runCompressedDuringRun) return
         val state = conversationsById[conversationId] ?: return
         if (!state.isStreaming && !state.isPaused) return
+        val boundModel = AgentModelPickerProjector.project(selectionProviders, state.providerId, state.modelId).selectedModel ?: return
         val estimatedTokens = liveContextUsage(
             history = state.history,
             currentInput = "",
             pendingImages = emptyList(),
-            selectedModel = modelPickerState.selectedModel,
+            selectedModel = boundModel,
             billedContextTokens = billedPromptTokens(state),
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
         ).contextTokens
-        if (!shouldAutoCompress(state.history, compressionContextWindow(), estimatedTokens)) return
+        if (!shouldAutoCompress(state.history, boundModel.contextWindow, estimatedTokens)) return
         autoCompressInterruptedIds += conversationId
         requestInRunCompress(
             conversationId = conversationId,
@@ -4139,38 +4237,6 @@ internal class AgentAppState(
                 targetTokens = targetTokens,
             )
         }
-    }
-
-    private fun materializePendingSteer(conversationId: String?) {
-        val id = conversationId ?: return
-        val text = pendingSteerTextByConversation.remove(id)?.trim().orEmpty()
-        if (text.isEmpty()) return
-        val state = conversationsById[id] ?: return
-        val historyText = AgentContextCompactor.steeringUserContent(text)
-        val lastUser = state.messages.lastOrNull { it is UserMessageUi } as? UserMessageUi
-        val lastHistory = state.history.lastOrNull()
-        val alreadyShown = lastUser?.content == text
-        val messages = if (alreadyShown) {
-            state.messages
-        } else {
-            state.messages + UserMessageUi(
-                id = "steer-$id-supplement-${System.currentTimeMillis()}",
-                content = text,
-            )
-        }
-        val alreadyInHistory = lastHistory?.role == "user" && (
-            lastHistory.content == text || lastHistory.content == historyText
-            )
-        val history = if (alreadyInHistory) {
-            state.history
-        } else {
-            state.history + AgentModelClient.ConversationMessage(
-                role = "user",
-                content = historyText,
-            )
-        }
-        if (messages === state.messages && history === state.history) return
-        updateConversation(id, state.copy(messages = messages, history = history))
     }
 
     private fun runIdForConversation(conversationId: String?): String? {
@@ -4244,8 +4310,9 @@ internal class AgentAppState(
                     }
                     return@launch
                 }
-                val fallback = runtimeConfigForBoundModel(snapshot)
-                    ?: RuntimeConfigRepository.currentRuntimeConfig()
+                val fallback = runtimeConfigForBoundModel(snapshot, assistant = null)
+                    ?: if (request.providerId.isNullOrBlank() || request.modelId.isNullOrBlank()) null else
+                        RuntimeConfigRepository.configForProviderAndModel(request.providerId, request.modelId, assistant = null)
                 val modelConfig = resolveCompressModelConfig(
                     fallback = fallback,
                     providerId = request.providerId,
@@ -4266,6 +4333,7 @@ internal class AgentAppState(
                     compressModelConfig = modelConfig,
                     targetTokens = request.targetTokens,
                     keepRecent = request.keepRecent,
+                    conversationId = request.conversationId,
                 )
                 withContext(Dispatchers.Main) {
                     if (compressed == originalHistory) {

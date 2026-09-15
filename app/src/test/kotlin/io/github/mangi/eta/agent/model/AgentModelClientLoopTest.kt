@@ -675,41 +675,30 @@ class AgentModelClientLoopTest {
     }
 
     @Test
-    fun skipHistoryTrimmingKeepsHistoryThatWouldBeDroppedByContextWindow() {
-        val oldHistory = listOf(
-            AgentModelClient.ConversationMessage(
-                role = "user",
-                content = "UNIQUE_OLD_HISTORY_MARKER_ETA",
-            ),
-            AgentModelClient.ConversationMessage(
-                role = "assistant",
-                content = "old reply",
-            ),
-        )
-        val tinyWindow = modelConfig().copy(contextWindow = 100)
-
-        val trimmedProvider = ScriptedProvider(assistant(content = "done", finishReason = "stop"))
-        AgentModelClient.complete(
-            config = tinyWindow,
-            prompt = "current question",
-            history = oldHistory,
-            toolExecutor = AgentModelClient.ToolExecutor { error("tools should not run") },
-            provider = trimmedProvider,
-        )
-        assertEquals(1, trimmedProvider.requests.size)
-        assertFalse(trimmedProvider.requests[0].toString().contains("UNIQUE_OLD_HISTORY_MARKER_ETA"))
-
-        val keptProvider = ScriptedProvider(assistant(content = "done", finishReason = "stop"))
-        AgentModelClient.complete(
-            config = tinyWindow,
-            prompt = "current question",
-            history = oldHistory,
-            toolExecutor = AgentModelClient.ToolExecutor { error("tools should not run") },
-            provider = keptProvider,
-            skipHistoryTrimming = true,
-        )
-        assertEquals(1, keptProvider.requests.size)
-        assertTrue(keptProvider.requests[0].toString().contains("UNIQUE_OLD_HISTORY_MARKER_ETA"))
+    fun insufficientRequestWindowBlocksInsteadOfSilentlyTrimmingHistory() {
+        for (legacySkipFlag in listOf(false, true)) {
+            val controller = AgentRunController()
+            val provider = ScriptedProvider(assistant(content = "must not run", finishReason = "stop"))
+            var blocked = false
+            assertThrows(io.github.mangi.eta.agent.runtime.AgentRunCancelledException::class.java) {
+                AgentModelClient.complete(
+                    config = modelConfig().copy(contextWindow = 100),
+                    prompt = "current question",
+                    history = listOf(AgentModelClient.ConversationMessage("user", "protected history")),
+                    toolExecutor = AgentModelClient.ToolExecutor { error("No tools") },
+                    provider = provider, runController = controller,
+                    skipHistoryTrimming = legacySkipFlag,
+                    onEvent = { event ->
+                        if (event is AgentEvent.ContextCompacted && event.blocked) {
+                            blocked = true
+                            controller.cancel()
+                        }
+                    },
+                )
+            }
+            assertTrue(blocked)
+            assertTrue(provider.requests.isEmpty())
+        }
     }
 
     private class ScriptedProvider(
@@ -808,14 +797,14 @@ class AgentModelClientLoopTest {
                 targetTokens = 2000,
                 compressModelConfig = modelConfig(),
             ),
-            compactHistory = { source, _ ->
+            compactHistory = { source, policy ->
                 compactCalls += 1
                 listOf(
                     AgentModelClient.ConversationMessage(
                         role = "system",
                         content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
                     ),
-                ) + source.takeLast(4)
+                ) + source.drop(AgentContextCompactor.recentKeepStartIndex(source, policy.keepRecentMessages))
             },
         ).run()
 
@@ -881,7 +870,7 @@ class AgentModelClientLoopTest {
                         role = "system",
                         content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
                     ),
-                ) + source.takeLast(2)
+                ) + source.drop(AgentContextCompactor.recentKeepStartIndex(source, 1))
             },
         ).run()
 
@@ -948,7 +937,7 @@ class AgentModelClientLoopTest {
                         role = "system",
                         content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
                     ),
-                ) + source.takeLast(2)
+                ) + source.drop(AgentContextCompactor.recentKeepStartIndex(source, 1))
             },
         ).run()
 

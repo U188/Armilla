@@ -68,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -88,6 +89,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -189,11 +191,23 @@ import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-internal fun rememberDataUrlBitmap(dataUrl: String) = remember(dataUrl) {
-    decodeDataUrlBitmap(dataUrl)
+internal fun rememberDataUrlBitmap(dataUrl: String): ImageBitmap? {
+    val context = LocalContext.current
+    val decoded = remember(dataUrl) { decodeDataUrlBitmap(dataUrl) }
+    if (decoded != null) return decoded
+    val loaded = produceState<ImageBitmap?>(initialValue = null, dataUrl, context) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            ChatImageBytes.load(context, dataUrl)?.bitmap
+                ?: AgentVideoCodec.fileFromSource(dataUrl)?.let { file ->
+                    ChatImageBytes.load(context, AgentVideoCodec.previewThumbnail(file, dataUrl).reference)?.bitmap
+                }
+        }
+    }
+    return loaded.value
 }
 
 private fun decodeDataUrlBitmap(dataUrl: String): ImageBitmap? {
+    if (!dataUrl.startsWith("data:image/", ignoreCase = true)) return null
     val base64 = dataUrl.substringAfter("base64,", "")
     if (base64.isBlank()) return null
     return runCatching {
@@ -569,7 +583,7 @@ private fun UserMessageBubble(
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
                     message.images.forEachIndexed { index, dataUrl ->
-                        val bitmap = rememberDataUrlBitmap(dataUrl)
+                        val bitmap = rememberDataUrlBitmap(dataUrl.ifBlank { message.fullImageSourceAt(index) })
                         if (bitmap != null) {
                             Box {
                                 ChatClickableImage(

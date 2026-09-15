@@ -82,6 +82,15 @@ internal object AgentHistoryImageHydrator {
                         )
                     }
                 }
+                "image_url", "video_url" -> {
+                    if (item.optString("type") == "video_url") {
+                        if (supportsVideo) next.put(item) else changed = true
+                    } else if (supportsVision) {
+                        next.put(item)
+                    } else {
+                        changed = true
+                    }
+                }
                 else -> next.put(item)
             }
         }

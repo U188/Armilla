@@ -1301,7 +1301,7 @@
   <string name="data_backup_imported">Imported %1$d conversations, %2$d providers, and %3$d assistants</string>
   <string name="data_backup_failed">Backup operation failed</string>
   <string name="data_backup_include_linux">Include the complete Linux environment</string>
-  <string name="data_backup_include_linux_summary">This phone’s Debian environment is about 1.7 GB. The archive will also include Kimi and other installed tools. Leave this off to keep only workspace files and settings.</string>
+  <string name="data_backup_include_linux_summary">Includes Kimi and other installed tools. Leave this off to keep only workspace files and settings.</string>
   <string name="data_backup_linux_size">Estimated Linux environment size: %1$s</string>
   <string name="conversation_export">Export conversation</string>
   <string name="conversation_exported">Exported “%1$s”</string>

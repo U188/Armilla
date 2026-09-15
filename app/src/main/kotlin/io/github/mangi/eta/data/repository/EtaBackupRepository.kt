@@ -269,6 +269,9 @@ internal object EtaBackupRepository {
                                 ?: EtaBackupException("无法导入完整 Linux 环境：${failure.message ?: failure.javaClass.simpleName}", failure)
                         }
                     }
+                    name.startsWith("linux/markers/") -> {
+                        restoreLinuxMarker(context, zip, name.removePrefix("linux/markers/"))
+                    }
                 }
             }
         }
@@ -570,6 +573,7 @@ private fun exportLinuxEnvironments(context: Context, zip: ZipOutputStream) {
         if (!packed) {
             throw EtaBackupException("无法打包 Linux 环境：${distribution.wireName}")
         }
+        exportLinuxMarkers(zip, envDir, backend, distribution)
     }
 }
 
@@ -591,6 +595,7 @@ private fun restoreLinuxTar(
         }
         destination.mkdirs()
         extractTarStream(input, destination)
+        restoreLinuxMounts(destination)
         return
     }
     if (!RootAccess.isGranted) {
@@ -605,6 +610,7 @@ private fun restoreLinuxTar(
         if (!extractTarFileAsRoot(tarFile, destination, context.filesDir)) {
             throw EtaBackupException("无法把 Linux 环境安装到 ${destination.absolutePath}")
         }
+        restoreLinuxMounts(destination)
     } finally {
         tarFile.delete()
     }
@@ -708,6 +714,7 @@ private fun extractTarFileAsRoot(archive: File, destination: File, labelReferenc
         shellQuote("$rootfs/workspace") + "; " +
         "\"${'$'}eta_busybox\" chmod 1777 -- " + shellQuote("$rootfs/tmp") + "; " +
         "chcon -hR --reference=" + shellQuote(labelReference.absolutePath) + " " + shellQuote(destination.absolutePath) + " || true; " +
+        "\"${'$'}eta_busybox\" find " + shellQuote("$rootfs") + " -maxdepth 1 -name '.eta-*' -exec chmod 0644 {} +; " +
         "\"${'$'}eta_busybox\" chmod -R a+rX -- " + shellQuote(destination.absolutePath)
     return runRoot(script, timeoutMinutes = 20)
 }
@@ -718,6 +725,87 @@ private fun normalizeTarPath(raw: String): String? {
     val segments = relative.split('/').filter { it.isNotEmpty() && it != "." }
     if (segments.any { it == ".." }) throw EtaBackupException("Linux 归档路径越界")
     return segments.joinToString("/")
+}
+
+private fun exportLinuxMarkers(
+    zip: ZipOutputStream,
+    envDir: File,
+    backend: LinuxExecutionBackend,
+    distribution: LinuxDistribution,
+) {
+    val rootfs = File(envDir, "rootfs")
+    if (!rootfs.isDirectory) return
+    val prefix = "linux/markers/${backend.wireName}/${distribution.wireName}/"
+    rootfs.listFiles().orEmpty()
+        .filter { it.isFile && it.name.startsWith(".eta-") }
+        .forEach { marker ->
+            zip.putNextEntry(ZipEntry(prefix + marker.name))
+            if (marker.canRead()) {
+                marker.inputStream().use { it.copyTo(zip) }
+            } else {
+                val bytes = readFileAsRoot(marker) ?: return@forEach
+                zip.write(bytes)
+            }
+            zip.closeEntry()
+        }
+}
+
+private fun restoreLinuxMarker(context: Context, zip: ZipInputStream, relative: String) {
+    val parts = relative.split('/')
+    if (parts.size < 3) return
+    val backend = LinuxExecutionBackend.entries.firstOrNull { it.wireName == parts[0] } ?: return
+    val distribution = LinuxDistribution.entries.firstOrNull { it.wireName == parts[1] } ?: return
+    val name = parts.last()
+    if (!name.startsWith(".eta-") || name.contains("..")) return
+    val destination = File(LinuxEnvironmentPaths.rootfsDir(context, distribution, backend), name)
+    destination.parentFile?.mkdirs()
+    val bytes = zip.readBytes()
+    val written = runCatching {
+        destination.writeBytes(bytes)
+        destination.setReadable(true, false)
+        true
+    }.getOrDefault(false)
+    if (!written) {
+        writeFileAsRoot(destination, bytes)
+    }
+}
+
+private fun restoreLinuxMounts(destination: File) {
+    val rootfs = File(destination, "rootfs").takeIf { it.isDirectory } ?: destination
+    listOf("proc", "sys", "dev", "dev/shm", "run", "tmp", "workspace").forEach { name ->
+        File(rootfs, name).mkdirs()
+    }
+    File(rootfs, "tmp").setWritable(true, false)
+}
+
+private fun readFileAsRoot(file: File): ByteArray? {
+    if (!RootAccess.isGranted) return null
+    val process = runCatching {
+        RootSu.process("cat -- " + shellQuote(file.absolutePath)).redirectErrorStream(true).start()
+    }.getOrNull() ?: return null
+    return try {
+        val bytes = process.inputStream.readBytes()
+        val finished = process.waitFor(15, TimeUnit.SECONDS)
+        bytes.takeIf { finished && process.exitValue() == 0 && it.isNotEmpty() }
+    } finally {
+        runCatching { process.destroyForcibly() }
+    }
+}
+
+private fun writeFileAsRoot(target: File, bytes: ByteArray) {
+    val staging = File(target.parentFile, ".eta-marker-${System.nanoTime()}")
+    try {
+        staging.writeBytes(bytes)
+        runRoot(
+            AndroidBusyBox.discoveryScript() +
+                "; [ -n \"${'$'}eta_busybox\" ] || exit 127; " +
+                "\"${'$'}eta_busybox\" cp -- " + shellQuote(staging.absolutePath) + " " + shellQuote(target.absolutePath) + "; " +
+                "\"${'$'}eta_busybox\" chmod 0644 -- " + shellQuote(target.absolutePath),
+            timeoutMinutes = 1,
+        )
+    } finally {
+        staging.delete()
+    }
 }
 
 private fun extractZipFile(

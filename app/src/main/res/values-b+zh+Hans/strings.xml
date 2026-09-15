@@ -1298,7 +1298,7 @@
   <string name="data_backup_imported">已导入 %1$d 个对话、%2$d 个提供商、%3$d 个助手</string>
   <string name="data_backup_failed">备份操作失败</string>
   <string name="data_backup_include_linux">包含完整 Linux 环境</string>
-  <string name="data_backup_include_linux_summary">本机 Debian 环境大约 1.7 GB，会连同 Kimi 等已装工具一起打包。关掉则只保留工作区文件和设置。</string>
+  <string name="data_backup_include_linux_summary">会连同 Kimi 等已装工具一起打包。关掉则只保留工作区文件和设置。</string>
   <string name="data_backup_linux_size">Linux 环境大约 %1$s</string>
   <string name="conversation_export">导出会话</string>
   <string name="conversation_exported">已导出“%1$s”</string>

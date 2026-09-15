@@ -1292,7 +1292,7 @@
   <string name="data_backup_import">导入数据</string>
   <string name="data_backup_import_summary">从备份文件替换对话、助手、提供商、技能、设置与附件</string>
   <string name="data_backup_import_confirm_title">导入 代鱼 数据？</string>
-  <string name="data_backup_import_confirm_summary">当前对话、助手、提供商、技能、设置与附件将被替换。若备份含完整 Linux 环境，会覆盖本机环境。文件可能包含 API Key。</string>
+  <string name="data_backup_import_confirm_summary">完整备份会替换对话、助手、提供商、技能、设置与附件。单个会话备份会合并进当前列表。若备份含完整 Linux 环境，会覆盖本机环境。文件可能包含 API Key。</string>
   <string name="data_backup_working">处理中…</string>
   <string name="data_backup_exported">已导出 %1$d 个对话、%2$d 个提供商、%3$d 个助手</string>
   <string name="data_backup_imported">已导入 %1$d 个对话、%2$d 个提供商、%3$d 个助手</string>

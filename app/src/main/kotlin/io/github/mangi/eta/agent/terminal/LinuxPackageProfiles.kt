@@ -121,13 +121,11 @@ internal object LinuxPackageProfiles {
     val ALL = listOf(PYTHON, NODE, SSH, KIMI)
 }
 
-internal fun linuxPackageProfileReady(rootfs: File, profile: LinuxPackageProfile): Boolean {
-    val marker = File(rootfs, profile.markerName)
-    if (!marker.isFile) return false
-    return marker.useLines { lines ->
-        lines.any { line -> line.trim() == "profile=${profile.revision}" }
-    }
-}
+internal fun linuxPackageProfileReady(rootfs: File, profile: LinuxPackageProfile): Boolean =
+    LinuxEnvironmentPaths.markerSatisfied(
+        File(rootfs, profile.markerName),
+        "profile=${profile.revision}",
+    )
 
 /** 为当前选中的发行版按需安装单个工具 profile；成功后只写对应完成标记。 */
 internal class LinuxPackageProfileInstaller(

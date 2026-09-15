@@ -193,6 +193,12 @@ internal fun LinuxEnvironmentScreen(
             ),
         )
     }
+    LaunchedEffect(selectedDistribution, backend, installer, debianInstaller) {
+        status = installer.status()
+        debianStatus = debianInstaller.status()
+        profileReady = packageProfileUis.associate { it.target to profileInstallers.getValue(it.target).isReady() }
+        apkAnalysisReady = apkAnalysisInstaller.isReady()
+    }
     LaunchedEffect(selectedDistribution, backend, kimiWebLaunching) {
         if (!kimiWebLaunching) {
             kimiWebRunning = kimiWebLauncher.status(selectedDistribution.terminalEnvironment).running

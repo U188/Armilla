@@ -279,11 +279,11 @@ internal class DebianEnvironmentInstaller(
     private fun rootfsDir(): File = LinuxEnvironmentPaths.rootfsDir(context, LinuxDistribution.DEBIAN)
 
     private fun commonToolsReady(rootfs: File): Boolean {
-        val marker = File(rootfs, COMMON_TOOLS_MARKER)
-        if (!baseRootfsReady(rootfs) || !marker.isFile) return false
-        return runCatching {
-            marker.useLines { lines -> lines.any { it.trim() == "toolset=$TOOLSET_REVISION" } }
-        }.getOrDefault(false)
+        if (!baseRootfsReady(rootfs)) return false
+        return LinuxEnvironmentPaths.markerSatisfied(
+            File(rootfs, COMMON_TOOLS_MARKER),
+            "toolset=$TOOLSET_REVISION",
+        )
     }
 
     private fun readInstalledVersion(rootfs: File): String? = runCatching {

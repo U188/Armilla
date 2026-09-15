@@ -37,13 +37,11 @@ internal sealed interface ApkAnalysisInstallResult {
     data class Failed(val stage: ApkAnalysisInstallStage) : ApkAnalysisInstallResult
 }
 
-internal fun linuxApkAnalysisReady(rootfs: File): Boolean {
-    val marker = File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER)
-    if (!marker.isFile) return false
-    return marker.useLines { lines ->
-        lines.any { line -> line.trim() == "profile=${AlpineEnvironmentPaths.APK_ANALYSIS_REVISION}" }
-    }
-}
+internal fun linuxApkAnalysisReady(rootfs: File): Boolean =
+    LinuxEnvironmentPaths.markerSatisfied(
+        File(rootfs, AlpineEnvironmentPaths.APK_ANALYSIS_MARKER),
+        "profile=${AlpineEnvironmentPaths.APK_ANALYSIS_REVISION}",
+    )
 
 internal fun linuxApkJavaInstallCommand(distribution: LinuxDistribution): String =
     when (distribution) {

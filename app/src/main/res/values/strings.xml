@@ -1295,7 +1295,7 @@
   <string name="data_backup_import">Import data</string>
   <string name="data_backup_import_summary">Replace conversations, assistants, providers, skills, settings, and attachments from a backup file</string>
   <string name="data_backup_import_confirm_title">Import Eta data?</string>
-  <string name="data_backup_import_confirm_summary">Current conversations, assistants, providers, skills, settings, and attachments will be replaced. A complete Linux environment in the backup will overwrite the local one. The file may contain API keys.</string>
+  <string name="data_backup_import_confirm_summary">A full backup replaces conversations, assistants, providers, skills, settings, and attachments. A single-conversation backup is merged into the current list. A complete Linux environment in the backup will overwrite the local one. The file may contain API keys.</string>
   <string name="data_backup_working">Working…</string>
   <string name="data_backup_exported">Exported %1$d conversations, %2$d providers, and %3$d assistants</string>
   <string name="data_backup_imported">Imported %1$d conversations, %2$d providers, and %3$d assistants</string>

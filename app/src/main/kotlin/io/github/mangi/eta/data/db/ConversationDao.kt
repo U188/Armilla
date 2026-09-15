@@ -112,6 +112,25 @@ internal interface ConversationDao {
     @Query("DELETE FROM conversation_state")
     suspend fun deleteState()
 
+    @Query("DELETE FROM conversation_messages WHERE conversation_id = :conversationId")
+    suspend fun deleteMessagesForConversation(conversationId: String)
+
+    @Query("DELETE FROM conversation_context_checkpoints WHERE conversation_id = :conversationId")
+    suspend fun deleteContextCheckpoint(conversationId: String)
+
+    @Transaction
+    suspend fun upsertConversation(
+        conversation: ConversationEntity,
+        messages: List<ConversationMessageEntity>,
+        contextCheckpoint: ConversationContextCheckpointEntity?,
+    ) {
+        deleteMessagesForConversation(conversation.id)
+        deleteContextCheckpoint(conversation.id)
+        insertConversations(listOf(conversation))
+        if (messages.isNotEmpty()) insertMessages(messages)
+        contextCheckpoint?.let { insertContextCheckpoints(listOf(it)) }
+    }
+
     @Transaction
     suspend fun replaceAll(
         conversations: List<ConversationEntity>,

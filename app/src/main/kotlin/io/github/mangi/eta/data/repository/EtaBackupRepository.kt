@@ -218,6 +218,7 @@ internal object EtaBackupRepository {
 
     private suspend fun importZip(context: Context, input: InputStream): EtaBackupSummary {
         var document: EtaBackupDocument? = null
+        var conversation: EtaConversationExport? = null
         ZipInputStream(input).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
@@ -229,6 +230,9 @@ internal object EtaBackupRepository {
                         validate(parsed)
                         restoreMetadata(context, parsed)
                         document = parsed
+                    }
+                    name == EtaConversationExport.MANIFEST_NAME -> {
+                        conversation = decodeConversation(zip.readBytes().toString(Charsets.UTF_8))
                     }
                     name.startsWith("attachments/chat-images/") -> {
                         extractZipFile(
@@ -268,24 +272,38 @@ internal object EtaBackupRepository {
                 }
             }
         }
-        val restored = document ?: throw EtaBackupException("备份文件缺少清单")
-        rewriteRestoredPaths(context, restored)
-        return restored.summary()
+        document?.let { restored ->
+            rewriteRestoredPaths(context, restored)
+            return restored.summary()
+        }
+        conversation?.let { exported ->
+            restoreConversation(context, exported)
+            return exported.summary()
+        }
+        throw EtaBackupException("备份文件缺少清单")
     }
 
     suspend fun inspect(input: InputStream): EtaBackupSummary = withContext(Dispatchers.IO) {
         val bytes = input.readBytes()
         if (bytes.isEmpty()) throw EtaBackupException("备份文件为空")
-        val document = if (bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) {
+        if (bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) {
             ZipInputStream(bytes.inputStream()).use { zip ->
-                generateSequence { zip.nextEntry }
-                    .firstOrNull { it.name == EtaBackupDocument.MANIFEST_NAME }
-                    ?.let { decodeDocument(zip.readBytes().toString(Charsets.UTF_8)) }
-                    ?: throw EtaBackupException("备份文件缺少清单")
+                generateSequence { zip.nextEntry }.forEach { entry ->
+                    when (entry.name.trimStart('/')) {
+                        EtaBackupDocument.MANIFEST_NAME -> {
+                            val document = decodeDocument(zip.readBytes().toString(Charsets.UTF_8))
+                            validate(document)
+                            return@withContext document.summary()
+                        }
+                        EtaConversationExport.MANIFEST_NAME -> {
+                            return@withContext decodeConversation(zip.readBytes().toString(Charsets.UTF_8)).summary()
+                        }
+                    }
+                }
             }
-        } else {
-            decodeDocument(bytes.toString(Charsets.UTF_8))
+            throw EtaBackupException("备份文件缺少清单")
         }
+        val document = decodeDocument(bytes.toString(Charsets.UTF_8))
         validate(document)
         document.summary()
     }
@@ -408,6 +426,42 @@ internal object EtaBackupRepository {
         runCatching { json.decodeFromString<EtaBackupDocument>(raw) }.getOrElse { failure ->
             throw EtaBackupException("备份文件格式无效", failure)
         }
+
+    private fun decodeConversation(raw: String): EtaConversationExport {
+        val exported = runCatching { json.decodeFromString<EtaConversationExport>(raw) }.getOrElse { failure ->
+            throw EtaBackupException("会话备份文件格式无效", failure)
+        }
+        if (exported.format != EtaConversationExport.FORMAT) {
+            throw EtaBackupException("这不是 Eta 会话备份")
+        }
+        if (exported.conversation.id.isBlank()) {
+            throw EtaBackupException("会话备份缺少会话 ID")
+        }
+        return exported
+    }
+
+    private suspend fun restoreConversation(context: Context, exported: EtaConversationExport) {
+        val currentRoot = context.filesDir.parentFile?.absolutePath
+        val rewrite: (String) -> String = { value ->
+            if (currentRoot.isNullOrBlank()) value
+            else Regex("""/data/(?:user/\d+|data)/[^/\s"'\\]+""").replace(value, currentRoot)
+        }
+        val dao = EtaDatabase.get(context).conversationDao()
+        val knownFolders = dao.folders().map { it.id }.toSet()
+        val conversation = exported.conversation.copy(
+            historyJson = rewrite(exported.conversation.historyJson),
+            folderId = exported.conversation.folderId.takeIf { it.isNotBlank() && it in knownFolders }.orEmpty(),
+        )
+        dao.upsertConversation(
+            conversation = conversation,
+            messages = exported.messages.map {
+                it.copy(content = rewrite(it.content), imagesJson = rewrite(it.imagesJson))
+            },
+            contextCheckpoint = exported.contextCheckpoint?.copy(
+                historyJson = rewrite(exported.contextCheckpoint.historyJson),
+            ),
+        )
+    }
 
     private fun validate(document: EtaBackupDocument) {
         if (document.format != EtaBackupDocument.FORMAT) {
@@ -548,7 +602,7 @@ private fun restoreLinuxTar(
         if (tarFile.length() <= 0L) {
             throw EtaBackupException("备份中的 Linux 环境是空的")
         }
-        if (!extractTarFileAsRoot(tarFile, destination)) {
+        if (!extractTarFileAsRoot(tarFile, destination, context.filesDir)) {
             throw EtaBackupException("无法把 Linux 环境安装到 ${destination.absolutePath}")
         }
     } finally {
@@ -636,14 +690,25 @@ private fun streamBusyBoxTar(source: File, output: OutputStream): Boolean {
     }
 }
 
-private fun extractTarFileAsRoot(archive: File, destination: File): Boolean {
+private fun extractTarFileAsRoot(archive: File, destination: File, labelReference: File): Boolean {
     destination.parentFile?.mkdirs()
+    val rootfs = File(destination, "rootfs").absolutePath
     val script = AndroidBusyBox.discoveryScript() +
         "; [ -n \"${'$'}eta_busybox\" ] || exit 127; " +
         "\"${'$'}eta_busybox\" mkdir -p -- " + shellQuote(destination.parentFile?.absolutePath.orEmpty()) + "; " +
         "\"${'$'}eta_busybox\" rm -rf -- " + shellQuote(destination.absolutePath) + "; " +
         "\"${'$'}eta_busybox\" mkdir -p -- " + shellQuote(destination.absolutePath) + "; " +
-        "\"${'$'}eta_busybox\" tar -C " + shellQuote(destination.absolutePath) + " -xf " + shellQuote(archive.absolutePath)
+        "\"${'$'}eta_busybox\" tar -C " + shellQuote(destination.absolutePath) + " -xf " + shellQuote(archive.absolutePath) + " || exit 1; " +
+        "\"${'$'}eta_busybox\" mkdir -p -- " +
+        shellQuote("$rootfs/proc") + " " +
+        shellQuote("$rootfs/sys") + " " +
+        shellQuote("$rootfs/dev/shm") + " " +
+        shellQuote("$rootfs/run") + " " +
+        shellQuote("$rootfs/tmp") + " " +
+        shellQuote("$rootfs/workspace") + "; " +
+        "\"${'$'}eta_busybox\" chmod 1777 -- " + shellQuote("$rootfs/tmp") + "; " +
+        "chcon -hR --reference=" + shellQuote(labelReference.absolutePath) + " " + shellQuote(destination.absolutePath) + " || true; " +
+        "\"${'$'}eta_busybox\" chmod -R a+rX -- " + shellQuote(destination.absolutePath)
     return runRoot(script, timeoutMinutes = 20)
 }
 

@@ -7,21 +7,15 @@ import org.junit.Test
 
 class VisionChatModelsTest {
     @Test
-    fun detectsKnownVisionChatIds() {
+    fun unknownChatModelsSendImagesWithoutAWhitelist() {
         listOf(
-            "qwen3-vl-plus",
             "gpt-4o",
-            "gpt-4.1",
-            "claude-sonnet-4",
-            "gemini-2.5-flash",
-            "llama-3.2-11b-vision",
-            "kimi-vl",
-            "grok-4",
-            "grok-4.6",
-            "gpt-6",
             "gpt-6-astra",
             "gpt6-astra",
             "openai/gpt-6-astra",
+            "grok-4.6",
+            "qwen3.7-plus",
+            "unknown-chat",
         ).forEach { id ->
             assertTrue(id, VisionChatModels.matches(id))
             assertTrue(id, model(id).supportsVision)
@@ -44,22 +38,9 @@ class VisionChatModelsTest {
     }
 
     @Test
-    fun trustsImageModalityForUnknownChatModels() {
-        val model = model("qwen3.7-plus").copy(inputModalities = listOf(Model.TEXT_MODALITY, Model.IMAGE_MODALITY))
-        assertTrue(VisionChatModels.matches(model))
-        assertTrue(model.supportsVision)
-    }
-
-    @Test
-    fun unknownTextOnlyModelsStayClosed() {
-        assertFalse(VisionChatModels.matches("unknown-chat"))
-        assertFalse(model("unknown-chat").supportsVision)
-    }
-
-    @Test
     fun explicitRemoteFalseWinsOverAutomaticIds() {
         assertFalse(model("gpt-4o").copy(attachment = false).supportsVision)
-        assertFalse(model().copy(inputModalities = listOf("image"), attachment = false).supportsVision)
+        assertFalse(model("gpt-6-astra").copy(attachment = false).supportsVision)
     }
 
     @Test

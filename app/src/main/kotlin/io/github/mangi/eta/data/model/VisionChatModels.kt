@@ -1,69 +1,11 @@
 package io.github.mangi.eta.data.model
 
 /**
- * 识别「聊天里能看图」的模型。默认按模型 ID 判断；接口返回的 image 模态经常误标文本模型，不单独当真。
- * 用户在模型编辑里打开/关闭视觉开关后，以 attachment 覆盖为准。
+ * 聊天默认按「能看图」处理，避免每个新模型都改名单。
+ * 只排除已知纯文本 / 生图模型。目录的 image 模态常误标，不再单独当真。
+ * 模型编辑里的「支持视觉」写入 visionOverride，优先于这里的自动判断。
  */
 internal object VisionChatModels {
-    private val POSITIVE = listOf(
-        "vision",
-        "-vl",
-        "_vl",
-        "vl-",
-        "vl_",
-        "vlite",
-        "gpt-4o",
-        "gpt-4.1",
-        "gpt-4-turbo",
-        "gpt-4-vision",
-        "gpt-5",
-        "gpt-6",
-        "gpt6",
-        "astra",
-        "o1",
-        "o3",
-        "o4-mini",
-        "claude-3",
-        "claude-sonnet-4",
-        "claude-opus-4",
-        "claude-haiku-4",
-        "gemini-1.5",
-        "gemini-2",
-        "gemini-3",
-        "gemini-flash",
-        "gemini-pro",
-        "gemini-exp",
-        "llama-3.2",
-        "llama3.2",
-        "llama-4",
-        "pixtral",
-        "mistral-small",
-        "phi-4-multimodal",
-        "phi-3.5-vision",
-        "qwen-vl",
-        "qwen2-vl",
-        "qwen2.5-vl",
-        "qwen3-vl",
-        "qwen3.5",
-        "glm-4v",
-        "glm-4.1v",
-        "glm-4.5v",
-        "kimi-vl",
-        "step-1v",
-        "step-1o",
-        "internvl",
-        "minicpm-v",
-        "llava",
-        "molmo",
-        "aria",
-        "nvila",
-        "grok-2-vision",
-        "grok-4",
-        "grok-4.6",
-        "sonar-pro",
-        "sonar-reasoning-pro",
-    )
-
     private val NEGATIVE = listOf(
         "deepseek-chat",
         "deepseek-reasoner",
@@ -91,22 +33,12 @@ internal object VisionChatModels {
 
     fun matches(model: Model): Boolean = matches(model.modelId, model.inputModalities)
 
+    @Suppress("UNUSED_PARAMETER")
     fun matches(modelId: String, inputModalities: List<String> = emptyList()): Boolean {
         val id = modelId.lowercase()
         if (id.isBlank()) return false
         if (ImageGenerationModels.matches(modelId)) return false
         if (NEGATIVE.any { it in id }) return false
-        if (isVisionId(id)) return true
-        if (POSITIVE.any { it in id }) return true
-        return inputModalities.any { it.equals(Model.IMAGE_MODALITY, ignoreCase = true) }
+        return true
     }
-
-    private fun isVisionId(id: String): Boolean =
-        "vision" in id ||
-            "-vl" in id ||
-            "_vl" in id ||
-            "vl-" in id ||
-            "vl_" in id ||
-            id.endsWith("vl") ||
-            id.endsWith("-v")
 }

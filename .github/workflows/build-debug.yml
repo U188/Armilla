@@ -37,8 +37,13 @@ jobs:
       - name: 接受 Android SDK 许可证
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager --channel=3 "platforms;android-37.0"
+          sdkmanager="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          if [[ -z "$sdkmanager" ]]; then
+            echo "::error::未找到 sdkmanager"
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" --channel=3 "platforms;android-37.0" || true
 
       - name: 还原发布证书
         env:

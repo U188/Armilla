@@ -1335,6 +1335,8 @@
     <string name="ui_compress_model_title">压缩模型</string>
     <string name="ui_custom_compress_model_title">自定义压缩模型</string>
     <string name="ui_custom_compress_model_summary">关闭后使用当前对话所选模型</string>
+    <string name="compress_model_missing_window_title">未设置上下文窗口</string>
+    <string name="compress_model_missing_window_summary">这个压缩模型还没有上下文窗口，压缩时无法估算输入预算。请先到该模型编辑页填写后再用。</string>
 
     <string name="action_auto_compress_context">Auto compact</string>
     <string name="action_compress_conversation">Compress conversation</string>

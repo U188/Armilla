@@ -65,6 +65,8 @@
   <string name="context_budget_stop_summary">停止後可改用更大視窗的模型</string>
   <string name="ui_custom_compress_model_title">自訂壓縮模型</string>
   <string name="ui_custom_compress_model_summary">關閉後使用目前對話所選模型</string>
+  <string name="compress_model_missing_window_title">未設定上下文視窗</string>
+  <string name="compress_model_missing_window_summary">這個壓縮模型還沒有上下文視窗，壓縮時無法估算輸入預算。請先到該模型編輯頁填寫後再用。</string>
   <plurals name="context_compacted_messages">
     <item quantity="other">已壓縮 %d 則訊息</item>
   </plurals>

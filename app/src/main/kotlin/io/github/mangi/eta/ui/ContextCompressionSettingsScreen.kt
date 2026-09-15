@@ -65,6 +65,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     var selectedCompressModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
     var customModelEnabled by remember { mutableStateOf(Prefs.isCustomCompressModelEnabled(prefs)) }
     var showModelDialog by remember { mutableStateOf(false) }
+    var showMissingWindowDialog by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var isLoadingModels by remember { mutableStateOf(prefs != null) }
     val view = LocalView.current
@@ -187,6 +188,11 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             value,
                         )?.apply()
                         customModelEnabled = value
+                        if (value && selectedCompressModel != null &&
+                            !selectedCompressModel.hasCompressContextWindow()
+                        ) {
+                            showMissingWindowDialog = true
+                        }
                     },
                 )
                 if (customModelEnabled) {
@@ -273,6 +279,9 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                 putString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, providerId)
                 putString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, modelId)
             }?.apply()
+            if (!modelPickerState.findCompressModel(providerId, modelId).hasCompressContextWindow()) {
+                showMissingWindowDialog = true
+            }
             scope.launch {
                 prefs?.let { currentPrefs ->
                     selectedCompressModel = withContext(Dispatchers.IO) { readCompressModelSelection(currentPrefs) }
@@ -281,5 +290,10 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
             }
             showModelDialog = false
         },
+    )
+
+    CompressModelMissingWindowDialog(
+        show = showMissingWindowDialog,
+        onDismiss = { showMissingWindowDialog = false },
     )
 }

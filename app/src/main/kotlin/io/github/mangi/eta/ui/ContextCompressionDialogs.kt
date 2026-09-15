@@ -75,7 +75,9 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 
@@ -155,6 +157,7 @@ internal fun CompressConversationDialog(
     var customModelEnabled by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var showModelDialog by remember { mutableStateOf(false) }
+    var showMissingWindowDialog by remember { mutableStateOf(false) }
     var isLoadingModels by remember { mutableStateOf(false) }
     var keepRecentFocused by remember { mutableStateOf(false) }
     val imeBottom = rememberActivityImeBottomDp()
@@ -241,6 +244,9 @@ internal fun CompressConversationDialog(
                         Prefs.putBoolean(Prefs.Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED, value)
                         if (value && selectedModel == null) {
                             selectedModel = modelPickerState.selectedModel
+                        }
+                        if (value && !selectedModel.hasCompressContextWindow() && selectedModel != null) {
+                            showMissingWindowDialog = true
                         }
                     },
                 )
@@ -390,6 +396,10 @@ internal fun CompressConversationDialog(
             showModelDialog = false
             Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, providerId)
             Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_ID, modelId)
+            val picked = modelPickerState.findCompressModel(providerId, modelId)
+            if (!picked.hasCompressContextWindow()) {
+                showMissingWindowDialog = true
+            }
             scope.launch {
                 val pickerState = withContext(Dispatchers.IO) {
                     buildCompressModelPickerState(providerId, modelId)
@@ -399,6 +409,39 @@ internal fun CompressConversationDialog(
             }
         },
     )
+
+    CompressModelMissingWindowDialog(
+        show = show && showMissingWindowDialog,
+        onDismiss = { showMissingWindowDialog = false },
+    )
+}
+
+
+internal fun AgentModelOptionUi?.hasCompressContextWindow(): Boolean =
+    this?.contextWindow?.let { it > 0 } == true
+
+internal fun AgentModelPickerUiState.findCompressModel(providerId: String, modelId: String): AgentModelOptionUi? =
+    providerGroups.firstOrNull { it.providerId == providerId }?.models?.firstOrNull { it.id == modelId }
+
+@Composable
+internal fun CompressModelMissingWindowDialog(
+    show: Boolean,
+    onDismiss: () -> Unit,
+) {
+    if (!show) return
+    WindowDialog(
+        show = true,
+        title = stringResource(R.string.compress_model_missing_window_title),
+        summary = stringResource(R.string.compress_model_missing_window_summary),
+        onDismissRequest = onDismiss,
+    ) {
+        TextButton(
+            text = stringResource(R.string.ui_knew_cb63c6),
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
+        )
+    }
 }
 
 @Composable

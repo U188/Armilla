@@ -725,7 +725,7 @@ private fun PendingImageStrip(
                     .clip(RoundedCornerShape(10.dp))
                     .background(MiuixTheme.colorScheme.surfaceContainer),
             ) {
-                rememberDataUrlBitmap(image.dataUrl)?.let { bitmap ->
+                rememberDataUrlBitmap(image.dataUrl, fallback = image.uri)?.let { bitmap ->
                     ChatClickableImage(
                         source = image.uri,
                         bitmap = bitmap,

@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -191,19 +192,31 @@ import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-internal fun rememberDataUrlBitmap(dataUrl: String): ImageBitmap? {
+internal fun rememberDataUrlBitmap(
+    dataUrl: String,
+    fallback: String? = null,
+): ImageBitmap? {
     val context = LocalContext.current
-    val decoded = remember(dataUrl) { decodeDataUrlBitmap(dataUrl) }
-    if (decoded != null) return decoded
-    val loaded = produceState<ImageBitmap?>(initialValue = null, dataUrl, context) {
+    val loaded = produceState<ImageBitmap?>(initialValue = null, dataUrl, fallback, context) {
+        if (dataUrl.isBlank() && fallback.isNullOrBlank()) {
+            value = null
+            return@produceState
+        }
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            ChatImageBytes.load(context, dataUrl)?.bitmap
-                ?: AgentVideoCodec.fileFromSource(dataUrl)?.let { file ->
-                    ChatImageBytes.load(context, AgentVideoCodec.previewThumbnail(file, dataUrl).reference)?.bitmap
-                }
+            loadPreviewBitmap(context, dataUrl)
+                ?: fallback?.takeIf { it != dataUrl }?.let { loadPreviewBitmap(context, it) }
         }
     }
     return loaded.value
+}
+
+private fun loadPreviewBitmap(context: android.content.Context, source: String): ImageBitmap? {
+    if (source.isBlank()) return null
+    return ChatImageBytes.load(context, source)?.bitmap
+        ?: decodeDataUrlBitmap(source)
+        ?: AgentVideoCodec.fileFromSource(source)?.let { file ->
+            ChatImageBytes.load(context, AgentVideoCodec.previewThumbnail(file, source).reference)?.bitmap
+        }
 }
 
 private fun decodeDataUrlBitmap(dataUrl: String): ImageBitmap? {
@@ -211,7 +224,7 @@ private fun decodeDataUrlBitmap(dataUrl: String): ImageBitmap? {
     val base64 = dataUrl.substringAfter("base64,", "")
     if (base64.isBlank()) return null
     return runCatching {
-        val bytes = Base64.decode(base64, Base64.NO_WRAP)
+        val bytes = Base64.decode(base64, Base64.DEFAULT)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
     }.getOrNull()
 }
@@ -583,24 +596,32 @@ private fun UserMessageBubble(
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
                     message.images.forEachIndexed { index, dataUrl ->
-                        val bitmap = rememberDataUrlBitmap(dataUrl.ifBlank { message.fullImageSourceAt(index) })
-                        if (bitmap != null) {
-                            Box {
-                                ChatClickableImage(
-                                    source = message.fullImageSourceAt(index),
-                                    bitmap = bitmap,
-                                    contentDescription = stringResource(
-                                        if (message.isVideoAt(index)) {
-                                            R.string.chat_video_preview
-                                        } else {
-                                            R.string.chat_image_preview
-                                        },
-                                    ),
-                                    modifier = Modifier
-                                        .size(100.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
+                        key(index, dataUrl, message.fullImageSourceAt(index)) {
+                            val bitmap = rememberDataUrlBitmap(
+                                dataUrl.ifBlank { message.fullImageSourceAt(index) },
+                                fallback = message.fullImageSourceAt(index),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(100.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MiuixTheme.colorScheme.surfaceContainer),
+                            ) {
+                                if (bitmap != null) {
+                                    ChatClickableImage(
+                                        source = message.fullImageSourceAt(index),
+                                        bitmap = bitmap,
+                                        contentDescription = stringResource(
+                                            if (message.isVideoAt(index)) {
+                                                R.string.chat_video_preview
+                                            } else {
+                                                R.string.chat_image_preview
+                                            },
+                                        ),
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                }
                                 if (message.isVideoAt(index)) {
                                     Icon(
                                         imageVector = Icons.Rounded.PlayArrow,

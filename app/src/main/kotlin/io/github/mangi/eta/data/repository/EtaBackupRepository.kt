@@ -507,7 +507,7 @@ private fun exportLinuxEnvironments(context: Context, zip: ZipOutputStream) {
         )
         val entryName = "linux/environments/${backend.wireName}/${distribution.wireName}.tar"
         zip.putNextEntry(ZipEntry(entryName))
-        val packed = if (canWalk(envDir)) {
+        val packed = if (backend == LinuxExecutionBackend.PROOT && canWalk(envDir)) {
             writeTar(envDir, zip)
         } else {
             streamBusyBoxTar(envDir, zip)
@@ -542,18 +542,17 @@ private fun restoreLinuxTar(
     if (!RootAccess.isGranted) {
         throw EtaBackupException("导入完整 Linux 环境需要 Root")
     }
-    val staging = File(context.cacheDir, "eta-linux-restore-${distribution.wireName}-${System.nanoTime()}")
+    val tarFile = File(context.cacheDir, "eta-linux-restore-${distribution.wireName}-${System.nanoTime()}.tar")
     try {
-        if (!staging.mkdirs() && !staging.isDirectory) {
-            throw EtaBackupException("无法创建 Linux 环境临时目录")
+        tarFile.outputStream().buffered().use { input.copyTo(it) }
+        if (tarFile.length() <= 0L) {
+            throw EtaBackupException("备份中的 Linux 环境是空的")
         }
-        extractTarStream(input, staging)
-        if (!installTreeAsRoot(staging, destination)) {
+        if (!extractTarFileAsRoot(tarFile, destination)) {
             throw EtaBackupException("无法把 Linux 环境安装到 ${destination.absolutePath}")
         }
     } finally {
-        staging.deleteRecursively()
-        deleteTreeAsRoot(staging)
+        tarFile.delete()
     }
 }
 
@@ -609,24 +608,42 @@ private fun extractTarStream(input: InputStream, destination: File) {
 private fun streamBusyBoxTar(source: File, output: OutputStream): Boolean {
     if (!RootAccess.isGranted) return false
     val script = AndroidBusyBox.discoveryScript() +
-        "; [ -n \"\$eta_busybox\" ] || exit 127; " +
-        "\"\$eta_busybox\" tar -C " + shellQuote(source.absolutePath) + " -cf - ."
-    val process = RootSu.process(script).redirectErrorStream(true).start()
+        "; [ -n \"${'$'}eta_busybox\" ] || exit 127; " +
+        "\"${'$'}eta_busybox\" tar -C " + shellQuote(source.absolutePath) +
+        " --exclude=rootfs/proc --exclude=rootfs/sys --exclude=rootfs/dev --exclude=rootfs/run --exclude=rootfs/tmp" +
+        " -cf - ."
+    val process = RootSu.process(script).redirectErrorStream(false).start()
+    val stderr = StringBuilder()
+    val reader = Thread {
+        runCatching { process.errorStream.bufferedReader().forEachLine { stderr.appendLine(it) } }
+    }.apply { isDaemon = true; start() }
     return try {
         process.inputStream.copyTo(output)
-        process.waitFor(20, TimeUnit.MINUTES) && process.exitValue() == 0
+        val finished = process.waitFor(20, TimeUnit.MINUTES)
+        reader.join(5_000)
+        val code = if (finished) process.exitValue() else -1
+        if (!finished || code != 0) {
+            AndroidAgentLogger.warn(
+                "Backup linux tar failed: source=${source.absolutePath} exit=$code stderr=${stderr.toString().take(500)}",
+            )
+            throw EtaBackupException(
+                "无法打包 Linux 环境（退出码 $code）${stderr.toString().trim().take(180).let { if (it.isBlank()) "" else "：$it" }}",
+            )
+        }
+        true
     } finally {
         runCatching { process.destroyForcibly() }
     }
 }
 
-private fun installTreeAsRoot(source: File, destination: File): Boolean {
+private fun extractTarFileAsRoot(archive: File, destination: File): Boolean {
     destination.parentFile?.mkdirs()
     val script = AndroidBusyBox.discoveryScript() +
-        "; [ -n \"\$eta_busybox\" ] || exit 127; " +
-        "\"\$eta_busybox\" mkdir -p -- " + shellQuote(destination.parentFile?.absolutePath.orEmpty()) + "; " +
-        "\"\$eta_busybox\" rm -rf -- " + shellQuote(destination.absolutePath) + "; " +
-        "\"\$eta_busybox\" cp -a -- " + shellQuote(source.absolutePath) + " " + shellQuote(destination.absolutePath)
+        "; [ -n \"${'$'}eta_busybox\" ] || exit 127; " +
+        "\"${'$'}eta_busybox\" mkdir -p -- " + shellQuote(destination.parentFile?.absolutePath.orEmpty()) + "; " +
+        "\"${'$'}eta_busybox\" rm -rf -- " + shellQuote(destination.absolutePath) + "; " +
+        "\"${'$'}eta_busybox\" mkdir -p -- " + shellQuote(destination.absolutePath) + "; " +
+        "\"${'$'}eta_busybox\" tar -C " + shellQuote(destination.absolutePath) + " -xf " + shellQuote(archive.absolutePath)
     return runRoot(script, timeoutMinutes = 20)
 }
 

@@ -43,7 +43,7 @@ data class Model(
         }
 
     val supportsVision: Boolean
-        get() = attachment == true || inputModalities.any { it.equals(IMAGE_MODALITY, ignoreCase = true) }
+        get() = attachment ?: VisionChatModels.matches(this)
 
     val supportsVideo: Boolean
         get() = inputModalities.any { it.equals(VIDEO_MODALITY, ignoreCase = true) }

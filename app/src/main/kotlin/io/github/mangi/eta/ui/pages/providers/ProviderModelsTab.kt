@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,6 +60,7 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import io.github.mangi.eta.EtaApp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.Model
+import io.github.mangi.eta.data.model.VisionChatModels
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ReasoningEffort
@@ -787,15 +789,17 @@ private fun ModelEditDialog(
             }
         )
     }
-    val automaticVision = remember(model.id, model.modelId, model.attachment, model.inputModalities) {
-        model.attachment == true ||
-            model.inputModalities.any { it.equals(Model.IMAGE_MODALITY, ignoreCase = true) }
+    val automaticVision = remember(model.id, model.modelId, model.inputModalities) {
+        VisionChatModels.matches(model.modelId, model.inputModalities)
     }
     var visionOverrideActive by remember(model.id, isNew) {
         mutableStateOf(model.attachment != null)
     }
     var visionEnabled by remember(model.id, isNew) {
         mutableStateOf(model.supportsVision)
+    }
+    LaunchedEffect(automaticVision, visionOverrideActive) {
+        if (!visionOverrideActive) visionEnabled = automaticVision
     }
     val contextError = contextWindowInputError(
         contextWindowOverrideText,

@@ -811,11 +811,6 @@ private fun ModelEditDialog(
         reasoningEnabled = automaticReasoning != null
     }
 
-    fun resetAutomaticVision() {
-        visionOverrideActive = false
-        visionEnabled = automaticVision
-    }
-
     fun updated(): Model = model.copy(
         displayName = displayName.trim(),
         modelId = modelId.trim(),
@@ -951,50 +946,36 @@ private fun ModelEditDialog(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
-                if (reasoningOverrideActive || visionOverrideActive || onDelete != null) {
-                    Row(
+                if (reasoningOverrideActive) {
+                    TextButton(
+                        text = stringResource(R.string.ui_restore_automatic_8d4e1e),
+                        onClick = {
+                            TouchHaptics.click(view)
+                            resetAutomaticReasoning()
+                        },
+                        enabled = !isSaving,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        if (reasoningOverrideActive) {
-                            TextButton(
-                                text = stringResource(R.string.ui_restore_automatic_8d4e1e),
-                                onClick = {
-                                    TouchHaptics.click(view)
-                                    resetAutomaticReasoning()
-                                },
-                                enabled = !isSaving,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.textButtonColorsPrimary(),
-                            )
-                        }
-                        if (visionOverrideActive) {
-                            TextButton(
-                                text = stringResource(R.string.ui_support_vision) + " · " +
-                                    stringResource(R.string.ui_restore_automatic_8d4e1e),
-                                onClick = { resetAutomaticVision() },
-                                enabled = !isSaving,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        onDelete?.let { delete ->
-                            TextButton(
-                                text = stringResource(R.string.ui_delete_model_cf24da),
-                                onClick = {
-                                    TouchHaptics.click(view)
-                                    delete()
-                                },
-                                enabled = !isSaving,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.textButtonColorsPrimary(
-                                    color = MiuixTheme.colorScheme.error,
-                                    textColor = MiuixTheme.colorScheme.onError,
-                                ),
-                            )
-                        }
-                    }
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
+                onDelete?.let { delete ->
+                    TextButton(
+                        text = stringResource(R.string.ui_delete_model_cf24da),
+                        onClick = {
+                            TouchHaptics.click(view)
+                            delete()
+                        },
+                        enabled = !isSaving,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        colors = ButtonDefaults.textButtonColorsPrimary(
+                            color = MiuixTheme.colorScheme.error,
+                            textColor = MiuixTheme.colorScheme.onError,
+                        ),
+                    )
                 }
             }
         }

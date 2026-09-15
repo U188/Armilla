@@ -442,10 +442,7 @@ private fun ProviderConfigTab(
                                     RuntimeConfigRepository.syncToRemotePreferences(
                                         EtaApp.serviceInstance
                                     )
-                                    status = when {
-                                        !built.isEnabled -> context.getString(R.string.page_saved_provider_not_enabled_7afa54)
-                                        else -> context.getString(R.string.capability_provider_saved)
-                                    }
+                                    status = context.getString(R.string.capability_provider_saved)
                                 }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled

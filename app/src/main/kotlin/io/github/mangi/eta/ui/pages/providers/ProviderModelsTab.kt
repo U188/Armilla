@@ -696,6 +696,14 @@ private fun ModelListItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (!selectionMode && isSelected) {
+            Icon(
+                imageVector = Icons.Rounded.Check,
+                contentDescription = context.getString(R.string.page_current_model_a0af8f),
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = model.displayName,
@@ -730,23 +738,12 @@ private fun ModelListItem(
                 enabled = enabled,
             )
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onEdit, enabled = enabled) {
-                    Icon(
-                        imageVector = Icons.Rounded.Tune,
-                        contentDescription = stringResource(R.string.ui_edit_model_parameters_ba4864),
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                    )
-                }
-                if (isSelected) {
-                    IconButton(onClick = onSetCurrent, enabled = enabled) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = context.getString(R.string.page_current_model_a0af8f),
-                            tint = MiuixTheme.colorScheme.primary,
-                        )
-                    }
-                }
+            IconButton(onClick = onEdit, enabled = enabled) {
+                Icon(
+                    imageVector = Icons.Rounded.Tune,
+                    contentDescription = stringResource(R.string.ui_edit_model_parameters_ba4864),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                )
             }
         }
     }

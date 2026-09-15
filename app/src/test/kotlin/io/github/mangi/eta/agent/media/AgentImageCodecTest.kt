@@ -32,24 +32,18 @@ import org.robolectric.shadows.ShadowContentResolver
 @Config(sdk = [36])
 class AgentImageCodecTest {
     @Test
-    fun screenCopyUsesFullResolutionLosslessWebp() {
-        val bitmap = patternedBitmap(width = 1_200, height = 2_400)
+    fun screenCopyUsesBoundedJpegForModelRequests() {
+        val bitmap = patternedBitmap(width = 1_440, height = 3_200)
         try {
             val image = AgentImageCodec.fromScreenBitmap(bitmap, source = "screen")
             val width = image.width ?: error("缺少图片宽度")
             val height = image.height ?: error("缺少图片高度")
-            val decoded = BitmapFactory.decodeByteArray(
-                image.reference.decodeDataUrl(),
-                0,
-                image.bytes,
-            ) ?: error("无法解码模型截图")
 
-            assertEquals("image/webp", image.mimeType)
-            assertTrue(image.reference.startsWith("data:image/webp;base64,"))
-            assertEquals(bitmap.width, width)
-            assertEquals(bitmap.height, height)
-            assertTrue(bitmap.sameAs(decoded))
-            decoded.recycle()
+            assertEquals("image/jpeg", image.mimeType)
+            assertTrue(image.reference.startsWith("data:image/jpeg;base64,"))
+            assertTrue(maxOf(width, height) <= 1_600)
+            assertTrue(width.toLong() * height <= 1_500_000L)
+            assertTrue(image.bytes < 1_000_000)
         } finally {
             bitmap.recycle()
         }
@@ -77,22 +71,20 @@ class AgentImageCodecTest {
     }
 
     @Test
-    fun encodedScreenBytesNeverLosePixelsOrDimensions() {
-        val bitmap = patternedBitmap(width = 900, height = 1_800)
+    fun encodedScreenBytesStayWithinVisionBudget() {
+        val bitmap = patternedBitmap(width = 1_440, height = 3_200)
         val png = ByteArrayOutputStream().use { output ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
             output.toByteArray()
         }
         try {
             val image = AgentImageCodec.fromScreenBytes(png, source = "screen")
-            val encoded = image.reference.decodeDataUrl()
-            val decoded = BitmapFactory.decodeByteArray(encoded, 0, encoded.size)
-                ?: error("无法解码模型截图")
-
-            assertEquals(bitmap.width, image.width)
-            assertEquals(bitmap.height, image.height)
-            assertTrue(bitmap.sameAs(decoded))
-            decoded.recycle()
+            val width = image.width ?: error("缺少图片宽度")
+            val height = image.height ?: error("缺少图片高度")
+            assertEquals("image/jpeg", image.mimeType)
+            assertTrue(maxOf(width, height) <= 1_600)
+            assertTrue(image.bytes < png.size)
+            assertTrue(image.bytes < 1_000_000)
         } finally {
             bitmap.recycle()
         }

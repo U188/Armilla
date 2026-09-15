@@ -1108,20 +1108,21 @@ internal class RootShellDeviceController(
     private fun UiNode.toJson(): JSONObject =
         JSONObject()
             .put("index", index)
-            .put("text", text)
-            .put("desc", desc)
-            .put("class", className)
-            .put("package", packageName)
-            .put("view_id", viewId)
             .put("bounds", bounds.toShortString())
             .put("center", JSONObject().put("x", centerX).put("y", centerY))
-            .put("clickable", clickable)
-            .put("long_clickable", longClickable)
-            .put("scrollable", scrollable)
-            .put("focused", focused)
-            .put("editable", editable)
-            .put("password", password)
-            .put("enabled", enabled)
+            .also { json ->
+                text.takeIf { it.isNotEmpty() }?.let { json.put("text", it) }
+                desc.takeIf { it.isNotEmpty() }?.let { json.put("desc", it) }
+                className.takeIf { it.isNotEmpty() }?.let { json.put("class", it.substringAfterLast('.')) }
+                viewId.takeIf { it.isNotEmpty() }?.let { json.put("view_id", it) }
+                if (clickable) json.put("clickable", true)
+                if (longClickable) json.put("long_clickable", true)
+                if (scrollable) json.put("scrollable", true)
+                if (focused) json.put("focused", true)
+                if (editable) json.put("editable", true)
+                if (password) json.put("password", true)
+                if (!enabled) json.put("enabled", false)
+            }
 
     private fun XmlPullParser.attr(name: String): String =
         getAttributeValue(null, name).orEmpty()

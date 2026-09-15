@@ -42,21 +42,27 @@ internal object AgentImageCodec {
         mimeHint: String = "image/jpeg",
     ): AgentModelClient.ModelImage = fromBytes(bytes, source, mimeHint)
 
-    /** Root screencap 只允许无损换编码，不改变截图尺寸。 */
+    /** 屏幕观察图会进模型请求，必须有界压缩；坐标空间用压缩后的宽高。 */
     fun fromScreenBytes(
         bytes: ByteArray,
         source: String,
         mimeHint: String = "image/png",
-    ): AgentModelClient.ModelImage =
-        AgentModelImageEncoder.screen(bytes, source, mimeHint)
-            ?: fromBytes(bytes, source, mimeHint)
+    ): AgentModelClient.ModelImage {
+        AgentModelImageEncoder.toolVision(bytes, source, mimeHint)?.let { return it }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: error("无法解码屏幕截图")
+        return try {
+            AgentModelImageEncoder.screenContext(bitmap, source)
+        } finally {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+    }
 
     fun fromScreenBitmap(
         bitmap: Bitmap,
         source: String,
-    ): AgentModelClient.ModelImage = AgentModelImageEncoder.screen(bitmap, source)
+    ): AgentModelClient.ModelImage = AgentModelImageEncoder.screenContext(bitmap, source)
 
-    /** 助理消息里的屏幕上下文使用有界视觉编码，不改变通用屏幕观察的无损合同。 */
     fun fromScreenContextBitmap(
         bitmap: Bitmap,
         source: String,

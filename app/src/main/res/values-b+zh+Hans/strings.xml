@@ -442,6 +442,9 @@
   <string name="ui_support_chatgpt_deepseek_kimi_glm_qwen_etc_b31d02">支持 ChatGPT, DeepSeek, Kimi, GLM, Qwen等</string>
   <string name="ui_supports_files_and_folders_under_internal_storage_or_520786">支持任意本地绝对路径下的文件和文件夹</string>
   <string name="ui_support_thinking_5b9e4c">支持推理</string>
+  <string name="ui_support_vision">支持视觉</string>
+  <string name="provider_auto_vision_supported">自动：支持视觉</string>
+  <string name="provider_auto_vision_unknown">自动：不支持或未知</string>
   <string name="ui_new_anthropic_db6098">新增 Anthropic</string>
   <string name="ui_added_openai_compatible_6bd471">新增 OpenAI-compatible</string>
   <string name="ui_add_new_provider_74df54">新增提供商</string>

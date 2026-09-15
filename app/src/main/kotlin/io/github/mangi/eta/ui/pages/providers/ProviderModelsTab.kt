@@ -787,6 +787,16 @@ private fun ModelEditDialog(
             }
         )
     }
+    val automaticVision = remember(model.id, model.modelId, model.attachment, model.inputModalities) {
+        model.attachment == true ||
+            model.inputModalities.any { it.equals(Model.IMAGE_MODALITY, ignoreCase = true) }
+    }
+    var visionOverrideActive by remember(model.id, isNew) {
+        mutableStateOf(model.attachment != null)
+    }
+    var visionEnabled by remember(model.id, isNew) {
+        mutableStateOf(model.supportsVision)
+    }
     val contextError = contextWindowInputError(
         contextWindowOverrideText,
         context.getString(R.string.page_the_context_length_must_be_a_positive_integer_06ca7a),
@@ -797,12 +807,24 @@ private fun ModelEditDialog(
         reasoningEnabled = automaticReasoning != null
     }
 
+    fun resetAutomaticVision() {
+        visionOverrideActive = false
+        visionEnabled = automaticVision
+    }
+
     fun updated(): Model = model.copy(
         displayName = displayName.trim(),
         modelId = modelId.trim(),
         contextWindowOverride = contextWindowOverrideText.trim()
             .takeIf(String::isNotEmpty)
             ?.toInt(),
+        attachment = if (visionOverrideActive) visionEnabled else null,
+        inputModalities = when {
+            !visionOverrideActive -> model.inputModalities
+            visionEnabled -> (model.inputModalities + Model.IMAGE_MODALITY).distinct()
+            else -> model.inputModalities.filterNot { it.equals(Model.IMAGE_MODALITY, ignoreCase = true) }
+                .ifEmpty { listOf(Model.TEXT_MODALITY) }
+        },
         reasoningOverride = reasoningEnabled.takeIf { reasoningOverrideActive },
         reasoningCapabilitiesOverride = if (reasoningOverrideActive && reasoningEnabled) {
             (model.effectiveReasoningCapabilities ?: suggestedReasoning).copy(
@@ -900,6 +922,26 @@ private fun ModelEditDialog(
                         },
                         enabled = !isSaving,
                     )
+                    SwitchPreference(
+                        checked = visionEnabled,
+                        onCheckedChange = { enabled ->
+                            visionOverrideActive = true
+                            visionEnabled = enabled
+                        },
+                        title = stringResource(R.string.ui_support_vision),
+                        summary = if (visionOverrideActive) {
+                            context.getString(R.string.page_covered_model_automatic_capabilities_3fa7d4)
+                        } else {
+                            stringResource(
+                                if (automaticVision) {
+                                    R.string.provider_auto_vision_supported
+                                } else {
+                                    R.string.provider_auto_vision_unknown
+                                },
+                            )
+                        },
+                        enabled = !isSaving,
+                    )
                 }
                 error?.let { message ->
                     Text(
@@ -909,19 +951,20 @@ private fun ModelEditDialog(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
-                if (reasoningOverrideActive || onDelete != null) {
+                if (reasoningOverrideActive || visionOverrideActive || onDelete != null) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (reasoningOverrideActive) {
+                        if (reasoningOverrideActive || visionOverrideActive) {
                             TextButton(
                                 text = stringResource(R.string.ui_restore_automatic_8d4e1e),
                                 onClick = {
                                     TouchHaptics.click(view)
                                     resetAutomaticReasoning()
+                                    resetAutomaticVision()
                                 },
                                 enabled = !isSaving,
                                 modifier = Modifier.weight(1f),

@@ -118,20 +118,27 @@ internal object ProviderRepository {
 
     suspend fun ensureBuiltInsMerged() {
         val current = allProviders()
-        if (current.isEmpty()) {
-            insertProviders(BuiltinProviders.PROVIDERS.map(::seedOfficialModelsIfEmpty))
+        val catalogIds = BuiltinProviders.PROVIDERS.mapTo(mutableSetOf()) { it.id }
+        val stale = current.filter { it.isBuiltIn && it.id !in catalogIds }
+        stale.forEach { provider ->
+            dao().deleteProvider(provider.id)
+            SettingsDataStore.clearSelectedModelIdForProvider(provider.id)
+        }
+        val remaining = if (stale.isEmpty()) current else allProviders()
+        if (remaining.isEmpty()) {
+            if (BuiltinProviders.PROVIDERS.isNotEmpty()) {
+                insertProviders(BuiltinProviders.PROVIDERS.map(::seedOfficialModelsIfEmpty))
+            }
             repairSelection()
             return
         }
 
-        val existingIds = current.mapTo(mutableSetOf()) { it.id }
+        val existingIds = remaining.mapTo(mutableSetOf()) { it.id }
         val missing = BuiltinProviders.PROVIDERS.filterNot { it.id in existingIds }
         if (missing.isNotEmpty()) {
             insertProviders(missing.map(::seedOfficialModelsIfEmpty))
-            repairSelection()
-        } else {
-            repairSelection()
         }
+        repairSelection()
     }
 
     suspend fun repairSelection(): Settings {

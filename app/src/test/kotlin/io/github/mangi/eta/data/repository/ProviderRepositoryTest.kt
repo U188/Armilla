@@ -3,13 +3,9 @@ package io.github.mangi.eta.data.repository
 import android.content.Context
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.db.EtaDatabase
-import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
-import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.ProviderSetting
-import io.github.mangi.eta.data.model.ReasoningEffort
-import io.github.mangi.eta.data.provider.BuiltinProviders
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -38,61 +34,17 @@ class ProviderRepositoryTest {
     }
 
     @Test
-    fun builtInProvidersRoundTripThroughRoomWithModels() = runBlocking {
+    fun builtInProvidersAreNotSeeded() = runBlocking {
         ProviderRepository.ensureBuiltInsMerged()
 
-        val providers = ProviderRepository.allProviders().associateBy { it.id }
-
-        assertTrue(providers.getValue(BuiltinProviders.ANTHROPIC_ID) is AnthropicProviderSetting)
-        assertEquals(
-            listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"),
-            providers.getValue(BuiltinProviders.OPENAI_ID).models.map { it.modelId },
-        )
-        assertEquals(
-            List(4) { ModelSource.CATALOG },
-            providers.getValue(BuiltinProviders.OPENAI_ID).models.map { it.source },
-        )
-        assertEquals(
-            listOf(
-                ReasoningEffort.OFF,
-                ReasoningEffort.MINIMAL,
-                ReasoningEffort.LOW,
-                ReasoningEffort.MEDIUM,
-                ReasoningEffort.HIGH,
-                ReasoningEffort.XHIGH,
-                ReasoningEffort.MAX,
-            ),
-            providers.getValue(BuiltinProviders.OPENAI_ID)
-                .models
-                .first()
-                .reasoningCapabilities
-                ?.selectableEfforts,
-        )
-        assertEquals(
-            listOf("claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"),
-            providers.getValue(BuiltinProviders.ANTHROPIC_ID).models.map { it.modelId },
-        )
-        assertEquals(
-            listOf(
-                "kimi-k3",
-                "kimi-k2.7-code",
-                "kimi-k2.7-code-highspeed",
-                "kimi-k2.6",
-                "kimi-k2.5",
-            ),
-            providers.getValue(BuiltinProviders.KIMI_ID).models.map { it.modelId },
-        )
-        assertTrue(
-            providers.getValue(BuiltinProviders.BAILIAN_ID).models.none {
-                it.modelId == "kimi-k3"
-            }
-        )
+        val providers = ProviderRepository.allProviders()
+        assertTrue(providers.none { it.isBuiltIn })
+        assertTrue(providers.none { it.id.startsWith("builtin-") })
     }
 
     @Test
     fun providerAndModelCustomHeadersSurviveRoomRoundTrip() = runBlocking {
-        ProviderRepository.ensureBuiltInsMerged()
-        val provider = ProviderRepository.providerById(BuiltinProviders.OPENAI_ID)!!
+        val provider = ProviderRepository.addProvider(sampleProvider())
         val updated = provider.copyForTest(
             customHeaders = listOf(CustomHeader("x-provider", "1")),
         ).let { openAi ->
@@ -113,15 +65,14 @@ class ProviderRepositoryTest {
             updated.models.first(),
         )
 
-        val restored = ProviderRepository.providerById(BuiltinProviders.OPENAI_ID)!!
+        val restored = ProviderRepository.providerById(provider.id)!!
         assertEquals(listOf("x-provider"), restored.customHeaders.map { it.name })
         assertEquals(listOf("x-model"), restored.models.first().customHeaders.map { it.name })
     }
 
     @Test
     fun selectedRuntimeConfigUsesUpdatedProviderApiKey() = runBlocking {
-        ProviderRepository.ensureBuiltInsMerged()
-        val provider = (ProviderRepository.providerById(BuiltinProviders.OPENAI_ID) as OpenAiCompatibleProviderSetting)
+        val provider = (ProviderRepository.addProvider(sampleProvider()) as OpenAiCompatibleProviderSetting)
             .copy(apiKey = "sk-test-key")
 
         ProviderRepository.updateProvider(provider)
@@ -135,9 +86,8 @@ class ProviderRepositoryTest {
 
     @Test
     fun switchingProvidersRestoresEachProvidersSelectedModel() = runBlocking {
-        ProviderRepository.ensureBuiltInsMerged()
-        val openAi = ProviderRepository.providerById(BuiltinProviders.OPENAI_ID)!!
-        val anthropic = ProviderRepository.providerById(BuiltinProviders.ANTHROPIC_ID)!!
+        val openAi = ProviderRepository.addProvider(sampleProvider(id = "custom-a", name = "A"))
+        val anthropic = ProviderRepository.addProvider(sampleProvider(id = "custom-b", name = "B"))
         val openAiModel = openAi.models[1]
         val anthropicModel = anthropic.models[1]
         SettingsDataStore.clearSelectedModelIdForProvider(openAi.id)
@@ -157,8 +107,7 @@ class ProviderRepositoryTest {
 
     @Test
     fun repairSelectionMigratesLegacyActiveModelToProviderMemory() = runBlocking {
-        ProviderRepository.ensureBuiltInsMerged()
-        val provider = ProviderRepository.providerById(BuiltinProviders.OPENAI_ID)!!
+        val provider = ProviderRepository.addProvider(sampleProvider())
         val model = provider.models[1]
         SettingsDataStore.clearSelectedModelIdForProvider(provider.id)
         SettingsDataStore.updateSettings {
@@ -170,6 +119,29 @@ class ProviderRepositoryTest {
         assertEquals(model.id, SettingsDataStore.selectedModelIdForProvider(provider.id))
     }
 }
+
+
+private fun sampleProvider(
+    id: String = "custom-provider",
+    name: String = "Custom",
+): OpenAiCompatibleProviderSetting =
+    OpenAiCompatibleProviderSetting(
+        id = id,
+        name = name,
+        baseUrl = "https://api.example.com/v1",
+        models = listOf(
+            io.github.mangi.eta.data.model.Model(
+                id = "$id-m1",
+                modelId = "model-1",
+                displayName = "Model 1",
+            ),
+            io.github.mangi.eta.data.model.Model(
+                id = "$id-m2",
+                modelId = "model-2",
+                displayName = "Model 2",
+            ),
+        ),
+    )
 
 private fun ProviderSetting.copyForTest(
     customHeaders: List<CustomHeader>,

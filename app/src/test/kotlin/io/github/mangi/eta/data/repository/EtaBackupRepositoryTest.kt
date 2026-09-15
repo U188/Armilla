@@ -40,8 +40,21 @@ class EtaBackupRepositoryTest {
 
     @Test
     fun exportAndImportRestoresProvidersConversationsAndMemory() = runBlocking {
-        ProviderRepository.ensureBuiltInsMerged()
-        val provider = ProviderRepository.allProviders().first().withApiKey("sk-backup-test")
+        val provider = ProviderRepository.addProvider(
+            io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting(
+                id = "backup-provider",
+                name = "Backup",
+                baseUrl = "https://api.example.com/v1",
+                models = listOf(
+                    io.github.mangi.eta.data.model.Model(
+                        id = "backup-model",
+                        modelId = "model-1",
+                        displayName = "Model 1",
+                        source = ModelSource.CATALOG,
+                    ),
+                ),
+            ),
+        ).withApiKey("sk-backup-test")
         ProviderRepository.updateProvider(provider)
         SettingsDataStore.setSelection(provider.id, provider.models.first().id)
         AgentMemoryRepository.replaceAll("# 核心记忆\n喜欢 Kotlin")

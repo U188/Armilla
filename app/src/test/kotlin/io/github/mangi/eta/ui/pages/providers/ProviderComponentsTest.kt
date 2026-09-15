@@ -64,10 +64,7 @@ class ProviderComponentsTest {
 
     @Test
     fun everyBuiltInProviderHasABrandLogo() {
-        val logos = BuiltinProviders.PROVIDERS.map(::providerBrandLogoRes)
-
-        assertEquals(BuiltinProviders.PROVIDERS.size, logos.filterNotNull().size)
-        assertEquals(BuiltinProviders.PROVIDERS.size, logos.filterNotNull().toSet().size)
+        assertEquals(0, BuiltinProviders.PROVIDERS.size)
     }
 
     @Test

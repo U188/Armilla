@@ -136,7 +136,6 @@ internal object AgentConversationStore {
         } catch (_: Throwable) {
             AgentConversationCodec.encodeConversationCheckpoint(history.map { it.copy(turnId = "") })
         }
-    }
 
     private suspend fun loadSnapshot(context: Context): Snapshot {
         val dao = EtaDatabase.get(context).conversationDao()

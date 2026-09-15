@@ -37,6 +37,13 @@ class VisionChatModelsTest {
     }
 
     @Test
+    fun trustsImageModalityForUnknownChatModels() {
+        val model = model("qwen3.7-plus", listOf(Model.TEXT_MODALITY, Model.IMAGE_MODALITY))
+        assertTrue(VisionChatModels.matches(model))
+        assertTrue(model.supportsVision)
+    }
+
+    @Test
     fun manualAttachmentOverridesAutomatic() {
         val enabled = model("deepseek-chat").copy(attachment = true)
         val disabled = model("gpt-4o").copy(attachment = false)

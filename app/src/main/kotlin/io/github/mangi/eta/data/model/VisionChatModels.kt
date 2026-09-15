@@ -94,8 +94,7 @@ internal object VisionChatModels {
         if (NEGATIVE.any { it in id }) return false
         if (isVisionId(id)) return true
         if (POSITIVE.any { it in id }) return true
-        val inputs = inputModalities.map { it.lowercase() }
-        return inputs.any { it == Model.IMAGE_MODALITY } && isLikelyMultimodalChat(id)
+        return inputModalities.any { it.equals(Model.IMAGE_MODALITY, ignoreCase = true) }
     }
 
     private fun isVisionId(id: String): Boolean =
@@ -106,12 +105,4 @@ internal object VisionChatModels {
             "vl_" in id ||
             id.endsWith("vl") ||
             id.endsWith("-v")
-
-    private fun isLikelyMultimodalChat(id: String): Boolean =
-        "gpt-4" in id ||
-            "gpt-5" in id ||
-            "claude" in id ||
-            "gemini" in id ||
-            "llama-4" in id ||
-            "qwen3.5" in id
 }

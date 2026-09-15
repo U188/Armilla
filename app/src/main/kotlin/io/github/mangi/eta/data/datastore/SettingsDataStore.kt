@@ -447,7 +447,7 @@ internal object SettingsDataStore {
         selectedProviderId = this[SELECTED_PROVIDER_ID],
         selectedModelId = this[SELECTED_MODEL_ID],
         memoryEnabled = this[MEMORY_ENABLED] ?: true,
-        fileLoggingEnabled = this[FILE_LOGGING_ENABLED] ?: false,
+        fileLoggingEnabled = this[FILE_LOGGING_ENABLED] ?: true,
         appearance = AppearanceSettings(
             themeMode = AppearanceThemeMode.fromPersistedValue(this[APPEARANCE_THEME_MODE]),
             monetEnabled = true,
@@ -487,7 +487,7 @@ internal data class EtaSettingsBackup(
     val selectedProviderId: String? = null,
     val selectedModelId: String? = null,
     val memoryEnabled: Boolean = true,
-    val fileLoggingEnabled: Boolean = false,
+    val fileLoggingEnabled: Boolean = true,
     val linuxDistribution: String? = null,
     val linuxBackends: Map<String, String> = emptyMap(),
     val selectedModelByProvider: Map<String, String> = emptyMap(),

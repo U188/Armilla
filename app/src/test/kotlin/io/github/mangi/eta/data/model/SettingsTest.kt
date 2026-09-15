@@ -11,8 +11,8 @@ class SettingsTest {
     }
 
     @Test
-    fun fileLoggingIsDisabledByDefault() {
-        assertEquals(false, Settings().fileLoggingEnabled)
+    fun fileLoggingIsEnabledByDefault() {
+        assertEquals(true, Settings().fileLoggingEnabled)
     }
 
     @Test

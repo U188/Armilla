@@ -157,7 +157,7 @@
   <string name="app_press_back_again_to_exit">Press back again to exit</string>
   <string name="settings_diagnostics">Diagnostics</string>
   <string name="settings_file_logging">Record diagnostic logs</string>
-  <string name="settings_file_logging_summary">When enabled, app logs and this process’s logcat are saved locally for troubleshooting</string>
+  <string name="settings_file_logging_summary">When enabled, runtime logs are saved on-device. Turning it off stops writing and keeps existing logs.</string>
   <string name="settings_export_logs">Export logs</string>
   <string name="settings_export_logs_summary">Save captured logs as a ZIP file</string>
   <string name="settings_export_logs_working">Working…</string>

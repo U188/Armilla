@@ -596,11 +596,21 @@ internal class AgentAppState(
         return true
     }
 
-    private suspend fun <T> withConversationArchive(block: suspend () -> T): T = withContext(Dispatchers.Main.immediate) {
+    private suspend fun <T> withConversationArchive(
+        requireIdleRuns: Boolean = true,
+        block: suspend () -> T,
+    ): T = withContext(Dispatchers.Main.immediate) {
         check(!conversationArchiveBusy) { "已有对话归档任务正在执行" }
-        check(!runtimeRecoveryInProgress.get() && !modelPickerState.isChanging && pendingManualCompress == null &&
-            runJobs.isEmpty() && compressionJob?.isActive != true &&
-            conversationsById.values.none { it.isStreaming || it.isCompressingContext }) { "请先等待对话任务或恢复完成" }
+        if (requireIdleRuns) {
+            check(
+                !runtimeRecoveryInProgress.get() &&
+                    !modelPickerState.isChanging &&
+                    pendingManualCompress == null &&
+                    runJobs.isEmpty() &&
+                    compressionJob?.isActive != true &&
+                    conversationsById.values.none { it.isStreaming || it.isCompressingContext },
+            ) { "请先等待对话任务或恢复完成" }
+        }
         conversationArchiveBusy = true
         try {
             // Force a fresh save, and inspect its Boolean result instead of only joining a Job.
@@ -634,10 +644,14 @@ internal class AgentAppState(
     suspend fun exportBackup(
         output: OutputStream,
         options: EtaBackupExportOptions = EtaBackupExportOptions(),
-    ): EtaBackupSummary = withConversationArchive { EtaBackupRepository.export(appContext, output, options) }
+    ): EtaBackupSummary = withConversationArchive(requireIdleRuns = false) {
+        EtaBackupRepository.export(appContext, output, options)
+    }
 
     suspend fun exportConversation(conversationId: String, output: OutputStream): EtaBackupSummary =
-        withConversationArchive { EtaBackupRepository.exportConversation(appContext, conversationId, output) }
+        withConversationArchive(requireIdleRuns = false) {
+            EtaBackupRepository.exportConversation(appContext, conversationId, output)
+        }
 
     suspend fun importBackup(input: InputStream): EtaBackupSummary = withConversationArchive {
         val activeRunQuery = withContext(Dispatchers.IO) {

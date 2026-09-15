@@ -213,6 +213,13 @@ internal object SettingsDataStore {
             linuxBackends = stringMap(prefs, LINUX_BACKEND_PREFIX),
             selectedModelByProvider = stringMap(prefs, SELECTED_MODEL_BY_PROVIDER_PREFIX),
             appearance = settings.appearance,
+            modelUsageJson = prefs[MODEL_USAGE_JSON].orEmpty(),
+            retiredInputTokens = prefs[RETIRED_INPUT_TOKENS] ?: 0L,
+            retiredOutputTokens = prefs[RETIRED_OUTPUT_TOKENS] ?: 0L,
+            retiredCachedTokens = prefs[RETIRED_CACHED_TOKENS] ?: 0L,
+            retiredConversations = prefs[RETIRED_CONVERSATIONS] ?: 0,
+            retiredMessages = prefs[RETIRED_MESSAGES] ?: 0,
+            retiredHeatmapJson = prefs[RETIRED_HEATMAP_JSON].orEmpty(),
         )
     }
 
@@ -241,6 +248,13 @@ internal object SettingsDataStore {
                     prefs[selectedModelByProviderKey(providerId)] = modelId
                 }
             }
+            prefs.putOrRemove(MODEL_USAGE_JSON, snapshot.modelUsageJson.takeIf { it.isNotBlank() })
+            prefs.putOrRemove(RETIRED_HEATMAP_JSON, snapshot.retiredHeatmapJson.takeIf { it.isNotBlank() })
+            if (snapshot.retiredInputTokens > 0L) prefs[RETIRED_INPUT_TOKENS] = snapshot.retiredInputTokens else prefs.remove(RETIRED_INPUT_TOKENS)
+            if (snapshot.retiredOutputTokens > 0L) prefs[RETIRED_OUTPUT_TOKENS] = snapshot.retiredOutputTokens else prefs.remove(RETIRED_OUTPUT_TOKENS)
+            if (snapshot.retiredCachedTokens > 0L) prefs[RETIRED_CACHED_TOKENS] = snapshot.retiredCachedTokens else prefs.remove(RETIRED_CACHED_TOKENS)
+            if (snapshot.retiredConversations > 0) prefs[RETIRED_CONVERSATIONS] = snapshot.retiredConversations else prefs.remove(RETIRED_CONVERSATIONS)
+            if (snapshot.retiredMessages > 0) prefs[RETIRED_MESSAGES] = snapshot.retiredMessages else prefs.remove(RETIRED_MESSAGES)
         }
     }
 
@@ -492,6 +506,13 @@ internal data class EtaSettingsBackup(
     val linuxBackends: Map<String, String> = emptyMap(),
     val selectedModelByProvider: Map<String, String> = emptyMap(),
     val appearance: AppearanceSettings = AppearanceSettings(),
+    val modelUsageJson: String = "",
+    val retiredInputTokens: Long = 0L,
+    val retiredOutputTokens: Long = 0L,
+    val retiredCachedTokens: Long = 0L,
+    val retiredConversations: Int = 0,
+    val retiredMessages: Int = 0,
+    val retiredHeatmapJson: String = "",
 )
 
 internal data class RetiredUsage(

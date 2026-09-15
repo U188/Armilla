@@ -262,7 +262,7 @@ internal fun liveContextUsage(
     billedOverheadTokens: Int? = null,
     uncommittedLiveTokens: Int = 0,
 ): AgentContextUsageUi {
-    val supportsVision = selectedModel?.supportsVision ?: true
+    val supportsVision = selectedModel?.supportsVision == true
     val imageFileReferences = if (supportsVision) {
         emptyList()
     } else {

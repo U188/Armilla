@@ -1326,7 +1326,7 @@ internal class AgentAppState(
             selectedConversationId = id
             assignPendingFolder(id)
         }
-        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision ?: true)
+        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true)
         val supportsVideo = modelPickerState.selectedModel?.supportsVideo ?: false
         if (pendingImages.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
@@ -1621,7 +1621,7 @@ internal class AgentAppState(
         val parsed = AgentFileReferencePromptCodec.parse(boundary.userMessage.content)
         val generateVideo = selectedModelGeneratesVideos()
         val generateImage = !generateVideo && selectedModelGeneratesImages()
-        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision ?: true)
+        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true)
         if (!generateImage && !generateVideo && rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
                 PendingFileReferenceUi(id = "regen-$index", reference = reference)
             })) {

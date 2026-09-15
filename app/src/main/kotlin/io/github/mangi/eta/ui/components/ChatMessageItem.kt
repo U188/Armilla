@@ -197,7 +197,14 @@ internal fun rememberDataUrlBitmap(
     fallback: String? = null,
 ): ImageBitmap? {
     val context = LocalContext.current
-    val loaded = produceState<ImageBitmap?>(initialValue = null, dataUrl, fallback, context) {
+    val immediate = remember(dataUrl, fallback) {
+        decodeDataUrlBitmap(dataUrl) ?: decodeDataUrlBitmap(fallback.orEmpty())
+    }
+    val loaded = produceState(initialValue = immediate, dataUrl, fallback, context) {
+        if (immediate != null) {
+            value = immediate
+            return@produceState
+        }
         if (dataUrl.isBlank() && fallback.isNullOrBlank()) {
             value = null
             return@produceState
@@ -207,7 +214,7 @@ internal fun rememberDataUrlBitmap(
                 ?: fallback?.takeIf { it != dataUrl }?.let { loadPreviewBitmap(context, it) }
         }
     }
-    return loaded.value
+    return loaded.value ?: immediate
 }
 
 private fun loadPreviewBitmap(context: android.content.Context, source: String): ImageBitmap? {

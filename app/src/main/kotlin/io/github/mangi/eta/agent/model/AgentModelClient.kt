@@ -292,7 +292,7 @@ internal object AgentModelClient {
         val extraBodyJson: String = "",
         val customHeaders: List<CustomHeader> = emptyList(),
         val customBody: List<CustomBody> = emptyList(),
-        val supportsVision: Boolean = true,
+        val supportsVision: Boolean = false,
         val supportsVideo: Boolean = false,
     ) {
         val effectiveReasoningEffort: ReasoningEffort

@@ -48,6 +48,35 @@ class AgentRuntimeWireTest {
     }
 
     @Test
+    fun visionCapabilitySurvivesIpcAndMissingKeyStaysClosed() {
+        val config = AgentModelClient.ModelConfig(
+            baseUrl = "https://example.invalid",
+            apiKey = "test",
+            model = "grok-4.6",
+            systemPrompt = "",
+            supportsVision = true,
+            supportsVideo = true,
+        )
+        val request = AgentRuntimeWire.RunRequest(
+            runId = "vision",
+            prompt = "看图",
+            config = config,
+            images = emptyList(),
+        )
+        val bundle = AgentRuntimeWire.toLegacyBundle(request, emptyHistoryDescriptor())
+        bundle.remove(AgentRuntimeWire.KEY_HISTORY_FD)
+        bundle.putParcelableArrayList(AgentRuntimeWire.KEY_HISTORY, java.util.ArrayList())
+        val restored = AgentRuntimeWire.runRequestFromBundle(bundle)
+        assertTrue(restored.config.supportsVision)
+        assertTrue(restored.config.supportsVideo)
+        bundle.remove("supports_vision")
+        bundle.remove("supports_video")
+        val missing = AgentRuntimeWire.runRequestFromBundle(bundle)
+        assertFalse(missing.config.supportsVision)
+        assertFalse(missing.config.supportsVideo)
+    }
+
+    @Test
     fun modelSessionSurvivesIpcAndLegacyRequestsUseConversationIdentity() {
         val request = AgentRuntimeWire.RunRequest(
             runId = "run-session", prompt = "测试",

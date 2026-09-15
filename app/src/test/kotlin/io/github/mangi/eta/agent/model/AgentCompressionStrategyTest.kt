@@ -133,6 +133,28 @@ class AgentCompressionStrategyTest {
         assertEquals("active", source.getJSONObject(0).getString("content"))
     }
 
+    @Test fun largeWindowDoesNotPauseAtHalfCapacityJustBecauseHistoryIsLong() {
+        var calls = 0
+        val controller = AgentRunController()
+        val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(900_000)))
+        val loop = AgentLoop(
+            config(500_000),
+            source,
+            JSONArray(),
+            provider {
+                calls++
+                JSONObject().put("role", "assistant").put("content", "ok").put("finish_reason", "stop")
+            },
+            AgentModelClient.ToolExecutor { error("No tools") },
+            controller,
+            AgentTraceFormatter(),
+            onEvent = {},
+        )
+        val result = loop.run()
+        assertEquals("ok", result.content)
+        assertEquals(1, calls)
+    }
+
     @Test fun overflowClassificationDoesNotTreatAllBadRequestsAsContextErrors() {
         assertEquals("CONTEXT_WINDOW_EXCEEDED", AgentModelFailure.http(400, "{\"error\":{\"code\":\"context_length_exceeded\"}}").code)
         assertEquals("HTTP_400", AgentModelFailure.http(400, "{\"error\":{\"message\":\"unknown parameter\"}}").code)

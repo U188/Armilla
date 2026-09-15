@@ -43,6 +43,14 @@ class AgentCompactionArchiveTest {
         assertTrue(runCatching { other.read(JSONObject().put("checkpoint", id).toString()) }.isFailure)
     }
 
+    @Test fun checkpointPrefixFromFootnotesIsAccepted() {
+        val archive = AgentCompactionArchive(temporary.root, "conversation")
+        val id = archive.save(listOf(AgentModelClient.ConversationMessage("user", "hello")))
+        val prefixed = JSONObject().put("checkpoint", "context-checkpoint:$id").toString()
+        val result = JSONObject(archive.read(prefixed).content)
+        assertTrue(result.getString("content").contains("hello"))
+    }
+
     @Test fun rejectsPathsNegativeOffsetsAndUnknownIdentifiers() {
         val archive = AgentCompactionArchive(temporary.root, "conversation")
         val id = archive.save(listOf(AgentModelClient.ConversationMessage("user", "hello")))

@@ -78,11 +78,16 @@ internal class AgentCompactionArchive(filesDir: File, sessionId: String) {
         check(!File(root.parentFile, "$scope.deleted").exists()) { "会话已删除，原文不再可读" }
         val args = JSONObject(arguments)
         val id = args.getString("checkpoint")
+            .trim()
+            .removePrefix("context-checkpoint:")
+            .trim()
         require(ID.matches(id)) { "检查点 ID 无效" }
         val offset = args.optInt("offset", 0)
         require(offset >= 0) { "offset 不能为负数" }
         val file = File(root, "$id.json")
-        require(file.isFile && !Files.isSymbolicLink(file.toPath()) && file.length() <= MAX_BYTES) { "本会话找不到该检查点原文" }
+        require(file.isFile && !Files.isSymbolicLink(file.toPath()) && file.length() <= MAX_BYTES) {
+            "本会话找不到该检查点原文。请使用当前摘要脚注里的 context-checkpoint ID，不要用其他会话或过期引用。"
+        }
         val checksum = File(root, "$id.sha256")
         require(checksum.isFile && !Files.isSymbolicLink(checksum.toPath()) && checksum.length() == 64L &&
             checksum.readText() == io.github.mangi.eta.data.repository.BackupDurability.digest(file)) {

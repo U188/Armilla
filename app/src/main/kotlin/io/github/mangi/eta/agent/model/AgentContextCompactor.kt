@@ -249,7 +249,7 @@ internal object AgentContextCompactor {
     private fun splitMessages(
         messages: List<AgentModelClient.ConversationMessage>, config: Config, replay: ReplayContext?,
     ): List<List<AgentModelClient.ConversationMessage>> {
-        val window = config.compressModelConfig?.contextWindow
+        val window = config.compressModelConfig?.contextWindow?.takeIf { it > 0 }
             ?: error("请先配置摘要模型的上下文窗口")
         val overhead = if (replay == null) 1024 else AgentContextBudget.estimate(replay.systemMessages) +
             AgentContextBudget.countTokens(replay.tools.toString()) + 1024

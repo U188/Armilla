@@ -269,16 +269,34 @@ internal class AgentLoop(
     private fun historyForCompaction() = (systemCount.coerceIn(0, messages.length()) until messages.length())
         .map { AgentConversationCodec.fromJsonObject(messages.getJSONObject(it)) }
 
-    private fun estimatedRequestTokens(): Int = maxOf(
-        AgentContextBudget.estimate(messages) + AgentContextBudget.countTokens(currentRoundTools.toString()),
-        projectedPromptTokens() ?: 0,
-    )
+    private fun estimatedRequestTokens(): Int {
+        val local = AgentContextBudget.estimate(messages) +
+            AgentContextBudget.countTokens(currentRoundTools.toString())
+        val projected = projectedPromptTokens()
+        // 有账单时以接口占用为准。本地启发式会把工具 JSON / 代码按拉丁字符放大，
+        // 500k 窗口时往往在真实用量一半就把任务暂停。
+        return projected ?: local
+    }
+
+    private fun storedHistoryChars(): Long {
+        val safeHistory = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds)
+        return safeHistory.sumOf { AgentConversationCodec.toJsonObject(it).toString().length.toLong() }
+    }
+
+    private fun persistenceCharLimit(): Long {
+        val window = (config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow).toLong()
+        val roomBudget = AgentConversationCodec.MAX_CONVERSATION_CHECKPOINT_CHARS.toLong() - 128_000L
+        // 按窗口放大：1MB Room 上限大约只相当于 20 万拉丁 token，500k 窗口会在一半就误暂停。
+        return maxOf(roomBudget, window * 6)
+    }
 
     private fun requestOverBudget(): Boolean {
-        val safeHistory = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds)
-        val storedChars = safeHistory.sumOf { AgentConversationCodec.toJsonObject(it).toString().length.toLong() }
-        if (storedChars > AgentConversationCodec.MAX_CONVERSATION_CHECKPOINT_CHARS - 128_000) {
-            compactionFailure = "本轮历史接近本机持久化容量上限；已暂停，未截断受保护原文。可允许压缩较早步骤或停止任务。"
+        val storedChars = storedHistoryChars()
+        val charLimit = persistenceCharLimit()
+        if (storedChars > charLimit) {
+            compactionFailure = compactionFailure.ifBlank {
+                "本轮历史接近本机持久化容量上限；已暂停，未截断受保护原文。可允许压缩较早步骤或停止任务。"
+            }
             return true
         }
         val window = config.contextWindow?.takeIf { it > 0 } ?: return false
@@ -291,7 +309,8 @@ internal class AgentLoop(
         if (forced) { manualBudgetAttempt = true; lastFailedCompaction = null }
         if (!forced && (!compactPolicy.enabled || overflowPending)) return
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
-        if (!forced && (round <= 1 || estimatedRequestTokens() < window * 0.8)) return
+        val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
+        if (!forced && !charPressure && (round <= 1 || estimatedRequestTokens() < window * 0.8)) return
         val keep = AgentContextCompactor.coerceKeepRecent(override?.keepRecentMessages ?: compactPolicy.keepRecentMessages)
         budgetKeepRecent = keep
         val history = historyForCompaction()
@@ -363,7 +382,12 @@ internal class AgentLoop(
     }
 
     private fun applyCompaction(round: Int, history: List<AgentModelClient.ConversationMessage>, cut: Int, target: Int): Boolean {
-        val compressConfig = compactPolicy.compressModelConfig ?: return false
+        val compressConfig = compactPolicy.compressModelConfig?.let { model ->
+            val window = model.contextWindow?.takeIf { it > 0 }
+                ?: config.contextWindow?.takeIf { it > 0 }
+                ?: compactPolicy.contextWindow.takeIf { it > 0 }
+            if (window == null) model else model.copy(contextWindow = window)
+        } ?: return false
         val original = messages.toString()
         val originalCount = messages.length()
         if (lastFailedCompaction == (original to cut)) return false

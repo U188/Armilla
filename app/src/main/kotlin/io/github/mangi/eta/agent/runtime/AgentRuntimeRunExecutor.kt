@@ -382,7 +382,10 @@ internal class AgentRuntimeRunExecutor(
     }
 
     private suspend fun compactPolicyFor(config: AgentModelClient.ModelConfig): AgentLoop.CompactPolicy {
-        val compressModelConfig = resolveCompressModelConfig(config) ?: config
+        val compressModelConfig = (resolveCompressModelConfig(config) ?: config).let { model ->
+            val window = model.contextWindow?.takeIf { it > 0 } ?: config.contextWindow?.takeIf { it > 0 }
+            if (window == null || window == model.contextWindow) model else model.copy(contextWindow = window)
+        }
         val configuredWindow = AgentContextCompactor.configuredContextWindow(config.contextWindow)
         return AgentLoop.CompactPolicy(
             enabled = AgentContextCompactor.autoCompressEnabled(

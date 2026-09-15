@@ -2057,6 +2057,7 @@ internal class AgentAppState(
                         history = historyToSend,
                         // UI owns context via auto-compress / 99% send block; Runtime must not trimHistory.
                         historyAlreadyCompacted = true,
+                        modelSessionId = conversationId,
                         handoff = AgentRuntimeWire.EntryHandoff(
                             id = runId,
                             source = AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE,

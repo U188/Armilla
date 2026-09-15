@@ -57,7 +57,9 @@ internal fun DataBackupScreen(
     onImport: suspend (InputStream) -> EtaBackupSummary,
 ) {
     val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    var importing by remember { mutableStateOf(false) }
+    val busy = exporting || importing
     var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
     var showImportDialog by remember { mutableStateOf(false) }
     var includeLinuxEnvironment by remember { mutableStateOf(false) }
@@ -83,7 +85,7 @@ internal fun DataBackupScreen(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            busy = true
+            exporting = true
             try {
                 val output = context.contentResolver.openOutputStream(uri)
                     ?: error(context.getString(R.string.data_backup_file_open_failed))
@@ -101,7 +103,7 @@ internal fun DataBackupScreen(
             } catch (throwable: Throwable) {
                 showFailure(throwable)
             } finally {
-                busy = false
+                exporting = false
             }
         }
     }
@@ -147,7 +149,7 @@ internal fun DataBackupScreen(
                 )
                 ArrowPreference(
                     title = stringResource(R.string.data_backup_export),
-                    summary = if (busy) {
+                    summary = if (exporting) {
                         stringResource(R.string.data_backup_working)
                     } else {
                         stringResource(R.string.data_backup_export_summary)
@@ -156,7 +158,7 @@ internal fun DataBackupScreen(
                     startAction = {
                         BackupIcon(
                             icon = Icons.Rounded.Download,
-                            loading = busy,
+                            loading = exporting,
                         )
                     },
                     onClick = {
@@ -165,12 +167,16 @@ internal fun DataBackupScreen(
                 )
                 ArrowPreference(
                     title = stringResource(R.string.data_backup_import),
-                    summary = stringResource(R.string.data_backup_import_summary),
+                    summary = if (importing) {
+                        stringResource(R.string.data_backup_working)
+                    } else {
+                        stringResource(R.string.data_backup_import_summary)
+                    },
                     enabled = !busy,
                     startAction = {
                         BackupIcon(
                             icon = Icons.Rounded.Description,
-                            loading = false,
+                            loading = importing,
                         )
                     },
                     onClick = {
@@ -210,7 +216,7 @@ internal fun DataBackupScreen(
                     val uri = pendingImportUri ?: return@MiuixDialogActions
                     showImportDialog = false
                     scope.launch {
-                        busy = true
+                        importing = true
                         try {
                             val input = context.contentResolver.openInputStream(uri)
                                 ?: error(context.getString(R.string.data_backup_file_open_failed))
@@ -229,7 +235,7 @@ internal fun DataBackupScreen(
                             showFailure(throwable)
                         } finally {
                             pendingImportUri = null
-                            busy = false
+                            importing = false
                         }
                     }
                 },

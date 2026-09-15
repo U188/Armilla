@@ -182,9 +182,12 @@ internal fun ProviderModelsTab(
     scope: CoroutineScope,
     scrollBehavior: ScrollBehavior,
     contentSidePadding: Dp,
+    currentModelId: String? = null,
+    onSelectCurrent: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val selectedModelId by RuntimeConfigRepository.selectedModelIdFlow().collectAsState(initial = null)
+    val storedModelId by RuntimeConfigRepository.selectedModelIdFlow().collectAsState(initial = null)
+    val selectedModelId = currentModelId?.takeIf { it.isNotBlank() } ?: storedModelId
     var isFetching by remember { mutableStateOf(false) }
     var isMutatingModel by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -426,6 +429,7 @@ internal fun ProviderModelsTab(
                                 editingModel = model
                             },
                             onSetCurrent = {
+                                onSelectCurrent?.invoke(model.id)
                                 scope.launch {
                                     RuntimeConfigRepository.setSelectedModelId(model.id)
                                     RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
@@ -696,14 +700,6 @@ private fun ModelListItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (!selectionMode && isSelected) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = context.getString(R.string.page_current_model_a0af8f),
-                tint = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.padding(end = 12.dp),
-            )
-        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = model.displayName,
@@ -743,6 +739,14 @@ private fun ModelListItem(
                     imageVector = Icons.Rounded.Tune,
                     contentDescription = stringResource(R.string.ui_edit_model_parameters_ba4864),
                     tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                )
+            }
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = context.getString(R.string.page_current_model_a0af8f),
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp),
                 )
             }
         }

@@ -801,7 +801,8 @@ fun AgentAppRoot(
             entry<AppRoute.ModelProviders>(swipeDismiss = swipeDismiss) {
                 ModelProviderListScreen(
                     onNavigate = { route -> pushRoute(route) },
-                    onBack = ::popRoute
+                    onBack = ::popRoute,
+                    currentProviderId = agentState.homeState.providerId,
                 )
             }
             entry<AppRoute.McpServers>(swipeDismiss = swipeDismiss) {
@@ -819,7 +820,11 @@ fun AgentAppRoot(
             entry<AppRoute.ModelProviderDetail>(swipeDismiss = swipeDismiss) { route ->
                 ModelProviderDetailScreen(
                     providerId = route.providerId,
-                    onBack = ::popRoute
+                    onBack = ::popRoute,
+                    currentModelId = agentState.homeState.modelId,
+                    onSelectCurrentModel = { modelId ->
+                        agentState.selectModel(modelId, route.providerId)
+                    },
                 )
             }
             entry<AppRoute.ContextCompression>(swipeDismiss = swipeDismiss) {

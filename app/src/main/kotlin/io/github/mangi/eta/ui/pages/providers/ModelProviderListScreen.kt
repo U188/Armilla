@@ -75,11 +75,13 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 internal fun ModelProviderListScreen(
     onNavigate: (AppRoute) -> Unit,
     onBack: () -> Unit,
+    currentProviderId: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val providers by ProviderRepository.providersFlow().collectAsState(initial = emptyList())
-    val selectedProviderId by RuntimeConfigRepository.selectedProviderIdFlow().collectAsState(initial = null)
+    val storedProviderId by RuntimeConfigRepository.selectedProviderIdFlow().collectAsState(initial = null)
+    val selectedProviderId = currentProviderId?.takeIf { it.isNotBlank() } ?: storedProviderId
     var searchQuery by remember { mutableStateOf("") }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedProviderIds by remember { mutableStateOf(setOf<String>()) }
@@ -419,14 +421,6 @@ private fun ProviderListItem(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ProviderIcon(provider)
-        if (!selectionMode && isCurrent) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = stringResource(R.string.ui_current_25e74d),
-                tint = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.padding(end = 8.dp),
-            )
-        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = provider.name,
@@ -467,6 +461,13 @@ private fun ProviderListItem(
             Checkbox(
                 state = if (checked) ToggleableState.On else ToggleableState.Off,
                 onClick = onToggleChecked,
+            )
+        } else if (!selectionMode && isCurrent) {
+            Icon(
+                imageVector = Icons.Rounded.Check,
+                contentDescription = stringResource(R.string.ui_current_25e74d),
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 8.dp),
             )
         }
     }

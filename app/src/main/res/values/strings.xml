@@ -1332,6 +1332,12 @@
     <string name="ui_context_compression_settings_title">上下文压缩</string>
     <string name="ui_auto_compress_context_title">自动压缩上下文</string>
     <string name="ui_auto_compress_context_summary">达到上下文窗口阈值时自动压缩历史对话</string>
+    <string name="ui_compress_strategy_title">压缩策略</string>
+    <string name="ui_compress_strategy_preserve_title">完整保留本轮（默认）</string>
+    <string name="ui_compress_strategy_preserve_summary">空间不够就暂停，不压缩当前轮</string>
+    <string name="ui_compress_strategy_continue_title">优先持续执行</string>
+    <string name="ui_compress_strategy_continue_summary">空间不够时可压缩更早的步骤</string>
+    <string name="ui_compress_strategy_note">自动和手动压缩用同一策略，下次任务生效。原文只留在本机，删除会话时一并清理。</string>
     <string name="ui_compress_target_tokens_title">压缩目标 Token</string>
     <string name="ui_compress_keep_recent_title">保留最近轮数</string>
     <string name="ui_compress_keep_recent_summary">压缩后原样保留最近 N 轮用户发言及其回复，须为 1 到 100 的整数。工具记录和追加消息会随对应轮次一起留下，但不单独计数；旧摘要也不计入。</string>

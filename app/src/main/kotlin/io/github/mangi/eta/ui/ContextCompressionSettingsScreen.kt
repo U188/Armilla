@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -149,29 +150,50 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
         }
 
         item(key = "compression_strategy") {
-            SmallTitle("压缩策略")
+            SmallTitle(stringResource(R.string.ui_compress_strategy_title))
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                 AgentCompressionStrategy.entries.forEach { option ->
-                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val title = if (option == AgentCompressionStrategy.PRESERVE_TURN) {
+                        stringResource(R.string.ui_compress_strategy_preserve_title)
+                    } else {
+                        stringResource(R.string.ui_compress_strategy_continue_title)
+                    }
+                    val summary = if (option == AgentCompressionStrategy.PRESERVE_TURN) {
+                        stringResource(R.string.ui_compress_strategy_preserve_summary)
+                    } else {
+                        stringResource(R.string.ui_compress_strategy_continue_summary)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = prefs != null) {
+                                TouchHaptics.click(view)
+                                strategy = option
+                                prefs?.edit()?.putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)?.apply()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(title, style = MaterialTheme.typography.bodyLarge)
+                            Text(summary, style = MaterialTheme.typography.bodySmall)
+                        }
                         androidx.compose.material3.RadioButton(
                             selected = strategy == option,
                             enabled = prefs != null,
                             onClick = {
+                                TouchHaptics.click(view)
                                 strategy = option
                                 prefs?.edit()?.putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)?.apply()
                             },
                         )
-                        Column(Modifier.weight(1f)) {
-                            Text(if (option == AgentCompressionStrategy.PRESERVE_TURN) "完整保留本轮（默认）" else "优先持续执行")
-                            Text(if (option == AgentCompressionStrategy.PRESERVE_TURN)
-                                "最近 N 轮是保护范围；空间不足时暂停，不自动压缩本轮。" else
-                                "最近 N 轮是正常保留目标；空间仍不足时，可摘要较早步骤。原文在本机按会话保存，可分页回读；不保证无限续行。",
-                                style = MaterialTheme.typography.bodySmall)
-                        }
                     }
                 }
-                Text("自动与手动压缩遵守同一策略。策略变更从下次任务生效；当前任务可在空间不足提示中单独授权。原文仅保存在当前安装内，尚不随会话导出或备份迁移；删除会话时清理。原文可能含敏感内容，标记为不持久化的工具结果不会存档。",
-                    modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(R.string.ui_compress_strategy_note),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
 

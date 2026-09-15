@@ -84,6 +84,8 @@ internal fun ModelProviderDetailScreen(
     providerId: String? = null,
     newType: NewProviderType? = null,
     onBack: () -> Unit,
+    currentModelId: String? = null,
+    onSelectCurrentModel: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -182,6 +184,8 @@ internal fun ModelProviderDetailScreen(
                             scope = scope,
                             scrollBehavior = scrollBehavior,
                             contentSidePadding = sidePadding,
+                            currentModelId = currentModelId,
+                            onSelectCurrent = onSelectCurrentModel,
                         )
                     }
                 }

@@ -10,6 +10,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.text.format.DateFormat
 import android.widget.Toast
+import kotlin.jvm.Volatile
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -202,6 +203,7 @@ internal class AgentAppState(
     private val persistenceLock = Any()
     private var persistenceJob: Deferred<Boolean>? = null
     private val conversationPersistenceMutex = Mutex()
+    @Volatile private var lastConversationPersistenceError: String? = null
     private var conversationArchiveBusy = false
     private var runtimeRefreshAfterArchive = false
     private var bindingRefreshAfterArchive = false
@@ -1947,7 +1949,10 @@ internal class AgentAppState(
                             runId = runId,
                             ok = false,
                             content = "",
-                            error = appContext.getString(R.string.conversation_persistence_failed),
+                            error = lastConversationPersistenceError
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { "${appContext.getString(R.string.conversation_persistence_failed)}（$it）" }
+                                ?: appContext.getString(R.string.conversation_persistence_failed),
                         )
                     )
                 }
@@ -4046,6 +4051,7 @@ internal class AgentAppState(
                         )
                     }
                     onSaved?.invoke()
+                    lastConversationPersistenceError = null
                     true
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -4064,8 +4070,9 @@ internal class AgentAppState(
                         }
                     }
                     AndroidAgentLogger.error(
-                        "Agent conversation persistence failed: type=${throwable.safeLogType()}"
+                        "Agent conversation persistence failed: type=${throwable.safeLogType()} message=${throwable.message}"
                     )
+                    lastConversationPersistenceError = throwable.message
                     false
                 }
             }.also { persistenceJob = it }

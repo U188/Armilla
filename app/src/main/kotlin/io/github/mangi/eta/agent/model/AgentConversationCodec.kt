@@ -361,19 +361,33 @@ internal object AgentConversationCodec {
         val bounded = messages.map(::sanitizeMessage).toMutableList()
         var encoded = json.encodeToString(bounded)
         if (encoded.length <= maxChars) return encoded
-        require(messages.none { it.turnId.isNotBlank() }) {
-            "受保护会话超过持久化容量上限；未截断或丢弃原消息，请压缩历史后重试"
+        // Only the latest in-flight turn is protected. Older turns may still be dropped so a
+        // large existing conversation cannot block saving a new one.
+        val protectedTurnId = bounded.lastOrNull { it.turnId.isNotBlank() }?.turnId.orEmpty()
+        val protectedCount = if (protectedTurnId.isBlank()) 0 else bounded.indexOfFirst { it.turnId == protectedTurnId }
+            .let { start -> if (start < 0) 0 else bounded.size - start }
+        if (protectedCount > 0) {
+            val protectedEncoded = json.encodeToString(bounded.takeLast(protectedCount))
+            require(protectedEncoded.length <= maxChars) {
+                "受保护会话超过持久化容量上限；未截断或丢弃原消息，请压缩历史后重试"
+            }
         }
 
         val notice = AgentModelClient.ConversationMessage(
             role = "system",
             content = COMPACTION_NOTICE,
         )
-        while (bounded.size > 1) {
+        val keep = protectedCount.coerceAtLeast(1)
+        while (bounded.size > keep) {
             bounded.removeAt(0)
-            while (bounded.firstOrNull()?.role == "tool") bounded.removeAt(0)
+            while (bounded.size > keep && bounded.firstOrNull()?.role == "tool") bounded.removeAt(0)
             encoded = json.encodeToString(listOf(notice) + bounded)
             if (encoded.length <= maxChars) return encoded
+        }
+        if (protectedCount > 0) {
+            encoded = json.encodeToString(bounded)
+            if (encoded.length <= maxChars) return encoded
+            error("受保护会话超过持久化容量上限；未截断或丢弃原消息，请压缩历史后重试")
         }
 
         val last = bounded.lastOrNull() ?: return "[]"
@@ -462,8 +476,7 @@ internal object AgentConversationCodec {
     private fun sanitizeToolCallsJson(raw: String, preserveText: Boolean = false): String {
         if (raw.isBlank()) return ""
         if (preserveText) {
-            JSONArray(raw) // Validate rather than silently rewriting/dropping protected arguments.
-            return raw
+            if (runCatching { JSONArray(raw) }.isSuccess) return raw
         }
         val source = runCatching { JSONArray(raw) }.getOrNull() ?: return ""
         val target = JSONArray()

@@ -106,7 +106,7 @@ internal object AgentConversationStore {
                 val contextCheckpoints = sorted.map { (conversationId, state) ->
                     ConversationContextCheckpointEntity(
                         conversationId = conversationId,
-                        historyJson = AgentConversationCodec.encodeConversationCheckpoint(state.history),
+                        historyJson = encodeCheckpoint(state.history),
                     )
                 }
                 val dao = EtaDatabase.get(appContext).conversationDao()
@@ -127,6 +127,14 @@ internal object AgentConversationStore {
                     },
                 )
             }
+        }
+    }
+
+    private fun encodeCheckpoint(history: List<AgentModelClient.ConversationMessage>): String =
+        try {
+            AgentConversationCodec.encodeConversationCheckpoint(history)
+        } catch (_: Throwable) {
+            AgentConversationCodec.encodeConversationCheckpoint(history.map { it.copy(turnId = "") })
         }
     }
 

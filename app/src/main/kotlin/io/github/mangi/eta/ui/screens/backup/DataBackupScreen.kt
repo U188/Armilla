@@ -134,17 +134,23 @@ internal fun DataBackupScreen(
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                 SwitchPreference(
                     title = stringResource(R.string.data_backup_include_linux),
-                    summary = "完整 Linux 环境安全恢复尚未开放，暂不支持导出；用户数据备份不受影响。",
-                    checked = false,
-                    onCheckedChange = {},
-                    enabled = false,
+                    summary = buildString {
+                        append(stringResource(R.string.data_backup_include_linux_summary))
+                        linuxSizeLabel?.let { size ->
+                            append('\n')
+                            append(context.getString(R.string.data_backup_linux_size, size))
+                        }
+                    },
+                    checked = includeLinuxEnvironment,
+                    onCheckedChange = { includeLinuxEnvironment = it },
+                    enabled = !busy,
                 )
                 ArrowPreference(
                     title = stringResource(R.string.data_backup_export),
                     summary = if (busy) {
                         stringResource(R.string.data_backup_working)
                     } else {
-                        stringResource(R.string.data_backup_export_summary) + "\n不导出 API Key、MCP Token 和自定义鉴权配置。对话、工作区等内容仍可能包含敏感信息，请妥善保管。"
+                        stringResource(R.string.data_backup_export_summary)
                     },
                     enabled = !busy,
                     startAction = {

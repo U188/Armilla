@@ -194,6 +194,35 @@ internal object Prefs {
     /** Eta 设置页与 Runtime 使用的本地 Agent 配置，不依赖 LSPosed。 */
     fun localAgentPreferences(): SharedPreferences? = localAgent
 
+    fun exportAgentPreferences(): Map<String, String> {
+        val prefs = localAgent ?: return emptyMap()
+        return prefs.all.mapNotNull { (key, value) ->
+            when (value) {
+                is Boolean -> key to "b:$value"
+                is Int -> key to "i:$value"
+                is Long -> key to "l:$value"
+                is String -> key to "s:$value"
+                else -> null
+            }
+        }.toMap()
+    }
+
+    fun restoreAgentPreferences(values: Map<String, String>) {
+        val prefs = localAgent ?: return
+        val editor = prefs.edit().clear()
+        values.forEach { (key, encoded) ->
+            if (key.isBlank() || encoded.length < 2 || encoded[1] != ':') return@forEach
+            val payload = encoded.substring(2)
+            when (encoded[0]) {
+                'b' -> editor.putBoolean(key, payload.toBooleanStrictOrNull() ?: return@forEach)
+                'i' -> editor.putInt(key, payload.toIntOrNull() ?: return@forEach)
+                'l' -> editor.putLong(key, payload.toLongOrNull() ?: return@forEach)
+                's' -> editor.putString(key, payload)
+            }
+        }
+        editor.commit()
+    }
+
     /** 关闭时压缩用当前对话模型；已选过自定义模型的旧配置视为开启。 */
     fun isCustomCompressModelEnabled(preferences: SharedPreferences? = localAgent): Boolean {
         val prefs = preferences ?: return false

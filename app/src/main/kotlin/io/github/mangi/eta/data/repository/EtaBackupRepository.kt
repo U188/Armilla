@@ -8,11 +8,18 @@ import io.github.mangi.eta.agent.device.RootAccess
 import io.github.mangi.eta.agent.device.RootSu
 import io.github.mangi.eta.agent.media.AgentChatImageCache
 import io.github.mangi.eta.agent.skill.SkillRuntime
+import io.github.mangi.eta.agent.terminal.AndroidBusyBox
 import io.github.mangi.eta.agent.terminal.LinuxDistribution
 import io.github.mangi.eta.agent.terminal.LinuxEnvironmentPaths
+import io.github.mangi.eta.agent.terminal.LinuxExecutionBackend
 import io.github.mangi.eta.agent.terminal.TerminalPrivateStorage
+import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.data.datastore.EtaSettingsBackup
 import io.github.mangi.eta.data.datastore.SettingsDataStore
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import io.github.mangi.eta.data.db.ConversationContextCheckpointEntity
 import io.github.mangi.eta.data.db.ConversationEntity
 import io.github.mangi.eta.data.db.ConversationFolderEntity
@@ -68,10 +75,11 @@ internal data class EtaBackupDocument(
     val linuxWorkspaceIncluded: Boolean = false,
     val attachmentCount: Int = 0,
     val importedFileCount: Int = 0,
+    val agentPreferences: Map<String, String> = emptyMap(),
 ) {
     companion object {
         const val FORMAT = "eta-backup"
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
         const val MIN_SUPPORTED_SCHEMA = 1
         const val MANIFEST_NAME = "eta-backup.json"
     }
@@ -151,15 +159,7 @@ internal object EtaBackupRepository {
             AgentExecutionService.beginBackupMaintenance()
             try {
                 val appContext = context.applicationContext
-                require(!options.includeLinuxEnvironment) { "完整 Linux 环境备份暂不可用，安全恢复验证完成前仅支持用户数据备份" }
-                val raw = EtaDatabase.get(appContext).withTransaction { snapshot(appContext, options) }
-                val document = raw.copy(
-                    providers = raw.providers.map { item -> item.copy(
-                        provider = item.provider.copy(apiKey = "", customHeadersJson = "[]", customBodyJson = "[]", balanceOptionJson = "{}"),
-                        models = item.models.map { it.copy(customHeadersJson = "[]", customBodyJson = "[]") },
-                    ) },
-                    mcpTokens = emptyMap(),
-                )
+                val document = EtaDatabase.get(appContext).withTransaction { snapshot(appContext, options) }
                 ZipOutputStream(output).use { zip ->
                     val writer = BackupZipWriter(zip)
                     zip.setLevel(if (options.includeLinuxEnvironment) 1 else 6)
@@ -176,6 +176,9 @@ internal object EtaBackupRepository {
                         TerminalPrivateStorage.workspace(appContext.filesDir),
                         skipNames = setOf("imports", "mounts"),
                     )
+                    if (options.includeLinuxEnvironment) {
+                        exportLinuxEnvironments(appContext, writer)
+                    }
                     zip.finish()
                 }
                 document.toBackupSummary()
@@ -240,7 +243,6 @@ internal object EtaBackupRepository {
                         val document = files[EtaBackupDocument.MANIFEST_NAME]?.let {
                             decodeDocument(it.readText()).also(::validate)
                         }
-                        require(document?.includeLinuxEnvironment != true) { "完整 Linux 环境恢复暂未开放，现有数据未修改" }
                         val conversation = files[EtaConversationExport.MANIFEST_NAME]?.let {
                             decodeConversation(it.readText())
                         }
@@ -280,6 +282,7 @@ internal object EtaBackupRepository {
                             return@withLock plan.document.toConversationSummary()
                         }
                         val planned = linkedMapOf<File, File>()
+                        val linuxTars = mutableListOf<Triple<String, String, File>>()
                         files.forEach { (name, source) ->
                             val target = when {
                                 name == EtaBackupDocument.MANIFEST_NAME || name == EtaConversationExport.MANIFEST_NAME -> null
@@ -292,8 +295,12 @@ internal object EtaBackupRepository {
                                     require(relative.substringBefore('/') !in setOf("imports", "mounts")) { "工作区归档包含受保护挂载" }
                                     BackupArchiveSafety.target(TerminalPrivateStorage.workspace(appContext.filesDir), relative)
                                 }
-                                name.startsWith("linux/environments/") || name.startsWith("linux/markers/") ->
-                                    throw EtaBackupException("完整 Linux 环境安全恢复尚未开放，现有数据未修改。请使用不含 Linux 环境的数据备份。")
+                                BackupArchiveSafety.LINUX_ENVIRONMENT_TAR.matches(name) -> {
+                                    val parts = name.removePrefix("linux/environments/").removeSuffix(".tar").split('/')
+                                    require(parts.size == 2) { "Linux 环境归档路径无效" }
+                                    linuxTars += Triple(parts[0], parts[1], source)
+                                    null
+                                }
                                 else -> throw EtaBackupException("备份存在未知条目：$name")
                             }
                             if (target != null) {
@@ -322,6 +329,11 @@ internal object EtaBackupRepository {
                                 if (document != null) {
                                     restoreMetadata(appContext, document)
                                     rewriteRestoredPaths(appContext, document)
+                                }
+                            }
+                            if (document?.includeLinuxEnvironment == true) {
+                                linuxTars.forEach { (backend, distribution, archive) ->
+                                    archive.inputStream().use { restoreLinuxTar(appContext, it, backend, distribution) }
                                 }
                             }
                         } catch (failure: Throwable) {
@@ -460,6 +472,7 @@ internal object EtaBackupRepository {
             linuxWorkspaceIncluded = true,
             attachmentCount = countFiles(chatImages),
             importedFileCount = countFiles(imports),
+            agentPreferences = Prefs.exportAgentPreferences(),
         )
     }
 
@@ -513,6 +526,9 @@ internal object EtaBackupRepository {
             McpSecretStore(context).replaceAll(document.mcpTokens)
             document.settings?.let { SettingsDataStore.restoreBackup(it) }
                 ?: SettingsDataStore.setSelection(document.selectedProviderId, document.selectedModelId)
+            if (document.agentPreferences.isNotEmpty()) {
+                Prefs.restoreAgentPreferences(document.agentPreferences)
+            }
         } else {
             SettingsDataStore.setSelection(document.selectedProviderId, document.selectedModelId)
         }
@@ -640,6 +656,196 @@ internal object EtaBackupRepository {
         attachmentCount = attachmentCount,
     )
 }
+
+private val LINUX_TAR_SKIP = setOf("proc", "sys", "dev", "run", "tmp")
+
+private fun exportLinuxEnvironments(context: Context, writer: BackupZipWriter) {
+    LinuxDistribution.entries.forEach { distribution ->
+        val envDir = LinuxEnvironmentPaths.environmentDir(context, distribution)
+        if (!envDir.exists()) return@forEach
+        val backend = LinuxEnvironmentPaths.backendOf(
+            LinuxEnvironmentPaths.rootfsDir(context, distribution).absolutePath,
+        )
+        val entryName = "linux/environments/${backend.wireName}/${distribution.wireName}.tar"
+        val packed = writer.stream(entryName) { output ->
+            if (backend == LinuxExecutionBackend.PROOT && canWalk(envDir)) {
+                writeTar(envDir, output)
+            } else {
+                streamBusyBoxTar(envDir, output)
+            }
+        }
+        if (packed <= 0L) {
+            throw EtaBackupException("无法打包 Linux 环境：${distribution.wireName}")
+        }
+    }
+}
+
+private fun restoreLinuxTar(
+    context: Context,
+    input: java.io.InputStream,
+    backendName: String,
+    distributionName: String,
+) {
+    val backend = LinuxExecutionBackend.entries.firstOrNull { it.wireName == backendName }
+        ?: throw EtaBackupException("备份中的 Linux 后端无效：$backendName")
+    val distribution = LinuxDistribution.entries.firstOrNull { it.wireName == distributionName }
+        ?: throw EtaBackupException("备份中的 Linux 发行版无效：$distributionName")
+    val destination = LinuxEnvironmentPaths.environmentDir(context, distribution, backend)
+    destination.parentFile?.mkdirs()
+    if (canWrite(destination.parentFile ?: destination) && (backend == LinuxExecutionBackend.PROOT || canWalk(destination))) {
+        if (destination.exists() && !destination.deleteRecursively()) {
+            deleteTreeAsRoot(destination)
+        }
+        destination.mkdirs()
+        extractTarStream(input, destination)
+        return
+    }
+    if (!RootAccess.isGranted) {
+        throw EtaBackupException("导入完整 Linux 环境需要 Root")
+    }
+    val tarFile = File(context.cacheDir, "eta-linux-restore-${distribution.wireName}-${System.nanoTime()}.tar")
+    try {
+        tarFile.outputStream().buffered().use { input.copyTo(it) }
+        if (tarFile.length() <= 0L) {
+            throw EtaBackupException("备份中的 Linux 环境是空的")
+        }
+        if (!extractTarFileAsRoot(tarFile, destination)) {
+            throw EtaBackupException("无法把 Linux 环境安装到 ${destination.absolutePath}")
+        }
+    } finally {
+        tarFile.delete()
+    }
+}
+
+private fun skipLinuxPath(relative: String): Boolean {
+    val parts = relative.split('/')
+    return parts.size >= 2 && parts[0] == "rootfs" && parts[1] in LINUX_TAR_SKIP
+}
+
+private fun writeTar(source: File, output: java.io.OutputStream) {
+    TarArchiveOutputStream(output).apply {
+        setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
+        setBigNumberMode(TarArchiveOutputStream.BIGNUMBER_POSIX)
+    }.let { tar ->
+        source.walkTopDown().onEnter { dir ->
+            !skipLinuxPath(dir.relativeTo(source).invariantSeparatorsPath)
+        }.forEach { file ->
+            val relative = file.relativeTo(source).invariantSeparatorsPath.ifBlank { "." }
+            if (relative == "." || skipLinuxPath(relative)) return@forEach
+            val entry = TarArchiveEntry(file, relative)
+            tar.putArchiveEntry(entry)
+            if (file.isFile) file.inputStream().use { it.copyTo(tar) }
+            tar.closeArchiveEntry()
+        }
+        tar.finish()
+    }
+}
+
+private fun extractTarStream(input: java.io.InputStream, destination: File) {
+    val root = destination.canonicalFile
+    val tar = TarArchiveInputStream(input)
+    while (true) {
+        val entry = tar.nextEntry ?: break
+        val relative = normalizeTarPath(entry.name) ?: continue
+        val target = File(root, relative).canonicalFile
+        if (!target.path.startsWith(root.path + File.separator) && target != root) {
+            throw EtaBackupException("Linux 归档路径越界")
+        }
+        when {
+            entry.isDirectory -> target.mkdirs()
+            entry.isSymbolicLink -> {
+                target.parentFile?.mkdirs()
+                Files.deleteIfExists(target.toPath())
+                runCatching {
+                    Files.createSymbolicLink(target.toPath(), java.nio.file.Path.of(entry.linkName))
+                }.getOrElse {
+                    target.writeText("")
+                }
+            }
+            entry.isFile -> {
+                target.parentFile?.mkdirs()
+                target.outputStream().use { tar.copyTo(it) }
+                if (entry.mode and 0b001001001 != 0) target.setExecutable(true, false)
+            }
+        }
+    }
+}
+
+private fun streamBusyBoxTar(source: File, output: java.io.OutputStream) {
+    if (!RootAccess.isGranted) {
+        throw EtaBackupException("打包完整 Linux 环境需要 Root")
+    }
+    val script = AndroidBusyBox.discoveryScript() +
+        "; [ -n \"${'$'}eta_busybox\" ] || exit 127; " +
+        "\"${'$'}eta_busybox\" tar -C " + shellQuote(source.absolutePath) +
+        " --exclude=rootfs/proc --exclude=rootfs/sys --exclude=rootfs/dev --exclude=rootfs/run --exclude=rootfs/tmp" +
+        " -cf - ."
+    val process = RootSu.process(script).redirectErrorStream(false).start()
+    val stderr = StringBuilder()
+    val reader = Thread {
+        runCatching { process.errorStream.bufferedReader().forEachLine { stderr.appendLine(it) } }
+    }.apply { isDaemon = true; start() }
+    try {
+        process.inputStream.copyTo(output)
+        val finished = process.waitFor(20, TimeUnit.MINUTES)
+        reader.join(5_000)
+        val code = if (finished) process.exitValue() else -1
+        if (!finished || code != 0) {
+            AndroidAgentLogger.warn(
+                "Backup linux tar failed: source=${source.absolutePath} exit=$code stderr=${stderr.toString().take(500)}",
+            )
+            throw EtaBackupException(
+                "无法打包 Linux 环境（退出码 $code）${stderr.toString().trim().take(180).let { if (it.isBlank()) "" else "：$it" }}",
+            )
+        }
+    } finally {
+        runCatching { process.destroyForcibly() }
+    }
+}
+
+private fun extractTarFileAsRoot(archive: File, destination: File): Boolean {
+    destination.parentFile?.mkdirs()
+    val script = AndroidBusyBox.discoveryScript() +
+        "; [ -n \"${'$'}eta_busybox\" ] || exit 127; " +
+        "\"${'$'}eta_busybox\" mkdir -p -- " + shellQuote(destination.parentFile?.absolutePath.orEmpty()) + "; " +
+        "\"${'$'}eta_busybox\" rm -rf -- " + shellQuote(destination.absolutePath) + "; " +
+        "\"${'$'}eta_busybox\" mkdir -p -- " + shellQuote(destination.absolutePath) + "; " +
+        "\"${'$'}eta_busybox\" tar -C " + shellQuote(destination.absolutePath) + " -xf " + shellQuote(archive.absolutePath)
+    return runRoot(script, timeoutMinutes = 20)
+}
+
+private fun normalizeTarPath(raw: String): String? {
+    val relative = raw.trim().trimStart('/').replace('\\', '/')
+    if (relative.isBlank() || relative == ".") return null
+    val segments = relative.split('/').filter { it.isNotEmpty() && it != "." }
+    if (segments.any { it == ".." }) throw EtaBackupException("Linux 归档路径越界")
+    return segments.joinToString("/")
+}
+
+private fun deleteTreeAsRoot(target: File): Boolean {
+    if (!target.exists()) return true
+    return runRoot("rm -rf -- ${shellQuote(target.absolutePath)}", timeoutMinutes = 5)
+}
+
+private fun runRoot(command: String, timeoutMinutes: Long): Boolean {
+    if (!RootAccess.isGranted) return false
+    val process = runCatching { RootSu.process(command).redirectErrorStream(true).start() }.getOrNull() ?: return false
+    return try {
+        val finished = process.waitFor(timeoutMinutes, TimeUnit.MINUTES)
+        if (!finished) {
+            process.destroyForcibly()
+            false
+        } else {
+            process.exitValue() == 0
+        }
+    } finally {
+        runCatching { process.destroy() }
+    }
+}
+
+private fun canWalk(root: File): Boolean = root.canRead() && (root.listFiles()?.firstOrNull()?.canRead() != false)
+
+private fun canWrite(root: File): Boolean = root.parentFile?.canWrite() == true && (!root.exists() || root.canWrite())
 
 private fun encodeFiles(files: Map<String, ByteArray>): Map<String, String> =
     files.mapValues { (_, bytes) -> Base64.encodeToString(bytes, Base64.NO_WRAP) }

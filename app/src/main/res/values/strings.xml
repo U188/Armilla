@@ -1294,7 +1294,7 @@
   <string name="data_backup_warning_title">Keep the backup file safe</string>
   <string name="data_backup_warning_summary">The file contains provider API keys, conversations, assistants, skills, MCP servers, settings, chat attachments, and imported files. You can optionally include the complete Linux environment.</string>
   <string name="data_backup_export">Export data</string>
-  <string name="data_backup_export_summary">Save conversations, assistants, providers, skills, settings, and attachments to a ZIP file</string>
+  <string name="data_backup_export_summary">Save conversations, assistants, providers (including API keys), skills, settings, and attachments to a ZIP file</string>
   <string name="data_backup_import">Import data</string>
   <string name="data_backup_import_summary">Replace conversations, assistants, providers, skills, settings, and attachments from a backup file</string>
   <string name="data_backup_import_confirm_title">Import Eta data?</string>

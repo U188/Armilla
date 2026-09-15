@@ -1303,7 +1303,7 @@
   <string name="data_backup_warning_title">请妥善保管备份文件</string>
   <string name="data_backup_warning_summary">文件包含提供商 API Key，以及对话、助手、技能、MCP、设置、聊天附件和导入的文件。可以选择是否打包完整 Linux 环境。</string>
   <string name="data_backup_export">导出数据</string>
-  <string name="data_backup_export_summary">将对话、助手、提供商、技能、设置与附件保存为 ZIP 文件</string>
+  <string name="data_backup_export_summary">将对话、助手、提供商（含 API Key）、技能、设置与附件保存为 ZIP 文件</string>
   <string name="data_backup_import">导入数据</string>
   <string name="data_backup_import_summary">从备份文件替换对话、助手、提供商、技能、设置与附件</string>
   <string name="data_backup_import_confirm_title">导入 代鱼 数据？</string>

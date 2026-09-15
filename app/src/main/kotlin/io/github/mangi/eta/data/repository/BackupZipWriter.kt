@@ -1,6 +1,7 @@
 package io.github.mangi.eta.data.repository
 
 import java.io.File
+import java.io.OutputStream
 import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -48,6 +49,30 @@ internal class BackupZipWriter(
         require(actual == expected && file.length() == expected && file.lastModified() == modified) { "备份文件在读取时发生变化" }
         zip.closeEntry()
         total += actual
+    }
+
+    fun stream(name: String, write: (OutputStream) -> Unit): Long {
+        val normalized = BackupArchiveSafety.relativePath(name)
+        require(normalized == name && names.size < entryLimit && names.add(name)) { "导出条目过多、重复或路径无效" }
+        zip.putNextEntry(ZipEntry(name))
+        val remaining = totalLimit - total
+        val counting = object : OutputStream() {
+            var size = 0L
+            override fun write(b: Int) {
+                require(size + 1 <= remaining) { "导出大小超过可恢复的上限" }
+                zip.write(b)
+                size++
+            }
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                require(len >= 0 && len.toLong() <= remaining - size) { "导出大小超过可恢复的上限" }
+                zip.write(b, off, len)
+                size += len
+            }
+        }
+        write(counting)
+        zip.closeEntry()
+        total += counting.size
+        return counting.size
     }
 
     fun directory(prefix: String, root: File, skipNames: Set<String> = emptySet()) {

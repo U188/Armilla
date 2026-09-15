@@ -119,7 +119,7 @@ class EtaBackupRepositoryTest {
         val restoredConversation = EtaDatabase.get(context).conversationDao().conversationEntities().single()
         assertEquals(provider.id, restoredConversation.providerId)
         assertEquals(provider.models.first().id, restoredConversation.modelId)
-        assertEquals("", ProviderRepository.providerById(provider.id)?.apiKey)
+        assertEquals("sk-backup-test", ProviderRepository.providerById(provider.id)?.apiKey)
         assertEquals(ModelSource.CATALOG, ProviderRepository.providerById(provider.id)?.models?.first()?.source)
     }
 

@@ -10,9 +10,10 @@ import java.util.zip.ZipFile
 /** Stage and verify all bytes before touching live data. */
 internal object BackupArchiveSafety {
     const val MANIFEST_LIMIT = 32L * 1024 * 1024
-    const val TOTAL_LIMIT = 8L * 1024 * 1024 * 1024
+    const val TOTAL_LIMIT = 32L * 1024 * 1024 * 1024
     const val ENTRY_LIMIT = 100_000
     const val RESERVE_BYTES = 128L * 1024 * 1024
+    val LINUX_ENVIRONMENT_TAR = Regex("""^linux/environments/[^/]+/[^/]+\.tar$""")
 
     fun relativePath(raw: String): String {
         require(raw.isNotBlank() && raw.length <= 4096 && !raw.startsWith('/') &&
@@ -74,7 +75,8 @@ internal object BackupArchiveSafety {
                 if (entry.isDirectory) continue
                 require(name == "eta-backup.json" || name == "eta-conversation.json" ||
                     name.startsWith("attachments/chat-images/") || name.startsWith("attachments/imports/") ||
-                    name.startsWith("linux/workspace/")) { "不支持的备份条目：$name" }
+                    name.startsWith("linux/workspace/") ||
+                    LINUX_ENVIRONMENT_TAR.matches(name)) { "不支持的备份条目：$name" }
                 val file = target(directory, name)
                 require(file.parentFile!!.mkdirs() || file.parentFile!!.isDirectory)
                 val limit = if (!name.contains('/')) MANIFEST_LIMIT else TOTAL_LIMIT

@@ -919,7 +919,7 @@ internal fun SettingsScreen(
                             if (!opened) {
                                 openExternalUrl(
                                     context,
-                                    "https://qm.qq.com/q/735910197",
+                                    "https://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=QZmmrmSQqSAyI8Mo5NHAMc9l6TejcBrw&authKey=mQrh5avqMDc09GunNdtCmuN5tk9UynOekkjHxfuKPjhN4ELWBMJN5edaYw51UXbQ&noverify=0&group_code=735910197",
                                     context.getString(R.string.about_qq_group_open_failed),
                                 )
                             }

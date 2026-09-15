@@ -53,6 +53,16 @@
   <string name="compress_conversation_streaming">模型回覆時無法壓縮</string>
   <string name="compress_conversation_done">對話內容已壓縮</string>
   <string name="compress_conversation_in_progress">正在壓縮會話…</string>
+
+  <string name="context_budget_title">上下文已滿</string>
+  <string name="context_budget_body">目前任務已暫停。較早步驟仍受保護，不會被自動丟掉。</string>
+  <string name="context_budget_hint">僅本次壓縮只作用於目前任務，不改全域設定。原文存檔失敗時不會壓縮。</string>
+  <string name="context_budget_compact">僅本次壓縮</string>
+  <string name="context_budget_compact_summary">壓縮較早步驟，然後繼續目前任務</string>
+  <string name="context_budget_pause">先停在這裡</string>
+  <string name="context_budget_pause_summary">保持保護，稍後再決定</string>
+  <string name="context_budget_stop">結束任務</string>
+  <string name="context_budget_stop_summary">停止後可改用更大視窗的模型</string>
   <string name="ui_custom_compress_model_title">自訂壓縮模型</string>
   <string name="ui_custom_compress_model_summary">關閉後使用目前對話所選模型</string>
   <plurals name="context_compacted_messages">

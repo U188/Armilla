@@ -53,6 +53,16 @@
   <string name="compress_conversation_streaming">模型回复时无法压缩</string>
   <string name="compress_conversation_done">上下文已压缩</string>
   <string name="compress_conversation_in_progress">正在压缩会话…</string>
+
+  <string name="context_budget_title">上下文已满</string>
+  <string name="context_budget_body">当前任务已暂停。较早步骤仍受保护，不会被自动丢掉。</string>
+  <string name="context_budget_hint">仅本次压缩只作用于当前任务，不改全局设置。原文存档失败时不会压缩。</string>
+  <string name="context_budget_compact">仅本次压缩</string>
+  <string name="context_budget_compact_summary">压缩较早步骤，然后继续当前任务</string>
+  <string name="context_budget_pause">先停在这里</string>
+  <string name="context_budget_pause_summary">保持保护，稍后再决定</string>
+  <string name="context_budget_stop">结束任务</string>
+  <string name="context_budget_stop_summary">停止后可换更大窗口的模型</string>
   <string name="ui_custom_compress_model_title">自定义压缩模型</string>
   <string name="ui_custom_compress_model_summary">关闭后使用当前对话所选模型</string>
   <plurals name="context_compacted_messages">

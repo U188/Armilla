@@ -881,27 +881,12 @@ fun AgentAppRoot(
     agentState.contextBudgetPrompt?.takeIf {
         it.conversationId == agentState.conversationPaneState.selectedConversationId
     }?.let { prompt ->
-        WindowDialog(
-            show = true,
-            title = "上下文空间不足，任务已暂停",
-            summary = prompt.reason + "\n允许续行后，仅当前任务可压缩较早步骤，不改变全局设置。原文存档失败时不会应用该压缩。",
-            onDismissRequest = agentState::dismissContextBudgetPrompt,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                top.yukonga.miuix.kmp.basic.TextButton(
-                    text = "保持保护并暂停", onClick = agentState::dismissContextBudgetPrompt,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                top.yukonga.miuix.kmp.basic.TextButton(
-                    text = "仅本次允许压缩较早步骤", onClick = { agentState.allowCurrentRunCompaction(prompt.runId) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                top.yukonga.miuix.kmp.basic.TextButton(
-                    text = "停止任务，之后选择更大窗口模型", onClick = { agentState.stopBudgetBlockedRun(prompt.runId) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
+        ContextBudgetPromptDialog(
+            reason = prompt.reason,
+            onDismiss = agentState::dismissContextBudgetPrompt,
+            onCompactThisRun = { agentState.allowCurrentRunCompaction(prompt.runId) },
+            onStop = { agentState.stopBudgetBlockedRun(prompt.runId) },
+        )
     }
 
     if (conversationExportConfirmation) {

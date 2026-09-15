@@ -1345,6 +1345,16 @@
     <string name="compress_conversation_done">Conversation compressed</string>
     <string name="compress_conversation_in_progress">Compressing conversation…</string>
 
+    <string name="context_budget_title">Context window is full</string>
+    <string name="context_budget_body">This run is paused. Earlier steps stay protected and will not be dropped automatically.</string>
+    <string name="context_budget_hint">Compacting this run only does not change global settings. If the original archive fails, nothing is compressed.</string>
+    <string name="context_budget_compact">Compact this run</string>
+    <string name="context_budget_compact_summary">Compress earlier steps, then continue</string>
+    <string name="context_budget_pause">Keep paused</string>
+    <string name="context_budget_pause_summary">Leave protected history as-is for now</string>
+    <string name="context_budget_stop">End task</string>
+    <string name="context_budget_stop_summary">Stop, then pick a larger-window model</string>
+
     <plurals name="context_compacted_messages">
         <item quantity="one">%d message compacted</item>
         <item quantity="other">%d messages compacted</item>

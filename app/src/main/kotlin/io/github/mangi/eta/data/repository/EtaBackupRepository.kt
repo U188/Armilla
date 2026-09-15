@@ -342,7 +342,7 @@ internal object EtaBackupRepository {
                         // publishing a marker which startup could legitimately interpret as committed.
                         journal.commit()
                         mayRetire = true
-                        document?.summary() ?: requireNotNull(conversation).summary()
+                        if (document != null) document.summary() else requireNotNull(conversation).summary()
                     } finally {
                         if (mayRetire || !BackupRestoreJournal.hasJournal(operation)) {
                             BackupDurability.retire(operation).deleteRecursively()

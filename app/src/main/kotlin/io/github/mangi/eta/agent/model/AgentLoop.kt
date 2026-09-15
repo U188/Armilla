@@ -333,7 +333,7 @@ internal class AgentLoop(
                 val original = messages.getJSONObject(index)
                 if (original.optString("role") != "tool" || original.optString("tool_call_id") in sensitiveToolCallIds) continue
                 val text = original.opt("content") as? String ?: continue
-                if (text.codePointCount(0, text.length()) <= 8192 || text.contains("[Eta tool output pruned;")) continue
+                if (text.codePointCount(0, text.length) <= 8192 || text.contains("[Eta tool output pruned;")) continue
                 val id = archive.save(listOf(AgentConversationCodec.fromJsonObject(original)))
                 archive.record(id, "started")
                 val head = text.offsetByCodePoints(0, 4096)

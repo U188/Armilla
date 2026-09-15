@@ -705,7 +705,7 @@ object SkillRuntime {
     /** A process crash releases its file lock. Never collect a live or daemon-retained view. */
     private fun cleanupAbandonedRunViews(context: Context, runs: File) {
         runs.listFiles().orEmpty().forEach { root ->
-            if (!root.isDirectory || File(root, ".retained").exists() || root.canonicalPath in runLeases) return@forEach
+            if (!root.isDirectory || File(root, ".retained").exists() || runLeases.containsKey(root.canonicalPath)) return@forEach
             val lease = File(root, ".lease")
             if (Files.isSymbolicLink(lease.toPath()) || !lease.isFile) return@forEach
             runCatching {

@@ -11,7 +11,7 @@ import java.util.UUID
 /** A failed fsync/rename must never be reported as a successful durable commit. */
 internal object BackupDurability {
     fun syncDirectory(directory: File) {
-        val fd = Os.open(directory.absolutePath, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+        val fd = Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0)
         try { Os.fsync(fd) } finally { Os.close(fd) }
     }
 

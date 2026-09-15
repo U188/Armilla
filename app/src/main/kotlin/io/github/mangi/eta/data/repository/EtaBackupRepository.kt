@@ -542,7 +542,19 @@ private fun restoreLinuxTar(
     if (!RootAccess.isGranted) {
         throw EtaBackupException("导入完整 Linux 环境需要 Root")
     }
-    extractBusyBoxTar(input, destination)
+    val staging = File(context.cacheDir, "eta-linux-restore-${distribution.wireName}-${System.nanoTime()}")
+    try {
+        if (!staging.mkdirs() && !staging.isDirectory) {
+            throw EtaBackupException("无法创建 Linux 环境临时目录")
+        }
+        extractTarStream(input, staging)
+        if (!installTreeAsRoot(staging, destination)) {
+            throw EtaBackupException("无法把 Linux 环境安装到 ${destination.absolutePath}")
+        }
+    } finally {
+        staging.deleteRecursively()
+        deleteTreeAsRoot(staging)
+    }
 }
 
 private fun writeTar(source: File, output: OutputStream): Boolean = runCatching {
@@ -608,28 +620,14 @@ private fun streamBusyBoxTar(source: File, output: OutputStream): Boolean {
     }
 }
 
-private fun extractBusyBoxTar(input: InputStream, destination: File) {
+private fun installTreeAsRoot(source: File, destination: File): Boolean {
     destination.parentFile?.mkdirs()
     val script = AndroidBusyBox.discoveryScript() +
         "; [ -n \"\$eta_busybox\" ] || exit 127; " +
+        "\"\$eta_busybox\" mkdir -p -- " + shellQuote(destination.parentFile?.absolutePath.orEmpty()) + "; " +
         "\"\$eta_busybox\" rm -rf -- " + shellQuote(destination.absolutePath) + "; " +
-        "\"\$eta_busybox\" mkdir -p -- " + shellQuote(destination.absolutePath) + "; " +
-        "\"\$eta_busybox\" tar -C " + shellQuote(destination.absolutePath) + " -xf -"
-    val process = RootSu.process(script).redirectErrorStream(true).start()
-    try {
-        process.outputStream.use { stdin -> input.copyTo(stdin) }
-        val finished = process.waitFor(20, TimeUnit.MINUTES)
-        val code = if (finished) process.exitValue() else -1
-        if (!finished || code != 0) {
-            throw EtaBackupException("无法还原 Linux 环境（退出码 $code）")
-        }
-    } catch (failure: EtaBackupException) {
-        throw failure
-    } catch (failure: Throwable) {
-        throw EtaBackupException("无法还原 Linux 环境：${failure.message ?: failure.javaClass.simpleName}", failure)
-    } finally {
-        runCatching { process.destroyForcibly() }
-    }
+        "\"\$eta_busybox\" cp -a -- " + shellQuote(source.absolutePath) + " " + shellQuote(destination.absolutePath)
+    return runRoot(script, timeoutMinutes = 20)
 }
 
 private fun normalizeTarPath(raw: String): String? {

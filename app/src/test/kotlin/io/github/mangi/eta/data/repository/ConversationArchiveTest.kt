@@ -1,5 +1,6 @@
 package io.github.mangi.eta.data.repository
 
+import android.database.CursorWindow
 import io.github.mangi.eta.agent.model.AgentFileReference
 import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
@@ -209,13 +210,33 @@ class ConversationArchiveTest {
     }
 
     @Test fun singleImportDoesNotSnapshotOversizedUnrelatedConversations(): Unit = runBlocking {
-        val dao = EtaDatabase.get(context).conversationDao()
-        val big = document("x".repeat(BackupDatabaseBudget.MAX_BYTES.toInt() + 1))
-        dao.importAsNewConversation(big.conversation, big.messages, null)
-        val incoming = document("small archive")
-        EtaBackupRepository.import(context, json.encodeToString(incoming).byteInputStream())
-        assertEquals(2, dao.conversationEntities().size)
-        assertEquals(big.messages, dao.messagesForConversation("original"))
+        CursorWindow.setCursorWindowSize(16 * 1024 * 1024)
+        try {
+            val dao = EtaDatabase.get(context).conversationDao()
+            val chunk = "x".repeat(1_000_000)
+            val big = document().copy(
+                messages = (0 until 9).map { index ->
+                    ConversationMessageEntity(
+                        id = "original-message-$index",
+                        conversationId = "original",
+                        sortIndex = index,
+                        type = "user",
+                        content = chunk,
+                        imagesJson = "[]",
+                    )
+                },
+            )
+            dao.importAsNewConversation(big.conversation, big.messages, null)
+            val incoming = document("small archive")
+            EtaBackupRepository.import(context, json.encodeToString(incoming).byteInputStream())
+            assertEquals(2, dao.conversationEntities().size)
+            assertEquals(big.conversation, dao.conversationEntity("original"))
+            val restored = dao.messagesForConversation("original")
+            assertEquals(9, restored.size)
+            assertEquals(chunk, restored.first().content)
+        } finally {
+            CursorWindow.setCursorWindowSize(2 * 1024 * 1024)
+        }
     }
 
     @Test fun interruptedSingleImportRecoveryRemovesOnlyTheNewConversation(): Unit = runBlocking {

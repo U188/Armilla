@@ -84,7 +84,8 @@ internal class BackupRestoreJournal(
         if (item.getBoolean("existed")) {
             require(BackupDurability.digest(target) == item.getString("sha256")) { "恢复目标在预检后被修改" }
             val attributes = android.system.Os.stat(target.absolutePath)
-            require(attributes.st_uid == android.os.Process.myUid()) { "恢复目标不属于应用用户，拒绝改变其所有权" }
+            val workspaceUid = android.system.Os.stat(directory.absolutePath).st_uid
+            require(attributes.st_uid == workspaceUid) { "恢复目标不属于应用用户，拒绝改变其所有权" }
             android.system.Os.chmod(source.absolutePath, attributes.st_mode and 511)
             BackupDurability.syncFile(source)
         } else require(!target.exists()) { "恢复目标在预检后被创建" }

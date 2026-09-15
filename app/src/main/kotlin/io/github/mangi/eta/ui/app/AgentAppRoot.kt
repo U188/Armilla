@@ -742,7 +742,9 @@ fun AgentAppRoot(
                 SettingsScreen(
                     context = context,
                     onNavigate = { route -> pushRoute(route) },
-                    onBack = ::popRoute
+                    onBack = ::popRoute,
+                    currentProviderId = agentState.homeState.providerId,
+                    currentModelId = agentState.homeState.modelId,
                 )
             }
             entry<AppRoute.AppearanceSettings>(swipeDismiss = swipeDismiss) {

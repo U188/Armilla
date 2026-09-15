@@ -132,6 +132,8 @@ internal fun SettingsScreen(
     context: Context,
     onNavigate: (AppRoute) -> Unit,
     onBack: () -> Unit,
+    currentProviderId: String? = null,
+    currentModelId: String? = null,
 ) {
     val coroutineScope = rememberCoroutineScope()
     val capabilities = rememberDeviceCapabilities()
@@ -221,10 +223,12 @@ internal fun SettingsScreen(
 
     // Provider / Model 选中状态展示
     val providers by ProviderRepository.providersFlow().collectAsState(initial = emptyList())
-    val selectedProviderId by RuntimeConfigRepository.selectedProviderIdFlow()
+    val storedProviderId by RuntimeConfigRepository.selectedProviderIdFlow()
         .collectAsState(initial = null)
-    val selectedModelId by RuntimeConfigRepository.selectedModelIdFlow()
+    val storedModelId by RuntimeConfigRepository.selectedModelIdFlow()
         .collectAsState(initial = null)
+    val selectedProviderId = currentProviderId?.takeIf { it.isNotBlank() } ?: storedProviderId
+    val selectedModelId = currentModelId?.takeIf { it.isNotBlank() } ?: storedModelId
     val selectedProvider = remember(providers, selectedProviderId) {
         providers.find { it.id == selectedProviderId }
     }

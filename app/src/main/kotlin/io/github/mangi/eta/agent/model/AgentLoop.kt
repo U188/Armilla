@@ -311,7 +311,10 @@ internal class AgentLoop(
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
         val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
         if (!forced && !charPressure && (round <= 1 || estimatedRequestTokens() < window * 0.9)) return
-        val keep = AgentContextCompactor.coerceKeepRecent(override?.keepRecentMessages ?: compactPolicy.keepRecentMessages)
+        val keep = AgentContextCompactor.coerceKeepRecent(
+            override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
+            compactPolicy.strategy,
+        )
         budgetKeepRecent = keep
         val history = historyForCompaction()
         val cut = runCatching { AgentCompressionBoundary.protectedStart(history, keep, activeTurnStart) }.getOrDefault(0)

@@ -1341,6 +1341,7 @@
     <string name="ui_compress_target_tokens_title">压缩目标 Token</string>
     <string name="ui_compress_keep_recent_title">保留最近轮数</string>
     <string name="ui_compress_keep_recent_summary">压缩后原样保留最近 N 轮用户发言及其回复，须为 1 到 100 的整数。工具记录和追加消息会随对应轮次一起留下，但不单独计数；旧摘要也不计入。</string>
+    <string name="ui_compress_keep_recent_summary_continue">压缩后原样保留最近 N 轮。优先持续执行可为 0 到 100，0 表示不额外保护最近轮次；当前进行中的轮次仍会尽量保留。</string>
     <string name="ui_compress_model_title">压缩模型</string>
     <string name="ui_custom_compress_model_title">自定义压缩模型</string>
     <string name="ui_custom_compress_model_summary">关闭后使用当前对话所选模型</string>

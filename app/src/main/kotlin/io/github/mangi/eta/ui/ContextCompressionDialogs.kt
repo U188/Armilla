@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.model.AgentCompressionStrategy
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.datastore.SettingsDataStore
@@ -123,11 +124,17 @@ private fun storedCompressTargetTokens(): Int {
         ?: CompressTargetTokenOptions.minBy { kotlin.math.abs(it - stored) }
 }
 
+private fun currentCompressionStrategy(): AgentCompressionStrategy =
+    AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY))
+
 private fun storedCompressKeepRecent(): Int {
-    return Prefs.getInt(
-        Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
-        AgentContextCompactor.DEFAULT_KEEP_RECENT,
-    ).let(AgentContextCompactor::coerceKeepRecent)
+    return AgentContextCompactor.coerceKeepRecent(
+        Prefs.getInt(
+            Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
+            AgentContextCompactor.DEFAULT_KEEP_RECENT,
+        ),
+        currentCompressionStrategy(),
+    )
 }
 
 private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
@@ -313,7 +320,7 @@ internal fun CompressConversationDialog(
                         keepRecentField = TextFieldValue("")
                         return@OutlinedTextField
                     }
-                    val number = AgentContextCompactor.coerceKeepRecent(digits.toInt())
+                    val number = AgentContextCompactor.coerceKeepRecent(digits.toInt(), currentCompressionStrategy())
                     val next = number.toString()
                     keepRecentField = TextFieldValue(next, TextRange(next.length))
                     if (number != keepRecent) {
@@ -324,7 +331,17 @@ internal fun CompressConversationDialog(
                 enabled = !isCompressing,
                 singleLine = true,
                 label = { Text(stringResource(R.string.ui_compress_keep_recent_title)) },
-                supportingText = { Text(stringResource(R.string.ui_compress_keep_recent_summary)) },
+                supportingText = {
+                    Text(
+                        stringResource(
+                            if (currentCompressionStrategy() == AgentCompressionStrategy.CONTINUE_TASK) {
+                                R.string.ui_compress_keep_recent_summary_continue
+                            } else {
+                                R.string.ui_compress_keep_recent_summary
+                            },
+                        ),
+                    )
+                },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Done,
@@ -372,7 +389,7 @@ internal fun CompressConversationDialog(
                     focusManager.clearFocus()
                     keyboard?.hide()
                     val parsedKeepRecent = keepRecentField.text.toIntOrNull()
-                        ?.let(AgentContextCompactor::coerceKeepRecent)
+                        ?.let { AgentContextCompactor.coerceKeepRecent(it, currentCompressionStrategy()) }
                         ?: keepRecent
                     onConfirm(
                         selectedModel?.providerId.takeIf { customModelEnabled },

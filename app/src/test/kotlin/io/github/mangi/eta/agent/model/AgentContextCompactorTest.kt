@@ -83,13 +83,26 @@ class AgentContextCompactorTest {
     }
 
     @Test
-    fun keepZeroIsCoercedToKeepOne() {
+    fun keepZeroIsCoercedToKeepOneForPreserveTurn() {
         val history = (1..3).flatMap { turn(it) }
         assertEquals(1, AgentContextCompactor.coerceKeepRecent(0))
         assertEquals(
             AgentContextCompactor.recentKeepStartIndex(history, 1),
-            AgentContextCompactor.recentKeepStartIndex(history, 0),
+            AgentContextCompactor.recentKeepStartIndex(
+                history,
+                AgentContextCompactor.coerceKeepRecent(0),
+            ),
         )
+    }
+
+    @Test
+    fun keepZeroIsAllowedForContinueTask() {
+        val history = (1..3).flatMap { turn(it) }
+        assertEquals(
+            0,
+            AgentContextCompactor.coerceKeepRecent(0, AgentCompressionStrategy.CONTINUE_TASK),
+        )
+        assertEquals(history.size, AgentContextCompactor.recentKeepStartIndex(history, 0))
     }
 
     @Test

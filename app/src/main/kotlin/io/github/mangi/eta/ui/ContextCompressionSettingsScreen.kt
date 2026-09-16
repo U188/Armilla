@@ -56,6 +56,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
                     AgentContextCompactor.DEFAULT_KEEP_RECENT,
                 ) ?: AgentContextCompactor.DEFAULT_KEEP_RECENT,
+                AgentCompressionStrategy.parse(prefs?.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, null)),
             )
         )
     }
@@ -77,7 +78,10 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                 Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
                 AgentContextCompactor.DEFAULT_KEEP_RECENT,
             )
-            val coercedKeep = AgentContextCompactor.coerceKeepRecent(storedKeep)
+            val coercedKeep = AgentContextCompactor.coerceKeepRecent(
+                storedKeep,
+                AgentCompressionStrategy.parse(currentPrefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, null)),
+            )
             if (storedKeep != coercedKeep) {
                 currentPrefs.edit().putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, coercedKeep).apply()
                 keepRecent = coercedKeep
@@ -101,6 +105,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     val stored = AgentContextCompactor.coerceKeepRecent(
                         prefs?.getInt(key, AgentContextCompactor.DEFAULT_KEEP_RECENT)
                             ?: AgentContextCompactor.DEFAULT_KEEP_RECENT,
+                        AgentCompressionStrategy.parse(prefs?.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, null)),
                     )
                     keepRecent = stored
                     if (keepRecentInput.isNotEmpty() && keepRecentInput.toIntOrNull() != stored) {
@@ -169,7 +174,17 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             .clickable(enabled = prefs != null) {
                                 TouchHaptics.click(view)
                                 strategy = option
-                                prefs?.edit()?.putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)?.apply()
+                                val nextKeep = AgentContextCompactor.coerceKeepRecent(keepRecent, option)
+                                prefs?.edit()?.apply {
+                                    putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)
+                                    if (nextKeep != keepRecent) {
+                                        putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, nextKeep)
+                                    }
+                                }?.apply()
+                                if (nextKeep != keepRecent) {
+                                    keepRecent = nextKeep
+                                    keepRecentInput = nextKeep.toString()
+                                }
                             }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -184,7 +199,17 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             onClick = {
                                 TouchHaptics.click(view)
                                 strategy = option
-                                prefs?.edit()?.putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)?.apply()
+                                val nextKeep = AgentContextCompactor.coerceKeepRecent(keepRecent, option)
+                                prefs?.edit()?.apply {
+                                    putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)
+                                    if (nextKeep != keepRecent) {
+                                        putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, nextKeep)
+                                    }
+                                }?.apply()
+                                if (nextKeep != keepRecent) {
+                                    keepRecent = nextKeep
+                                    keepRecentInput = nextKeep.toString()
+                                }
                             },
                         )
                     }
@@ -271,7 +296,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                             keepRecentInput = digits
                             return@OutlinedTextField
                         }
-                        val number = AgentContextCompactor.coerceKeepRecent(parsed)
+                        val number = AgentContextCompactor.coerceKeepRecent(parsed, strategy)
                         keepRecentInput = number.toString()
                         if (number != keepRecent) {
                             keepRecent = number
@@ -279,7 +304,17 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                         }
                     },
                     label = { Text(stringResource(R.string.ui_compress_keep_recent_title)) },
-                    supportingText = { Text(stringResource(R.string.ui_compress_keep_recent_summary)) },
+                    supportingText = {
+                        Text(
+                            stringResource(
+                                if (strategy == AgentCompressionStrategy.CONTINUE_TASK) {
+                                    R.string.ui_compress_keep_recent_summary_continue
+                                } else {
+                                    R.string.ui_compress_keep_recent_summary
+                                },
+                            ),
+                        )
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                 )

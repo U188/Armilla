@@ -33,6 +33,7 @@ import io.github.mangi.eta.agent.model.AgentFileReferenceKind
 import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.model.AgentCompressionStrategy
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.agent.model.AgentRequestOverhead
 import io.github.mangi.eta.agent.model.AgentConversationCodec
@@ -1773,6 +1774,12 @@ internal class AgentAppState(
     /**
      * 判断是否应自动压缩对话历史。
      */
+    private fun currentCompressionStrategy(): AgentCompressionStrategy =
+        AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY))
+
+    private fun coerceKeepRecent(value: Int): Int =
+        AgentContextCompactor.coerceKeepRecent(value, currentCompressionStrategy())
+
     private fun billedPromptTokens(state: AgentChatHomeUiState): Int? =
         state.livePromptTokens ?: latestBilledContextTokens(state.messages)
 
@@ -1819,7 +1826,7 @@ internal class AgentAppState(
         )
         val config = AgentContextCompactor.Config(
             targetTokens = resolvedTargetTokens.coerceIn(500, 4000),
-            keepRecentMessages = AgentContextCompactor.coerceKeepRecent(resolvedKeepRecent),
+            keepRecentMessages = coerceKeepRecent(resolvedKeepRecent),
             compressModelConfig = compressModelConfig,
         )
         return try {
@@ -4175,7 +4182,7 @@ internal class AgentAppState(
             onFinished(true)
             return
         }
-        val keepRecentMessages = AgentContextCompactor.coerceKeepRecent(keepRecent)
+        val keepRecentMessages = coerceKeepRecent(keepRecent)
         if (!runInFlight &&
             AgentContextCompactor.recentKeepStartIndex(homeState.history, keepRecentMessages) <= 0
         ) {
@@ -4234,7 +4241,7 @@ internal class AgentAppState(
             keepRecent = Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
                 AgentContextCompactor.DEFAULT_KEEP_RECENT,
-            ).let(AgentContextCompactor::coerceKeepRecent),
+            ).let(::coerceKeepRecent),
             targetTokens = Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
                 AgentContextCompactor.DEFAULT_TARGET_TOKENS,
@@ -4471,7 +4478,7 @@ internal class AgentAppState(
         )
         Prefs.putInt(
             Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
-            AgentContextCompactor.coerceKeepRecent(keepRecent),
+            coerceKeepRecent(keepRecent),
         )
         if (!providerId.isNullOrBlank() && !modelId.isNullOrBlank()) {
             Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, providerId)

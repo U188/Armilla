@@ -397,7 +397,10 @@ internal class AgentRuntimeRunExecutor(
                 Prefs.getInt(
                     Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
                     AgentContextCompactor.DEFAULT_KEEP_RECENT,
-                )
+                ),
+                io.github.mangi.eta.agent.model.AgentCompressionStrategy.parse(
+                    Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY),
+                ),
             ),
             targetTokens = Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,

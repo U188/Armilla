@@ -5,6 +5,7 @@ import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 internal object AgentContextCompactor {
     const val DEFAULT_KEEP_RECENT = 4
     const val MIN_KEEP_RECENT = 1
+    const val MIN_KEEP_RECENT_CONTINUE = 0
     const val MAX_KEEP_RECENT = 100
     const val DEFAULT_TARGET_TOKENS = 2000
     internal const val SUMMARY_PREFIX = "[Conversation summary]"
@@ -30,7 +31,13 @@ internal object AgentContextCompactor {
         val summaryProvider: AgentProviderClient? = null,
     )
 
-    fun coerceKeepRecent(value: Int): Int = value.coerceIn(MIN_KEEP_RECENT, MAX_KEEP_RECENT)
+    fun coerceKeepRecent(
+        value: Int,
+        strategy: AgentCompressionStrategy = AgentCompressionStrategy.PRESERVE_TURN,
+    ): Int = value.coerceIn(
+        if (strategy == AgentCompressionStrategy.CONTINUE_TASK) MIN_KEEP_RECENT_CONTINUE else MIN_KEEP_RECENT,
+        MAX_KEEP_RECENT,
+    )
 
     fun configuredContextWindow(value: Int?): Int? = value?.takeIf { it > 0 }
 
@@ -157,7 +164,8 @@ internal object AgentContextCompactor {
         history: List<AgentModelClient.ConversationMessage>,
         keepRecentMessages: Int,
     ): Int {
-        val keep = coerceKeepRecent(keepRecentMessages)
+        val keep = keepRecentMessages.coerceIn(MIN_KEEP_RECENT_CONTINUE, MAX_KEEP_RECENT)
+        if (keep == 0) return history.size
         var remaining = keep
         var start: Int? = null
         val seen = mutableSetOf<String>()

@@ -175,7 +175,6 @@ internal fun AgentChatBody(
     onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val scrollState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val view = LocalView.current
@@ -191,6 +190,10 @@ internal fun AgentChatBody(
             message is AgentMessageUi && message.content.isBlank()
         }
     }
+    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext) {
+        visibleMessages.toTimelineEntries().size + if (isCompressingContext) 1 else 0
+    }
+    val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = initialBottomItemIndex)
     val currentBrowserMessageId = remember(
         visibleMessages,
         browserSnapshot.available,
@@ -583,7 +586,19 @@ internal fun AgentConversationMessages(
         keepBottomAnchored,
         isUserDragging,
         isStreaming,
+        scrollToMessageId,
     ) {
+        if (shouldSnapConversationToBottom(
+                isStreaming = isStreaming,
+                keepBottomAnchored = keepBottomAnchored,
+                isUserDragging = isUserDragging,
+                hasItems = bottomItemIndex > 0,
+                scrollToMessageId = scrollToMessageId,
+            )
+        ) {
+            snapListToBottom(scrollState, bottomItemIndex)
+            return@LaunchedEffect
+        }
         if (shouldRequestInitialBottom(
                 isStreaming = isStreaming,
                 keepBottomAnchored = keepBottomAnchored,
@@ -703,7 +718,7 @@ internal fun AgentConversationMessages(
     Box(modifier = modifier.clipToBounds()) {
         LazyColumn(
             state = scrollState,
-            verticalArrangement = Arrangement.Top,
+            verticalArrangement = Arrangement.Bottom,
             modifier = Modifier
                 .fillMaxSize()
                 .scrollEndHaptic()
@@ -1181,6 +1196,53 @@ internal fun shouldRequestInitialBottom(
     keepBottomAnchored: Boolean,
     isUserDragging: Boolean,
 ): Boolean = isStreaming && keepBottomAnchored && !isUserDragging
+
+internal fun shouldSnapConversationToBottom(
+    isStreaming: Boolean,
+    keepBottomAnchored: Boolean,
+    isUserDragging: Boolean,
+    hasItems: Boolean,
+    scrollToMessageId: String? = null,
+): Boolean = hasItems &&
+    keepBottomAnchored &&
+    !isUserDragging &&
+    !isStreaming &&
+    scrollToMessageId == null
+
+internal fun resolveConversationBottomSnap(
+    bottomItemIndex: Int,
+    lastVisibleIndex: Int?,
+    lastVisibleBottom: Int?,
+    viewportEnd: Int,
+): BottomFollowDecision {
+    if (lastVisibleIndex == null || lastVisibleBottom == null || lastVisibleIndex < bottomItemIndex) {
+        return BottomFollowDecision(requestIndex = bottomItemIndex)
+    }
+    return BottomFollowDecision(scrollByPx = lastVisibleBottom - viewportEnd)
+}
+
+private suspend fun snapListToBottom(
+    scrollState: LazyListState,
+    bottomItemIndex: Int,
+) {
+    repeat(3) {
+        val layout = scrollState.layoutInfo
+        val lastVisible = layout.visibleItemsInfo.lastOrNull()
+        val viewportEnd = layout.viewportEndOffset - layout.afterContentPadding
+        val decision = resolveConversationBottomSnap(
+            bottomItemIndex = bottomItemIndex,
+            lastVisibleIndex = lastVisible?.index,
+            lastVisibleBottom = lastVisible?.let { it.offset + it.size },
+            viewportEnd = viewportEnd,
+        )
+        decision.requestIndex?.let { scrollState.scrollToItem(it) }
+        if (decision.scrollByPx != 0) {
+            scrollState.scroll { scrollBy(decision.scrollByPx.toFloat()) }
+        }
+        if (decision.requestIndex == null && decision.scrollByPx == 0) return
+        withFrameNanos { }
+    }
+}
 
 @Composable
 private fun EmptyChatState(

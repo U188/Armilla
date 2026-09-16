@@ -65,13 +65,76 @@ class AgentChatScrollPolicyTest {
     }
 
     @Test
-    fun completedConversationDoesNotJumpToInitialBottom() {
+    fun completedConversationDoesNotUseStreamingInitialJump() {
         assertFalse(
             shouldRequestInitialBottom(
                 isStreaming = false,
                 keepBottomAnchored = true,
                 isUserDragging = false,
             )
+        )
+    }
+
+    @Test
+    fun completedConversationSnapsToBottomOnOpen() {
+        assertTrue(
+            shouldSnapConversationToBottom(
+                isStreaming = false,
+                keepBottomAnchored = true,
+                isUserDragging = false,
+                hasItems = true,
+            )
+        )
+    }
+
+    @Test
+    fun emptyConversationDoesNotSnapToBottom() {
+        assertFalse(
+            shouldSnapConversationToBottom(
+                isStreaming = false,
+                keepBottomAnchored = true,
+                isUserDragging = false,
+                hasItems = false,
+            )
+        )
+    }
+
+    @Test
+    fun scrollToMessageSkipsConversationBottomSnap() {
+        assertFalse(
+            shouldSnapConversationToBottom(
+                isStreaming = false,
+                keepBottomAnchored = true,
+                isUserDragging = false,
+                hasItems = true,
+                scrollToMessageId = "msg-1",
+            )
+        )
+    }
+
+    @Test
+    fun conversationBottomSnapAlignsLastItemWithoutAnimation() {
+        assertEquals(
+            BottomFollowDecision(scrollByPx = -120),
+            resolveConversationBottomSnap(
+                bottomItemIndex = 8,
+                lastVisibleIndex = 8,
+                lastVisibleBottom = 880,
+                viewportEnd = 1000,
+            ),
+        )
+    }
+
+    @Test
+    fun conversationBottomSnapRequestsLastItemWhenNotVisible() {
+        assertEquals(
+            BottomFollowDecision(requestIndex = 8),
+            resolveConversationBottomSnap(
+                bottomItemIndex = 8,
+                lastVisibleIndex = 2,
+                lastVisibleBottom = 400,
+                viewportEnd = 1000,
+            ),
         )
     }
 

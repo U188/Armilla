@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.model
 
+import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,7 +36,7 @@ internal object ResponsesRequestBuilder {
         request.remove("reasoning")
         ProviderReasoning.applyResponsesRequest(request, config)
         config.summaryOutputLimit?.let { request.put("max_output_tokens", it) }
-        if (oauth.OpenAiCodexOAuth.isCodexEndpoint(config.baseUrl)) {
+        if (OpenAiCodexOAuth.isCodexEndpoint(config.baseUrl)) {
             request.put("include", JSONArray().put("reasoning.encrypted_content"))
             request.remove("max_output_tokens")
             if (sessionId.isNotBlank()) {

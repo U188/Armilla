@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.model
 
+import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
+
 internal object ProviderUrls {
     fun normalizeBaseUrl(baseUrl: String): String =
         baseUrl.trim().trimEnd('/')
@@ -12,8 +14,8 @@ internal object ProviderUrls {
 
     fun openAiModelsUrl(baseUrl: String): String {
         val url = appendPath(baseUrl, "models")
-        return if (oauth.OpenAiCodexOAuth.isCodexEndpoint(baseUrl)) {
-            "$url?client_version=${oauth.OpenAiCodexOAuth.CLIENT_VERSION}&limit=100"
+        return if (OpenAiCodexOAuth.isCodexEndpoint(baseUrl)) {
+            "$url?client_version=${OpenAiCodexOAuth.CLIENT_VERSION}&limit=100"
         } else {
             url
         }

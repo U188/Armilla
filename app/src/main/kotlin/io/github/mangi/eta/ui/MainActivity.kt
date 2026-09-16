@@ -122,12 +122,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION", "UNCHECKED_CAST")
     private inline fun <reified T : android.os.Parcelable> Intent.parcelableArrayListExtraCompat(name: String): ArrayList<T>? {
         return if (android.os.Build.VERSION.SDK_INT >= 33) {
             getParcelableArrayListExtra(name, T::class.java)
         } else {
-            @Suppress("DEPRECATION", "UNCHECKED_CAST")
-            getParcelableArrayListExtra(name) as? ArrayList<T>
+            getParcelableArrayListExtra(name) as ArrayList<T>?
         }
     }
 

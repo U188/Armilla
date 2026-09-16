@@ -68,7 +68,7 @@ import io.github.mangi.eta.data.model.VisionChatModels
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ReasoningEffort
-import io.github.mangi.eta.data.provider.ProviderSourceTypes
+import io.github.mangi.eta.data.model.ProviderSourceTypes
 import io.github.mangi.eta.data.provider.ReasoningCapabilityResolver
 import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.RemoteModelFetcher
@@ -1024,6 +1024,7 @@ private fun showsReasoningTag(model: Model): Boolean {
     ) != null
 }
 
+@Composable
 private fun capabilityTags(model: Model): List<String> {
     val context = LocalContext.current
     return buildList {

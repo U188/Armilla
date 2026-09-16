@@ -1832,7 +1832,7 @@ internal class AgentAppState(
         return try {
             runInterruptible {
                 val cut = AgentContextCompactor.recentKeepStartIndex(history, config.keepRecentMessages)
-                if (cut <= 0) return@runInterruptible history
+                if (cut <= 0 || cut >= history.size) return@runInterruptible history
                 val archive = conversationId?.let { io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, it) }
                     ?: error("缺少会话身份，无法保存压缩原文")
                 val prefix = history.take(cut)
@@ -2480,6 +2480,36 @@ internal class AgentAppState(
 
     fun removePendingImage(id: String) {
         updateCurrentConversation(homeState.copy(pendingImages = homeState.pendingImages.filterNot { it.id == id }))
+    }
+
+    fun attachSharedUris(uris: List<String>) {
+        if (uris.isEmpty()) return
+        val images = mutableListOf<String>()
+        val videos = mutableListOf<String>()
+        val files = mutableListOf<String>()
+        uris.forEach { raw ->
+            val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return@forEach
+            runCatching {
+                appContext.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            val mime = appContext.contentResolver.getType(uri).orEmpty()
+            val name = uri.lastPathSegment.orEmpty()
+            when {
+                mime.startsWith("image/") || name.endsWith(".png", true) || name.endsWith(".jpg", true) ||
+                    name.endsWith(".jpeg", true) || name.endsWith(".webp", true) || name.endsWith(".gif", true) ->
+                    images += raw
+                mime.startsWith("video/") || name.endsWith(".mp4", true) || name.endsWith(".webm", true) ||
+                    name.endsWith(".mov", true) || name.endsWith(".mkv", true) || name.endsWith(".3gp", true) ->
+                    videos += raw
+                else -> files += raw
+            }
+        }
+        images.forEach(::attachImage)
+        videos.forEach(::attachVideo)
+        if (files.isNotEmpty()) attachFiles(files)
     }
 
     fun attachFiles(uris: List<String>) {

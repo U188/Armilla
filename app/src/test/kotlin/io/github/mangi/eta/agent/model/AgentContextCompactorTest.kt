@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -102,7 +103,13 @@ class AgentContextCompactorTest {
             0,
             AgentContextCompactor.coerceKeepRecent(0, AgentCompressionStrategy.CONTINUE_TASK),
         )
-        assertEquals(history.size, AgentContextCompactor.recentKeepStartIndex(history, 0))
+        val cut = AgentContextCompactor.recentKeepStartIndex(history, 0)
+        assertTrue(cut > 0)
+        assertTrue(cut < history.size)
+        assertNotEquals(
+            AgentContextCompactor.recentKeepStartIndex(history, 1),
+            cut,
+        )
     }
 
     @Test

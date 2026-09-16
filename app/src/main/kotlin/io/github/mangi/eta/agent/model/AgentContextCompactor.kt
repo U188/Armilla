@@ -52,7 +52,8 @@ internal object AgentContextCompactor {
         estimatedTokens: Int? = null,
     ): Boolean {
         if (contextWindow <= 0) return false
-        if (recentKeepStartIndex(history, keepRecentMessages) <= 0) return false
+        val cut = recentKeepStartIndex(history, keepRecentMessages)
+        if (cut <= 0 || cut >= history.size) return false
         val estimated = estimatedTokens ?: history.sumOf { AgentContextBudget.countMessage(it) }
         return estimated >= contextWindow * thresholdPercent / 100
     }
@@ -165,7 +166,11 @@ internal object AgentContextCompactor {
         keepRecentMessages: Int,
     ): Int {
         val keep = keepRecentMessages.coerceIn(MIN_KEEP_RECENT_CONTINUE, MAX_KEEP_RECENT)
-        if (keep == 0) return history.size
+        if (history.isEmpty()) return 0
+        if (keep == 0) {
+            // 不额外保护最近轮次，但仍必须留下最新完整批次；切在 history.size 会把当前轮也摘要掉，失败后再压形成死循环。
+            return AgentCompressionBoundary.availableCuts(history).lastOrNull { it in 1 until history.size } ?: 0
+        }
         var remaining = keep
         var start: Int? = null
         val seen = mutableSetOf<String>()

@@ -80,6 +80,7 @@ internal class AgentLoop(
     private var overflowPending = false
     private var overflowRecoveryAttempts = 0
     private var lastFailedCompaction: Pair<String, Int>? = null
+    private var skipIneffectiveAutoCompact = false
 
     fun reasoningSnapshot(): String = accumulatedReasoning.toString().trim()
 
@@ -310,6 +311,7 @@ internal class AgentLoop(
         if (!forced && (!compactPolicy.enabled || overflowPending)) return
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
         val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
+        if (!forced && skipIneffectiveAutoCompact && !charPressure && !requestOverBudget()) return
         if (!forced && !charPressure && (round <= 1 || estimatedRequestTokens() < window * 0.9)) return
         val keep = AgentContextCompactor.coerceKeepRecent(
             override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
@@ -323,7 +325,13 @@ internal class AgentLoop(
                 reason = "当前历史均在保护范围内，没有可压缩的旧历史。"))
             return
         }
-        if (applyCompaction(round, history, cut, override?.targetTokens ?: compactPolicy.targetTokens)) overflowPending = false
+        val reduced = applyCompaction(round, history, cut, override?.targetTokens ?: compactPolicy.targetTokens)
+        if (reduced) {
+            overflowPending = false
+            skipIneffectiveAutoCompact = false
+        } else if (!forced) {
+            skipIneffectiveAutoCompact = true
+        }
     }
 
     private fun tryBudgetCompaction(round: Int): Boolean {

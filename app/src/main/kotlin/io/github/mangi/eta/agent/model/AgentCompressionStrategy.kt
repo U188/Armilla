@@ -13,6 +13,13 @@ internal enum class AgentCompressionStrategy(val wireValue: String) {
 internal object AgentCompressionBoundary {
     /** Every cut is between complete tool batches; malformed/orphaned results are not compactable. */
     fun balancedCuts(history: List<AgentModelClient.ConversationMessage>): List<Int> {
+        val cuts = availableCuts(history)
+        require(cuts.lastOrNull() == history.size) { "工具批次尚未完成" }
+        return cuts
+    }
+
+    /** Complete-batch cut points even if the newest tool batch is still running. */
+    fun availableCuts(history: List<AgentModelClient.ConversationMessage>): List<Int> {
         val pending = mutableSetOf<String>()
         val cuts = mutableListOf(0)
         history.forEachIndexed { index, message ->
@@ -28,13 +35,12 @@ internal object AgentCompressionBoundary {
             }
             if (pending.isEmpty()) cuts += index + 1
         }
-        require(pending.isEmpty()) { "工具批次尚未完成" }
         return cuts
     }
 
     fun protectedStart(history: List<AgentModelClient.ConversationMessage>, keep: Int, activeStart: Int): Int {
         val requested = minOf(AgentContextCompactor.recentKeepStartIndex(history, keep), activeStart.coerceIn(0, history.size))
-        return balancedCuts(history).lastOrNull { it <= requested } ?: 0
+        return availableCuts(history).lastOrNull { it <= requested && it < history.size } ?: 0
     }
 
     /** Never summarize the newest complete unit; walk backward to the next balanced cut. */
@@ -47,7 +53,7 @@ internal object AgentCompressionBoundary {
             start = i
             if (tokens >= retainTokens.coerceAtLeast(1)) break
         }
-        return balancedCuts(history).lastOrNull { it <= start } ?: 0
+        return availableCuts(history).lastOrNull { it <= start && it < history.size } ?: 0
     }
 
     fun outputReserve(config: AgentModelClient.ModelConfig): Int {

@@ -133,8 +133,9 @@ internal class AgentRunMessageProjector(
         index: Int,
         delta: String,
         messages: List<AgentChatMessageUi>,
+        visible: Boolean = true,
     ): List<AgentChatMessageUi> {
-        if (delta.isEmpty() || isSealed(runId)) return messages
+        if (delta.isEmpty() || isSealed(runId) || !visible) return messages
         if (shouldIgnoreLateThinking(runId, round, messages, incoming = delta)) return messages
 
         val transitioned = transitionVisibleBlock(
@@ -176,8 +177,9 @@ internal class AgentRunMessageProjector(
         round: Int,
         content: String,
         messages: List<AgentChatMessageUi>,
+        visible: Boolean = true,
     ): List<AgentChatMessageUi> {
-        if (isSealed(runId)) return messages
+        if (isSealed(runId) || !visible) return messages
         if (messages.any {
                 it is ThinkingMessageUi && isThinkingMessageForRound(it.id, runId, round)
             }

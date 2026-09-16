@@ -3386,6 +3386,7 @@ internal class AgentAppState(
                                 event.index,
                                 event.delta,
                                 messages,
+                                visible = !conversationStateForRun(runId).isPaused,
                             )
 
                         AgentEvent.AssistantBlockKind.TOOL_CALL -> messages
@@ -3496,6 +3497,7 @@ internal class AgentAppState(
                             round = event.round,
                             content = event.reasoningContent,
                             messages = messages,
+                            visible = !conversationStateForRun(runId).isPaused,
                         )
                     }
                 }

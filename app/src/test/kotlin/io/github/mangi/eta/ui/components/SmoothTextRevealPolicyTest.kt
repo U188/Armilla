@@ -18,6 +18,9 @@ class SmoothTextRevealPolicyTest {
         assertEquals(true, coordinator.isAnimationPaused)
         coordinator.resumeAnimationsAfterCatchUp()
         assertEquals(false, coordinator.isAnimationPaused)
+        coordinator.pauseAnimationsAndCatchUp()
+        coordinator.resumeAnimationsWithoutCatchingUp()
+        assertEquals(false, coordinator.isAnimationPaused)
     }
 
     @Test

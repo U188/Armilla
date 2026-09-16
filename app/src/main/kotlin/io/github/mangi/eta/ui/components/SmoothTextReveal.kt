@@ -78,6 +78,13 @@ internal class SmoothTextRevealCoordinator {
         wakeups.trySend(Unit)
     }
 
+    /** 暂停会话后续写：已显示的字保持追平，之后新到的字重新走打字机。 */
+    fun resumeAnimationsWithoutCatchingUp() {
+        animationsPaused = false
+        updateDrainedState()
+        wakeups.trySend(Unit)
+    }
+
     fun retainBlocks(activeBlocks: Set<RevealBlockKey>) {
         val iterator = records.iterator()
         var removedPendingBlock = false

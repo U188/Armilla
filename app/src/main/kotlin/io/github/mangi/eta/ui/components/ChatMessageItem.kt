@@ -805,7 +805,12 @@ private fun AgentMessageBlock(
         null
     }
     LaunchedEffect(isPaused, streamingState) {
-        if (isPaused) streamingState?.revealCoordinator?.pauseAnimationsAndCatchUp()
+        val coordinator = streamingState?.revealCoordinator ?: return@LaunchedEffect
+        if (isPaused) {
+            coordinator.pauseAnimationsAndCatchUp()
+        } else {
+            coordinator.resumeAnimationsWithoutCatchingUp()
+        }
     }
     LaunchedEffect(retainedStreamingState, streamingRevealComplete, message.content) {
         retainedStreamingState?.revealedContent = message.content.takeIf { streamingRevealComplete }

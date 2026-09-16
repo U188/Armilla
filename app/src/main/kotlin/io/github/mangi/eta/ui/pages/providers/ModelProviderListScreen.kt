@@ -66,6 +66,7 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -303,15 +304,15 @@ internal fun ModelProviderListScreen(
     }
 
     if (showBatchDeleteDialog) {
-        OverlayDialog(
+        WindowDialog(
             show = true,
+            onDismissRequest = { if (!isDeleting) showBatchDeleteDialog = false },
             title = stringResource(R.string.ui_remove_provider_9f848f),
             summary = pluralStringResource(
                 R.plurals.provider_batch_delete_summary,
                 selectedProviderIds.size,
                 selectedProviderIds.size,
             ),
-            onDismissRequest = { if (!isDeleting) showBatchDeleteDialog = false },
         ) {
             MiuixDialogActions(
                 confirmText = if (isDeleting) {

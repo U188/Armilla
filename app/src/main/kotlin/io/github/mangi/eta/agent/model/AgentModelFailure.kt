@@ -56,8 +56,15 @@ internal class AgentModelFailure(
                         val detail = providerMessage.takeIf { it.isNotBlank() }
                             ?: body.replace('\n', ' ').replace('\r', ' ').trim().take(400)
                                 .takeIf { it.isNotBlank() }
-                        if (detail != null) "模型接口拒绝访问（HTTP 403）：$detail"
-                        else "模型接口拒绝访问（HTTP 403），请检查账户与模型权限。"
+                        val verify = detail != null && (
+                            detail.contains("verify your account", ignoreCase = true) ||
+                                detail.contains("validation", ignoreCase = true)
+                        )
+                        when {
+                            verify -> "Google 要求先验证这个账号（HTTP 403）。打开 https://antigravity.google 用同一账号完成验证，再回提供商里重新登录。"
+                            detail != null -> "模型接口拒绝访问（HTTP 403）：$detail"
+                            else -> "模型接口拒绝访问（HTTP 403），请检查账户与模型权限。"
+                        }
                     }
                     404 -> "模型接口或模型不存在（HTTP 404），请检查接口地址与模型名称。"
                     429 -> "模型接口暂时限流（HTTP 429）。"

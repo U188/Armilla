@@ -82,9 +82,11 @@ private object SseContentTypeInterceptor : Interceptor {
         val response = chain.proceed(request)
         val accept = request.header("Accept").orEmpty()
         if (!accept.contains("text/event-stream", ignoreCase = true)) return response
+        if (accept.contains("application/json", ignoreCase = true)) return response
         if (!response.isSuccessful) return response
         val contentType = response.header("Content-Type").orEmpty()
         if (contentType.contains("text/event-stream", ignoreCase = true)) return response
+        if (contentType.isNotBlank()) return response
         val body = response.body ?: return response
         return response.newBuilder()
             .header("Content-Type", "text/event-stream")

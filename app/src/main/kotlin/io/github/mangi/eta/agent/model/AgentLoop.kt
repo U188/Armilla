@@ -173,11 +173,17 @@ internal class AgentLoop(
             }
 
             val pausedInterrupt = runController.consumePausedInterrupt()
+            if (pausedInterrupt) {
+                // 暂停打断的是当前模型流，半截正文已在 UI 上，不能写入历史。
+                // 否则继续时会多一条助手消息，压缩也会把未完成轮次当成已提交 transcript。
+                appendPendingSteeringMessage()
+                continue
+            }
             if (hasAssistantPayload) {
                 messages.put(
                     AgentConversationCodec.assistantHistoryMessage(
                         source = assistantMessage,
-                        toolCalls = if (pausedInterrupt) emptyList() else toolCalls,
+                        toolCalls = toolCalls,
                     ).put(AgentTurnIdentity.JSON_KEY, turnId)
                 )
                 onEvent(
@@ -185,14 +191,10 @@ internal class AgentLoop(
                         round = round,
                         contentChars = assistantMessage.optString("content").length,
                         reasoningContent = assistantReasoning,
-                        toolNames = if (pausedInterrupt) emptyList() else toolCalls.map { it.name },
+                        toolNames = toolCalls.map { it.name },
                     )
                 )
-                if (pausedInterrupt) {
-                    round += 1
-                    continue
-                }
-            } else if (runController.hasPendingSteering || runController.hasPendingCompact || pausedInterrupt) {
+            } else if (runController.hasPendingSteering || runController.hasPendingCompact) {
                 appendPendingSteeringMessage()
                 round += 1
                 continue

@@ -361,6 +361,7 @@ internal object AgentContextCompactor {
                         controller,
                     ),
                 )
+                controller.throwIfCancelled()
                 CompressionReasoningStore.remember(base, ladder[index])
                 return model to response
             } catch (cancelled: io.github.mangi.eta.agent.runtime.AgentRunCancelledException) {

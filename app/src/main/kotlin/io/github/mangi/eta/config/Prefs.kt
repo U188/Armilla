@@ -53,6 +53,7 @@ internal object Prefs {
         const val AGENT_COMPRESS_CUSTOM_MODEL_ENABLED = "agent_compress_custom_model_enabled"
         const val AGENT_MANUAL_COMPRESS_TARGET_TOKENS = "agent_manual_compress_target_tokens"
         const val AGENT_MANUAL_COMPRESS_KEEP_RECENT = "agent_manual_compress_keep_recent"
+        const val AGENT_MANUAL_COMPRESS_STRATEGY = "agent_manual_compress_strategy"
         const val AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID = "agent_manual_compress_model_provider_id"
         const val AGENT_MANUAL_COMPRESS_MODEL_ID = "agent_manual_compress_model_id"
         const val HAPTIC_TOUCH_FEEDBACK = "haptic_touch_feedback"

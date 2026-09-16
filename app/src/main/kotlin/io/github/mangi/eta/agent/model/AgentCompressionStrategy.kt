@@ -2,11 +2,16 @@ package io.github.mangi.eta.agent.model
 
 /** Persisted values must remain stable. Unknown values fail closed to full-turn protection. */
 internal enum class AgentCompressionStrategy(val wireValue: String) {
-    PRESERVE_TURN("preserve_turn"),
-    CONTINUE_TASK("continue_task");
+    CONTINUE_TASK("continue_task"),
+    PRESERVE_TURN("preserve_turn");
 
     companion object {
-        fun parse(value: String?) = entries.firstOrNull { it.wireValue == value } ?: PRESERVE_TURN
+        val DEFAULT = CONTINUE_TASK
+
+        fun parse(value: String?): AgentCompressionStrategy {
+            if (value.isNullOrBlank()) return DEFAULT
+            return entries.firstOrNull { it.wireValue == value } ?: PRESERVE_TURN
+        }
     }
 }
 

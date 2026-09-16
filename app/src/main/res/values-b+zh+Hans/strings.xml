@@ -66,11 +66,11 @@
   <string name="ui_custom_compress_model_title">自定义压缩模型</string>
   <string name="ui_custom_compress_model_summary">关闭后使用当前对话所选模型</string>
   <string name="ui_compress_strategy_title">压缩策略</string>
-  <string name="ui_compress_strategy_preserve_title">完整保留本轮（默认）</string>
+  <string name="ui_compress_strategy_preserve_title">完整保留本轮</string>
   <string name="ui_compress_strategy_preserve_summary">空间不够就暂停，不压缩当前轮</string>
-  <string name="ui_compress_strategy_continue_title">优先持续执行</string>
+  <string name="ui_compress_strategy_continue_title">优先持续执行（默认）</string>
   <string name="ui_compress_strategy_continue_summary">空间不够时可压缩更早的步骤</string>
-  <string name="ui_compress_strategy_note">自动和手动压缩用同一策略，下次任务生效。原文只留在本机，删除会话时一并清理。</string>
+  <string name="ui_compress_strategy_note">自动压缩使用此处策略，下次任务生效。手动压缩可另选策略。原文只留在本机，删除会话时一并清理。</string>
   <string name="compress_model_missing_window_title">未设置上下文窗口</string>
   <string name="compress_model_missing_window_summary">这个压缩模型还没有上下文窗口，压缩时无法估算输入预算。请先到该模型编辑页填写后再用。</string>
   <plurals name="context_compacted_messages">

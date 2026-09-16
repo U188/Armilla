@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.runtime
 
+import io.github.mangi.eta.agent.model.AgentCompressionStrategy
+
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -76,11 +78,16 @@ internal class AgentRuntimeSession(
         return controller.steer(text)
     }
 
-    fun requestCompact(keepRecentMessages: Int? = null, targetTokens: Int? = null, allowCurrentTurn: Boolean = false): Boolean {
+    fun requestCompact(
+        keepRecentMessages: Int? = null,
+        targetTokens: Int? = null,
+        allowCurrentTurn: Boolean = false,
+        strategy: AgentCompressionStrategy? = null,
+    ): Boolean {
         lock.withLock {
             if (state != State.RUNNING) return false
         }
-        return controller.requestCompact(keepRecentMessages, targetTokens, allowCurrentTurn)
+        return controller.requestCompact(keepRecentMessages, targetTokens, allowCurrentTurn, strategy)
     }
 
     fun <T : AgentEvent> steer(

@@ -19,13 +19,10 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,7 +39,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -50,10 +46,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
@@ -127,17 +119,73 @@ private fun storedCompressTargetTokens(): Int {
 private fun currentCompressionStrategy(): AgentCompressionStrategy =
     AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY))
 
-private fun storedCompressKeepRecent(): Int {
-    return AgentContextCompactor.coerceKeepRecent(
-        Prefs.getInt(
-            Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
-            AgentContextCompactor.DEFAULT_KEEP_RECENT,
-        ),
-        currentCompressionStrategy(),
-    )
+private fun storedManualCompressionStrategy(): AgentCompressionStrategy {
+    val stored = Prefs.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY)
+    if (!stored.isNullOrBlank() &&
+        AgentCompressionStrategy.entries.any { it.wireValue == stored }
+    ) {
+        return AgentCompressionStrategy.parse(stored)
+    }
+    return currentCompressionStrategy()
 }
 
 private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
+
+@Composable
+internal fun CompressionStrategyOptions(
+    selected: AgentCompressionStrategy,
+    enabled: Boolean,
+    onSelect: (AgentCompressionStrategy) -> Unit,
+    showNote: Boolean = false,
+    compact: Boolean = false,
+) {
+    val view = LocalView.current
+    val horizontal = if (compact) 0.dp else 16.dp
+    Column(modifier = Modifier.fillMaxWidth()) {
+        AgentCompressionStrategy.entries.forEach { option ->
+            val title = if (option == AgentCompressionStrategy.CONTINUE_TASK) {
+                stringResource(R.string.ui_compress_strategy_continue_title)
+            } else {
+                stringResource(R.string.ui_compress_strategy_preserve_title)
+            }
+            val summary = if (option == AgentCompressionStrategy.CONTINUE_TASK) {
+                stringResource(R.string.ui_compress_strategy_continue_summary)
+            } else {
+                stringResource(R.string.ui_compress_strategy_preserve_summary)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = enabled) {
+                        TouchHaptics.click(view)
+                        onSelect(option)
+                    }
+                    .padding(horizontal = horizontal, vertical = if (compact) 6.dp else 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(title, style = MaterialTheme.typography.bodyLarge)
+                    Text(summary, style = MaterialTheme.typography.bodySmall)
+                }
+                androidx.compose.material3.RadioButton(
+                    selected = selected == option,
+                    enabled = enabled,
+                    onClick = {
+                        TouchHaptics.click(view)
+                        onSelect(option)
+                    },
+                )
+            }
+        }
+        if (showNote) {
+            Text(
+                stringResource(R.string.ui_compress_strategy_note),
+                modifier = Modifier.padding(start = horizontal, end = horizontal, bottom = 12.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -149,24 +197,20 @@ internal fun CompressConversationDialog(
         providerId: String?,
         modelId: String?,
         targetTokens: Int,
-        keepRecent: Int,
+        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit,
 ) {
     val prefs = remember { Prefs.localAgentPreferences() }
     val scope = rememberCoroutineScope()
     var targetTokens by remember { mutableIntStateOf(AgentContextCompactor.DEFAULT_TARGET_TOKENS) }
-    var keepRecent by remember { mutableIntStateOf(AgentContextCompactor.DEFAULT_KEEP_RECENT) }
-    var keepRecentField by remember {
-        mutableStateOf(TextFieldValue(keepRecent.toString()))
-    }
+    var strategy by remember { mutableStateOf(AgentCompressionStrategy.DEFAULT) }
     var selectedModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
     var customModelEnabled by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showMissingWindowDialog by remember { mutableStateOf(false) }
     var isLoadingModels by remember { mutableStateOf(false) }
-    var keepRecentFocused by remember { mutableStateOf(false) }
     val imeBottom = rememberActivityImeBottomDp()
     val configuration = LocalConfiguration.current
     val focusManager = LocalFocusManager.current
@@ -182,16 +226,7 @@ internal fun CompressConversationDialog(
             return@LaunchedEffect
         }
         targetTokens = storedCompressTargetTokens()
-        keepRecent = storedCompressKeepRecent()
-        keepRecentField = TextFieldValue(keepRecent.toString())
-        val storedKeep = Prefs.getInt(
-            Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
-            AgentContextCompactor.DEFAULT_KEEP_RECENT,
-        )
-        if (storedKeep != keepRecent) {
-            Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT, keepRecent)
-        }
-        keepRecentFocused = false
+        strategy = storedManualCompressionStrategy()
         isLoadingModels = true
         customModelEnabled = Prefs.isCustomCompressModelEnabled(prefs)
         val pickerState = withContext(Dispatchers.IO) {
@@ -209,11 +244,6 @@ internal fun CompressConversationDialog(
         onDismissRequest = onDismiss,
     ) {
         val scrollState = rememberScrollState()
-        LaunchedEffect(keepRecentFocused, imeBottom, scrollState.maxValue) {
-            if (keepRecentFocused && imeBottom > 0.dp) {
-                scrollState.animateScrollTo(scrollState.maxValue)
-            }
-        }
         val dialogFocus = remember { FocusRequester() }
         LaunchedEffect(Unit) {
             dialogFocus.requestFocus()
@@ -307,54 +337,23 @@ internal fun CompressConversationDialog(
             }
 
             Text(
-                text = stringResource(R.string.ui_compress_keep_recent_title),
+                text = stringResource(R.string.ui_compress_strategy_title),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
             )
-            OutlinedTextField(
-                value = keepRecentField,
-                onValueChange = { value ->
-                    val digits = value.text.filter(Char::isDigit).take(3)
-                    if (digits.isEmpty()) {
-                        keepRecentField = TextFieldValue("")
-                        return@OutlinedTextField
-                    }
-                    val number = AgentContextCompactor.coerceKeepRecent(digits.toInt(), currentCompressionStrategy())
-                    val next = number.toString()
-                    keepRecentField = TextFieldValue(next, TextRange(next.length))
-                    if (number != keepRecent) {
-                        keepRecent = number
-                        Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT, number)
-                    }
-                },
+            CompressionStrategyOptions(
+                selected = strategy,
                 enabled = !isCompressing,
-                singleLine = true,
-                label = { Text(stringResource(R.string.ui_compress_keep_recent_title)) },
-                supportingText = {
-                    Text(
-                        stringResource(
-                            if (currentCompressionStrategy() == AgentCompressionStrategy.CONTINUE_TASK) {
-                                R.string.ui_compress_keep_recent_summary_continue
-                            } else {
-                                R.string.ui_compress_keep_recent_summary
-                            },
-                        ),
+                compact = true,
+                onSelect = { option ->
+                    strategy = option
+                    Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY, option.wireValue)
+                    Prefs.putInt(
+                        Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
+                        AgentContextCompactor.keepRecentFor(option),
                     )
                 },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        focusManager.clearFocus()
-                        keyboard?.hide()
-                    },
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { keepRecentFocused = it.isFocused },
             )
 
             }
@@ -388,14 +387,11 @@ internal fun CompressConversationDialog(
                     if (isCompressing) return@MiuixDialogActions
                     focusManager.clearFocus()
                     keyboard?.hide()
-                    val parsedKeepRecent = keepRecentField.text.toIntOrNull()
-                        ?.let { AgentContextCompactor.coerceKeepRecent(it, currentCompressionStrategy()) }
-                        ?: keepRecent
                     onConfirm(
                         selectedModel?.providerId.takeIf { customModelEnabled },
                         selectedModel?.id.takeIf { customModelEnabled },
                         targetTokens,
-                        parsedKeepRecent,
+                        strategy,
                     ) { ok ->
                         if (ok) onDismiss()
                     }

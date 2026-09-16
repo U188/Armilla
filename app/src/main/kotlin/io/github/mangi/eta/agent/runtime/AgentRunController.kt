@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.runtime
 
+import io.github.mangi.eta.agent.model.AgentCompressionStrategy
+
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.ArrayDeque
@@ -31,6 +33,7 @@ internal class AgentRunController {
     data class CompactRequest(
         val keepRecentMessages: Int? = null,
         val targetTokens: Int? = null,
+        val strategy: AgentCompressionStrategy? = null,
     )
 
     fun cancel() {
@@ -76,13 +79,19 @@ internal class AgentRunController {
      * 请求在下一次模型请求前压缩，并打断当前 SSE。
      * 工具批次不会被取消。暂停中会唤醒循环，以便立刻压缩。
      */
-    fun requestCompact(keepRecentMessages: Int? = null, targetTokens: Int? = null, allowCurrentTurn: Boolean = false): Boolean {
+    fun requestCompact(
+        keepRecentMessages: Int? = null,
+        targetTokens: Int? = null,
+        allowCurrentTurn: Boolean = false,
+        strategy: AgentCompressionStrategy? = null,
+    ): Boolean {
         lock.withLock {
             if (cancelled) return false
             if (allowCurrentTurn) allowCurrentTurnCompaction = true
             pendingCompact = CompactRequest(
                 keepRecentMessages = keepRecentMessages,
                 targetTokens = targetTokens,
+                strategy = strategy,
             )
             paused = false
             pauseCondition.signalAll()

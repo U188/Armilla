@@ -77,6 +77,7 @@ internal class AgentLoop(
     private var currentRoundTools = tools
     private var manualBudgetAttempt = false
     private var budgetKeepRecent = compactPolicy.keepRecentMessages
+    private var budgetStrategy = compactPolicy.strategy
     private var overflowPending = false
     private var overflowRecoveryAttempts = 0
     private var lastFailedCompaction: Pair<String, Int>? = null
@@ -313,11 +314,13 @@ internal class AgentLoop(
         val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
         if (!forced && skipIneffectiveAutoCompact && !charPressure && !requestOverBudget()) return
         if (!forced && !charPressure && (round <= 1 || estimatedRequestTokens() < window * 0.9)) return
+        val strategy = override?.strategy ?: compactPolicy.strategy
         val keep = AgentContextCompactor.coerceKeepRecent(
             override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
-            compactPolicy.strategy,
+            strategy,
         )
         budgetKeepRecent = keep
+        budgetStrategy = strategy
         val history = historyForCompaction()
         val cut = runCatching { AgentCompressionBoundary.protectedStart(history, keep, activeTurnStart) }.getOrDefault(0)
         if (cut <= 0) {
@@ -340,7 +343,7 @@ internal class AgentLoop(
         val normalCut = runCatching { AgentCompressionBoundary.protectedStart(history, budgetKeepRecent, activeTurnStart) }.getOrDefault(0)
         if (normalCut > 0 && pruneOversizedToolResults(round, systemCount + normalCut)) return true
         if (normalCut > 0 && applyCompaction(round, history, normalCut, compactPolicy.targetTokens)) return true
-        val mayRelax = compactPolicy.strategy == AgentCompressionStrategy.CONTINUE_TASK || runController.allowCurrentTurnCompaction
+        val mayRelax = budgetStrategy == AgentCompressionStrategy.CONTINUE_TASK || runController.allowCurrentTurnCompaction
         if (!mayRelax) return false
         if (compactionArchive == null) {
             compactionFailure = "未提供原文存档与回读能力，不能压缩受保护轮次。"

@@ -17,10 +17,15 @@ class AgentCompressionStrategyTest {
     private fun message(role: String, text: String = "", id: String = "", calls: String = "") =
         AgentModelClient.ConversationMessage(role, content = text, toolCallId = id, toolCallsJson = calls)
 
-    @Test fun unknownOrMissingStrategyAlwaysPreservesTurns() {
-        assertEquals(AgentCompressionStrategy.PRESERVE_TURN, AgentCompressionStrategy.parse(null))
-        assertEquals(AgentCompressionStrategy.PRESERVE_TURN, AgentCompressionStrategy.parse("unexpected"))
+    @Test fun missingStrategyDefaultsToContinueTask() {
+        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(null))
+        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(""))
         assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse("continue_task"))
+        assertEquals(AgentCompressionStrategy.PRESERVE_TURN, AgentCompressionStrategy.parse("preserve_turn"))
+    }
+
+    @Test fun unknownStrategyFailsClosedToPreserveTurn() {
+        assertEquals(AgentCompressionStrategy.PRESERVE_TURN, AgentCompressionStrategy.parse("unexpected"))
     }
 
     @Test fun strictBoundaryIncludesEntireActiveTurnEvenIfANewUserMessageAppears() {

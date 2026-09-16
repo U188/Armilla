@@ -23,6 +23,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.model.AgentCompressionStrategy
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
@@ -79,7 +80,7 @@ fun AgentAppShell(
         providerId: String?,
         modelId: String?,
         targetTokens: Int,
-        keepRecent: Int,
+        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
@@ -222,7 +223,7 @@ private fun AgentTopBar(
         providerId: String?,
         modelId: String?,
         targetTokens: Int,
-        keepRecent: Int,
+        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },

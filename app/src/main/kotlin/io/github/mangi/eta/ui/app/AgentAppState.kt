@@ -184,10 +184,13 @@ internal class AgentAppState(
         if (prompt.conversationId != selectedConversationId) return
         scope.launch {
             val sent = withContext(Dispatchers.IO) {
-                AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(runId,
-                    Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT),
+                AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(
+                    runId,
+                    AgentContextCompactor.keepRecentFor(currentCompressionStrategy()),
                     Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS),
-                    allowCurrentTurn = true)
+                    allowCurrentTurn = true,
+                    strategy = currentCompressionStrategy().wireValue,
+                )
             }
             if (sent) contextBudgetPrompt = null
             else Toast.makeText(appContext, "未能联系 Runtime，任务仍保持暂停。", Toast.LENGTH_LONG).show()
@@ -1777,8 +1780,11 @@ internal class AgentAppState(
     private fun currentCompressionStrategy(): AgentCompressionStrategy =
         AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY))
 
-    private fun coerceKeepRecent(value: Int): Int =
-        AgentContextCompactor.coerceKeepRecent(value, currentCompressionStrategy())
+    private fun coerceKeepRecent(value: Int, strategy: AgentCompressionStrategy = currentCompressionStrategy()): Int =
+        AgentContextCompactor.coerceKeepRecent(value, strategy)
+
+    private fun keepRecentFor(strategy: AgentCompressionStrategy = currentCompressionStrategy()): Int =
+        AgentContextCompactor.keepRecentFor(strategy)
 
     private fun billedPromptTokens(state: AgentChatHomeUiState): Int? =
         state.livePromptTokens ?: latestBilledContextTokens(state.messages)
@@ -1794,14 +1800,10 @@ internal class AgentAppState(
     ): Boolean {
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return false
         val window = contextWindow?.takeIf { it > 0 } ?: return false
-        val keepRecent = Prefs.getInt(
-            Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
-            AgentContextCompactor.DEFAULT_KEEP_RECENT,
-        )
         return AgentContextCompactor.shouldCompress(
             history = history,
             contextWindow = window,
-            keepRecentMessages = keepRecent,
+            keepRecentMessages = keepRecentFor(),
             estimatedTokens = estimatedTokens,
         )
     }
@@ -1820,10 +1822,7 @@ internal class AgentAppState(
             Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
             AgentContextCompactor.DEFAULT_TARGET_TOKENS,
         )
-        val resolvedKeepRecent = keepRecent ?: Prefs.getInt(
-            Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
-            AgentContextCompactor.DEFAULT_KEEP_RECENT,
-        )
+        val resolvedKeepRecent = keepRecent ?: keepRecentFor()
         val config = AgentContextCompactor.Config(
             targetTokens = resolvedTargetTokens.coerceIn(500, 4000),
             keepRecentMessages = coerceKeepRecent(resolvedKeepRecent),
@@ -4195,14 +4194,14 @@ internal class AgentAppState(
         providerId: String?,
         modelId: String?,
         targetTokens: Int,
-        keepRecent: Int,
+        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) {
         if (rejectConversationArchiveMutation()) {
             onFinished(false)
             return
         }
-        persistCompressPreferences(providerId, modelId, targetTokens, keepRecent)
+        persistCompressPreferences(providerId, modelId, targetTokens, strategy)
         val runInFlight = homeState.isStreaming || homeState.isPaused
         if (compressionJob?.isActive == true) {
             onFinished(true)
@@ -4212,7 +4211,7 @@ internal class AgentAppState(
             onFinished(true)
             return
         }
-        val keepRecentMessages = coerceKeepRecent(keepRecent)
+        val keepRecentMessages = keepRecentFor(strategy)
         if (!runInFlight &&
             AgentContextCompactor.recentKeepStartIndex(homeState.history, keepRecentMessages) <= 0
         ) {
@@ -4228,7 +4227,12 @@ internal class AgentAppState(
         setConversationCompressing(conversationId, true)
         onFinished(true)
         if (runInFlight) {
-            requestInRunCompress(conversationId, keepRecentMessages, targetTokens)
+            requestInRunCompress(
+                conversationId,
+                keepRecentMessages,
+                targetTokens,
+                strategy = strategy,
+            )
             return
         }
         pendingManualCompress = PendingManualCompress(
@@ -4268,14 +4272,12 @@ internal class AgentAppState(
         autoCompressInterruptedIds += conversationId
         requestInRunCompress(
             conversationId = conversationId,
-            keepRecent = Prefs.getInt(
-                Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
-                AgentContextCompactor.DEFAULT_KEEP_RECENT,
-            ).let(::coerceKeepRecent),
+            keepRecent = keepRecentFor(),
             targetTokens = Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
                 AgentContextCompactor.DEFAULT_TARGET_TOKENS,
             ).coerceIn(500, 4000),
+            strategy = currentCompressionStrategy(),
         )
     }
 
@@ -4283,6 +4285,7 @@ internal class AgentAppState(
         conversationId: String?,
         keepRecent: Int,
         targetTokens: Int,
+        strategy: AgentCompressionStrategy = currentCompressionStrategy(),
     ) {
         if (conversationId != null) {
             pendingInRunCompactConversationIds += conversationId
@@ -4294,6 +4297,8 @@ internal class AgentAppState(
                 runId = runId,
                 keepRecent = keepRecent,
                 targetTokens = targetTokens,
+                allowCurrentTurn = strategy == AgentCompressionStrategy.CONTINUE_TASK,
+                strategy = strategy.wireValue,
             )
         }
     }
@@ -4500,15 +4505,16 @@ internal class AgentAppState(
         providerId: String?,
         modelId: String?,
         targetTokens: Int,
-        keepRecent: Int,
+        strategy: AgentCompressionStrategy,
     ) {
         Prefs.putInt(
             Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS,
             targetTokens.coerceIn(500, 4000),
         )
+        Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY, strategy.wireValue)
         Prefs.putInt(
             Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
-            coerceKeepRecent(keepRecent),
+            keepRecentFor(strategy),
         )
         if (!providerId.isNullOrBlank() && !modelId.isNullOrBlank()) {
             Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, providerId)

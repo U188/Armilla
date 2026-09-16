@@ -31,13 +31,13 @@ internal object AgentContextCompactor {
         val summaryProvider: AgentProviderClient? = null,
     )
 
+    fun keepRecentFor(strategy: AgentCompressionStrategy): Int =
+        if (strategy == AgentCompressionStrategy.CONTINUE_TASK) MIN_KEEP_RECENT_CONTINUE else MIN_KEEP_RECENT
+
     fun coerceKeepRecent(
         value: Int,
         strategy: AgentCompressionStrategy = AgentCompressionStrategy.PRESERVE_TURN,
-    ): Int = value.coerceIn(
-        if (strategy == AgentCompressionStrategy.CONTINUE_TASK) MIN_KEEP_RECENT_CONTINUE else MIN_KEEP_RECENT,
-        MAX_KEEP_RECENT,
-    )
+    ): Int = value.coerceIn(keepRecentFor(strategy), MAX_KEEP_RECENT)
 
     fun configuredContextWindow(value: Int?): Int? = value?.takeIf { it > 0 }
 

@@ -1202,9 +1202,10 @@ internal fun resolveKeepBottomAnchored(
     isUserDragging: Boolean,
     isAtBottom: Boolean,
 ): Boolean = when {
+    // 只有手指拖走才停跟底。流式长高时 sentinel 会短暂离开视口，不能当成用户上滑。
     isUserDragging -> isAtBottom
-    !isAtBottom -> false
-    else -> true
+    isAtBottom -> true
+    else -> current
 }
 
 internal fun resolveBottomFollowEnabled(

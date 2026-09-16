@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui
 
 import android.content.Intent
+import android.os.Parcelable
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -122,14 +123,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Suppress("DEPRECATION", "UNCHECKED_CAST")
+    @Suppress("DEPRECATION")
     private fun Intent.shareUriListExtra(): List<android.net.Uri> {
-        val values = if (android.os.Build.VERSION.SDK_INT >= 33) {
+        val values: ArrayList<out Parcelable>? = if (android.os.Build.VERSION.SDK_INT >= 33) {
             getParcelableArrayListExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
         } else {
-            getParcelableArrayListExtra(Intent.EXTRA_STREAM) as ArrayList<android.net.Uri>?
+            getParcelableArrayListExtra<Parcelable>(Intent.EXTRA_STREAM)
         }
-        return values.orEmpty()
+        return values.orEmpty().mapNotNull { it as? android.net.Uri }
     }
 
     private fun updateAssistantHandoff(intent: Intent?) {

@@ -959,10 +959,14 @@ class AgentModelClientLoopTest {
         val started = CountDownLatch(1)
         val finished = CountDownLatch(1)
         val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+        val paused = CountDownLatch(1)
         val provider = ScriptedProvider(
             responses = listOf(
                 { _, runController ->
+                    val stream = java.util.concurrent.atomic.AtomicInteger()
+                    runController.register(interruptible = true) { stream.incrementAndGet() }
                     runController.pause()
+                    paused.countDown()
                     assistant(content = "已经写到一半", finishReason = "stop")
                 },
                 { request, _ ->
@@ -990,10 +994,11 @@ class AgentModelClientLoopTest {
         }
         try {
             assertTrue(started.await(1, TimeUnit.SECONDS))
-            assertFalse(finished.await(300, TimeUnit.MILLISECONDS))
+            assertTrue(paused.await(2, TimeUnit.SECONDS))
+            assertFalse(finished.await(200, TimeUnit.MILLISECONDS))
             controller.resume()
             assertTrue(finished.await(3, TimeUnit.SECONDS))
-            assertEquals(null, failure.get()?.message)
+            assertEquals(null, failure.get()?.toString(), failure.get()?.message)
             assertEquals(2, provider.requests.size)
         } finally {
             controller.cancel()

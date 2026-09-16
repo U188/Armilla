@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +42,7 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Unit) {
     val prefs = remember(context) { Prefs.localAgentPreferences() }
@@ -180,11 +183,12 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
         item(key = "target_tokens") {
             SmallTitle(stringResource(R.string.ui_compress_target_tokens_title))
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    listOf(500, 1000, 2000, 4000).forEach { value ->
+                    AgentContextCompactor.TARGET_TOKEN_OPTIONS.forEach { value ->
                         val selected = targetTokens == value
                         androidx.compose.material3.Button(
                             onClick = {
@@ -197,7 +201,8 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                                 contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                             ),
                         ) {
-                            Text(value.toString())
+                            Text(if (value == AgentContextCompactor.AUTO_TARGET_TOKENS)
+                                stringResource(R.string.ui_compress_target_auto) else value.toString())
                         }
                     }
                 }

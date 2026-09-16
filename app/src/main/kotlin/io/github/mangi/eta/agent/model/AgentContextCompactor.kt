@@ -9,6 +9,39 @@ internal object AgentContextCompactor {
     const val MIN_KEEP_RECENT_CONTINUE = 0
     const val MAX_KEEP_RECENT = 100
     const val DEFAULT_TARGET_TOKENS = 2000
+    const val AUTO_TARGET_TOKENS = 0
+    val TARGET_TOKEN_OPTIONS = listOf(AUTO_TARGET_TOKENS, 500, 1000, 2000, 4000)
+
+    fun coerceTargetPreference(value: Int): Int =
+        if (value == AUTO_TARGET_TOKENS) value else value.coerceIn(500, 4000)
+
+    /** Resolve after pruning and boundary selection, never persist the resolved number.
+     * Aim at ~10% of selected history, capped by 1/32 of the main window.
+     * Leave room for the verbatim tail, request envelope, model output and archive
+     * references. Validation permits up to twice the target, so reserve that too.
+     */
+    internal fun resolveTargetTokens(
+        requested: Int,
+        history: List<AgentModelClient.ConversationMessage>,
+        cut: Int,
+        contextWindow: Int?,
+        requestOverheadTokens: Int = 0,
+        outputReserveTokens: Int = 4096,
+    ): Int {
+        if (requested != AUTO_TARGET_TOKENS) return requested
+        require(cut in 1..history.size) { "没有可自动摘要的历史" }
+        val prefixTokens = history.take(cut).sumOf { AgentContextBudget.countMessage(it).toLong() }
+        val tailTokens = history.drop(cut).sumOf { AgentContextBudget.countMessage(it).toLong() }
+        val desired = ((prefixTokens + 9) / 10).coerceIn(1000, 8000)
+        val window = contextWindow?.takeIf { it > 0 }
+        if (window == null) return desired.toInt()
+        val room = AgentCompressionBoundary.inputLimit(window, outputReserveTokens.coerceAtLeast(0)).toLong() -
+            tailTokens - requestOverheadTokens.coerceAtLeast(0) - 512
+        val availableTarget = minOf(maxOf(500, window / 32).toLong(), room / 2)
+        require(availableTarget >= 500) { "保留原文与请求预留后没有足够的摘要空间，请调整压缩策略或使用更大窗口" }
+        return minOf(desired, availableTarget).toInt()
+    }
+
     /** DeepSeek harness 按 token 留尾巴；单次摘要输入也按真实窗口收紧，避免 1M 覆盖把 128k 模型打爆。 */
     internal const val SUMMARIZER_INPUT_CAP = 128_000
     internal const val SUMMARY_REQUEST_TIMEOUT_MS = 120_000L
@@ -54,6 +87,9 @@ internal object AgentContextCompactor {
         val compressModelConfig: AgentModelClient.ModelConfig? = null,
         val summaryProvider: AgentProviderClient? = null,
         val compactionArchive: AgentCompactionArchive? = null,
+        val mainContextWindow: Int? = null,
+        val requestOverheadTokens: Int = 0,
+        val outputReserveTokens: Int = 4096,
     )
 
     fun keepRecentFor(strategy: AgentCompressionStrategy): Int =
@@ -103,7 +139,7 @@ internal object AgentContextCompactor {
         if (!shouldCompress(history, contextWindow, config.keepRecentMessages, estimatedTokens = estimated)) {
             return null
         }
-        val compressed = compress(history, config, toolExecutor, capabilitiesProvider)
+        val compressed = compress(history, config.copy(mainContextWindow = config.mainContextWindow ?: contextWindow), toolExecutor, capabilitiesProvider)
         if (compressed == history) return null
         val cut = recentKeepStartIndex(history, config.keepRecentMessages)
         val keptJson = (historyStart + cut until messages.length()).map { messages.getJSONObject(it) }
@@ -157,9 +193,16 @@ internal object AgentContextCompactor {
             }) { "摘要回放与选中历史不一致，未发送请求" }
         }
 
-        val chunks = splitMessages(messagesToCompress, config, replay)
+        val resolvedTarget = resolveTargetTokens(config.targetTokens, history, keepStart,
+            config.mainContextWindow ?: config.compressModelConfig?.contextWindow,
+            config.requestOverheadTokens, config.outputReserveTokens)
+        val resolvedConfig = config.copy(targetTokens = resolvedTarget)
+        if (config.targetTokens == AUTO_TARGET_TOKENS) runCatching {
+            AndroidAgentLogger.info("自动摘要目标：$resolvedTarget tokens，选中 $keepStart 条历史")
+        }
+        val chunks = splitMessages(messagesToCompress, resolvedConfig, replay)
         runCatching { AndroidAgentLogger.info("开始摘要：${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条") }
-        val perChunk = config.copy(targetTokens = (config.targetTokens / chunks.size).coerceAtLeast(128))
+        val perChunk = resolvedConfig.copy(targetTokens = (resolvedConfig.targetTokens / chunks.size).coerceAtLeast(128))
         var offset = 0
         val summaries = chunks.mapIndexed { index, chunk ->
             controller.throwIfCancelled()
@@ -170,11 +213,11 @@ internal object AgentContextCompactor {
             offset += chunk.size
             compressChunk(chunk, perChunk, controller, chunkReplay)
         }
-        require(summaries.sumOf { AgentContextBudget.countTokens(it) } <= config.targetTokens * 2) { "摘要总量超过目标预算" }
+        require(summaries.sumOf { AgentContextBudget.countTokens(it) } <= resolvedConfig.targetTokens * 2) { "摘要总量超过目标预算" }
         val consolidated = if (summaries.size <= 1) summaries else listOf(compressChunk(
-            summaries.map { AgentModelClient.ConversationMessage("user", it) }, config, controller, null,
+            summaries.map { AgentModelClient.ConversationMessage("user", it) }, resolvedConfig, controller, null,
         ))
-        require(consolidated.sumOf { AgentContextBudget.countTokens(it) } <= config.targetTokens * 2) { "合并摘要超过目标预算" }
+        require(consolidated.sumOf { AgentContextBudget.countTokens(it) } <= resolvedConfig.targetTokens * 2) { "合并摘要超过目标预算" }
 
         val summaryMessages = consolidated.map { summary ->
             AgentModelClient.ConversationMessage(

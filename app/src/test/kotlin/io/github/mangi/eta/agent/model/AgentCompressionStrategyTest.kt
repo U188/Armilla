@@ -152,6 +152,27 @@ class AgentCompressionStrategyTest {
         assertEquals(2, calls)
     }
 
+    @Test fun inRunManualAutoTargetIsResolvedInsteadOfClampedTo500() {
+        val controller = AgentRunController()
+        controller.requestCompact(1, AgentContextCompactor.AUTO_TARGET_TOKENS)
+        val model = config(128_000)
+        val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(160_000)))
+            .put(AgentConversationCodec.userTextMessage("protected"))
+        var resolved = 0
+        AgentLoop(model, source, JSONArray(), provider {
+            assertEquals(4000, resolved)
+            JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
+        }, AgentModelClient.ToolExecutor { error("No tools") }, controller, AgentTraceFormatter(),
+            onEvent = { if (it is AgentEvent.ContextCompacted) assertFalse(it.reason, it.blocked) },
+            compactPolicy = AgentLoop.CompactPolicy(false, 128_000, 1, 500, model),
+            compactHistory = { history, policy ->
+                resolved = policy.targetTokens
+                listOf(message("user", "[Conversation summary]\nverified old work")) + history.drop(1)
+            },
+        ).run()
+        assertEquals(4000, resolved)
+    }
+
     @Test fun firstRequestCompactsAtPressureBeforeSendingAnOtherwiseValidRequest() {
         val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(352_000)))
             .put(JSONObject().put("role", "assistant").put("content", "old result"))

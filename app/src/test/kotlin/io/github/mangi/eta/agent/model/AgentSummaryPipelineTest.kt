@@ -21,6 +21,21 @@ class AgentSummaryPipelineTest {
     }
     private fun response(text: String, finish: String = "stop") = JSONObject().put("role", "assistant").put("content", text).put("finish_reason", finish)
 
+    @Test fun autoTargetResolvesBeforePromptAndValidationUsingMainWindow() {
+        val source = listOf(AgentModelClient.ConversationMessage("user", "x".repeat(160_000)),
+            AgentModelClient.ConversationMessage("user", "protected"))
+        val autoConfig = AgentContextCompactor.Config(0, 1, config(), provider {
+            assertTrue(it.messages.toString().contains("Target approximately 1000 tokens"))
+            assertFalse(it.messages.toString().contains("Target approximately 0 tokens"))
+            assertEquals(8192, it.config.summaryOutputLimit)
+            response(validSummary())
+        }, mainContextWindow = 32_000)
+        val result = AgentContextCompactor.compress(source, autoConfig)
+        assertEquals(source.last(), result.last())
+        assertTrue(AgentContextCompactor.isCompressionSummary(result.first()))
+        assertEquals(0, autoConfig.targetTokens)
+    }
+
     @Test fun summaryCallIsOneShotCappedAndNeverExecutesTools() {
         var calls = 0
         val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {

@@ -129,7 +129,7 @@ private fun storedManualCompressionStrategy(): AgentCompressionStrategy {
     return currentCompressionStrategy()
 }
 
-private val CompressTargetTokenOptions = listOf(500, 1000, 2000, 4000)
+private val CompressTargetTokenOptions = AgentContextCompactor.TARGET_TOKEN_OPTIONS
 
 @Composable
 internal fun CompressionStrategyOptions(
@@ -331,7 +331,8 @@ internal fun CompressConversationDialog(
                             }
                         },
                         enabled = !isCompressing,
-                        label = { Text(value.toString()) },
+                        label = { Text(if (value == AgentContextCompactor.AUTO_TARGET_TOKENS)
+                            stringResource(R.string.ui_compress_target_auto) else value.toString()) },
                     )
                 }
             }

@@ -54,6 +54,27 @@ class AgentProtectedHistoryPersistenceTest {
         }
     }
 
+    @Test fun autoTargetSurvivesRuntimeWireAndController() {
+        val bundle = AgentRuntimeWire.compactBundle("run", 1, AgentContextCompactor.AUTO_TARGET_TOKENS)
+        val target = AgentRuntimeWire.compactTargetTokensFromBundle(bundle)
+        assertEquals(0, target)
+        val controller = io.github.mangi.eta.agent.runtime.AgentRunController()
+        controller.requestCompact(1, target)
+        assertEquals(0, controller.takePendingCompact()!!.targetTokens)
+    }
+
+    @Test fun bothAutomaticAndManualPreferenceKeysRoundTripAutoAndFixedTargets() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("auto-target-test", 0)
+        val keys = listOf(io.github.mangi.eta.config.Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
+            io.github.mangi.eta.config.Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS)
+        try {
+            for (key in keys) for (target in AgentContextCompactor.TARGET_TOKEN_OPTIONS) {
+                assertTrue(prefs.edit().putInt(key, target).commit())
+                assertEquals(target, AgentContextCompactor.coerceTargetPreference(prefs.getInt(key, 2000)))
+            }
+        } finally { prefs.edit().clear().commit() }
+    }
+
     @Test fun explicitContinuationConsentAndBlockedReasonRoundTrip() {
         val bundle = AgentRuntimeWire.compactBundle("run", 1, 500, allowCurrentTurn = true)
         assertTrue(bundle.getBoolean("allow_current_turn_compaction"))

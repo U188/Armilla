@@ -1828,6 +1828,7 @@ internal class AgentAppState(
         conversationId: String? = null,
         contextWindow: Int? = null,
         strategy: AgentCompressionStrategy = currentCompressionStrategy(),
+        outputReserveTokens: Int = 4096,
     ): List<AgentModelClient.ConversationMessage> {
         val resolvedTargetTokens = targetTokens ?: Prefs.getInt(
             Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
@@ -1838,10 +1839,13 @@ internal class AgentAppState(
             io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, it)
         }
         val config = AgentContextCompactor.Config(
-            targetTokens = resolvedTargetTokens.coerceIn(500, 4000),
+            targetTokens = AgentContextCompactor.coerceTargetPreference(resolvedTargetTokens),
             keepRecentMessages = coerceKeepRecent(resolvedKeepRecent, strategy),
             compressModelConfig = compressModelConfig,
             compactionArchive = archive,
+            mainContextWindow = contextWindow,
+            requestOverheadTokens = requestOverheadTokens,
+            outputReserveTokens = outputReserveTokens,
         )
         return try {
             var summaryFailure: String? = null
@@ -2093,6 +2097,7 @@ internal class AgentAppState(
                     compressModelConfig = compressModelConfig,
                     conversationId = conversationId,
                     contextWindow = config.contextWindow,
+                    outputReserveTokens = io.github.mangi.eta.agent.model.AgentCompressionBoundary.outputReserve(config),
                 )
                 withContext(Dispatchers.Main) {
                     applyCompressedHistoryToConversation(
@@ -3622,7 +3627,8 @@ internal class AgentAppState(
             ?: return
         val compressModelConfig = resolveCompressModelConfig(fallback)
         val compressed = tryCompressHistory(originalHistory, compressModelConfig,
-            conversationId = conversationId, contextWindow = fallback.contextWindow)
+            conversationId = conversationId, contextWindow = fallback.contextWindow,
+            outputReserveTokens = io.github.mangi.eta.agent.model.AgentCompressionBoundary.outputReserve(fallback))
         if (compressed == originalHistory) return
         withContext(Dispatchers.Main) {
             val latest = conversationsById[conversationId] ?: return@withContext
@@ -4336,10 +4342,10 @@ internal class AgentAppState(
         requestInRunCompress(
             conversationId = conversationId,
             keepRecent = keepRecentFor(),
-            targetTokens = Prefs.getInt(
+            targetTokens = AgentContextCompactor.coerceTargetPreference(Prefs.getInt(
                 Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
                 AgentContextCompactor.DEFAULT_TARGET_TOKENS,
-            ).coerceIn(500, 4000),
+            )),
             strategy = currentCompressionStrategy(),
         )
     }
@@ -4461,6 +4467,9 @@ internal class AgentAppState(
                     conversationId = request.conversationId,
                     contextWindow = fallback?.contextWindow,
                     strategy = request.strategy,
+                    outputReserveTokens = fallback?.let {
+                        io.github.mangi.eta.agent.model.AgentCompressionBoundary.outputReserve(it)
+                    } ?: 4096,
                 )
                 withContext(Dispatchers.Main) {
                     if (compressed == originalHistory) {
@@ -4555,7 +4564,7 @@ internal class AgentAppState(
     ) {
         Prefs.putInt(
             Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS,
-            targetTokens.coerceIn(500, 4000),
+            AgentContextCompactor.coerceTargetPreference(targetTokens),
         )
         Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY, strategy.wireValue)
         Prefs.putInt(

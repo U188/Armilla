@@ -1456,4 +1456,5 @@
     <string name="provider_oauth_antigravity_signed_in_note">Token is stored on this device. Sign in again if requests start failing.</string>
     <string name="provider_oauth_antigravity_need_sign_in">Sign in with Google first</string>
   <string name="context_tool_outputs_pruned">Tool outputs trimmed · no new summary</string>
+  <string name="ui_compress_target_auto">Auto</string>
 </resources>

@@ -1425,4 +1425,5 @@
     <string name="provider_oauth_antigravity_signed_in_note">權杖保存在本機。請求失敗時再登入一次即可。</string>
     <string name="provider_oauth_antigravity_need_sign_in">請先使用 Google 登入</string>
   <string name="context_tool_outputs_pruned">已修剪工具輸出 · 未生成新摘要</string>
+  <string name="ui_compress_target_auto">自動</string>
 </resources>

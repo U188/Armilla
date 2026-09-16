@@ -448,11 +448,22 @@ internal class AgentLoop(
             }) { "待压缩范围包含不允许持久化的工具内容；已保留原文，请先完成或结束本轮。" }
             savedCheckpoint = compactionArchive?.save(prefix)
             savedCheckpoint?.let { compactionArchive?.record(it, "started") }
+            val resolvedTarget = AgentContextCompactor.resolveTargetTokens(
+                AgentContextCompactor.coerceTargetPreference(target), history, cut,
+                config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow,
+                AgentContextBudget.estimate(JSONArray().also { array ->
+                    for (index in 0 until systemCount) array.put(messages.getJSONObject(index))
+                }) + AgentContextBudget.countTokens(currentRoundTools.toString()),
+                AgentCompressionBoundary.outputReserve(config),
+            )
+            if (target == AgentContextCompactor.AUTO_TARGET_TOKENS) runCatching {
+                io.github.mangi.eta.core.AndroidAgentLogger.info("自动摘要目标：$resolvedTarget tokens，选中 $cut 条历史")
+            }
             val compressed = if (compactHistory != null) {
-                compactHistory.invoke(history, compactPolicy.copy(keepRecentMessages = budgetKeepRecent, targetTokens = target.coerceIn(500, 4000)))
+                compactHistory.invoke(history, compactPolicy.copy(keepRecentMessages = budgetKeepRecent, targetTokens = resolvedTarget))
             } else AgentContextCompactor.compress(
                 history, AgentContextCompactor.Config(
-                    target.coerceIn(500, 4000),
+                    resolvedTarget,
                     budgetKeepRecent,
                     compressConfig,
                     compactionArchive = compactionArchive,

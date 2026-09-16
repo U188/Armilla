@@ -1425,4 +1425,5 @@
     <string name="provider_oauth_antigravity_signed_in_note">令牌保存在本机。请求失败时再登录一次即可。</string>
     <string name="provider_oauth_antigravity_need_sign_in">请先使用 Google 登录</string>
   <string name="context_tool_outputs_pruned">已修剪工具输出 · 未生成新摘要</string>
+  <string name="ui_compress_target_auto">自动</string>
 </resources>

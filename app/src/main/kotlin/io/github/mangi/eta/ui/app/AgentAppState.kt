@@ -1831,28 +1831,40 @@ internal class AgentAppState(
             AgentContextCompactor.DEFAULT_TARGET_TOKENS,
         )
         val resolvedKeepRecent = keepRecent ?: keepRecentFor()
+        val archive = conversationId?.let {
+            io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, it)
+        }
         val config = AgentContextCompactor.Config(
             targetTokens = resolvedTargetTokens.coerceIn(500, 4000),
             keepRecentMessages = coerceKeepRecent(resolvedKeepRecent),
             compressModelConfig = compressModelConfig,
+            compactionArchive = archive,
         )
         return try {
             runInterruptible {
-                val cut = AgentContextCompactor.recentKeepStartIndex(history, config.keepRecentMessages)
-                if (cut <= 0 || cut >= history.size) return@runInterruptible history
-                val archive = conversationId?.let { io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, it) }
-                    ?: error("缺少会话身份，无法保存压缩原文")
-                val prefix = history.take(cut)
-                val id = archive.save(prefix)
-                archive.record(id, "started")
+                val working = AgentContextCompactor.pruneOversizedToolResults(history, archive)
+                val cut = AgentContextCompactor.recentKeepStartIndex(working, config.keepRecentMessages)
+                if (cut <= 0 || cut >= working.size) return@runInterruptible working
+                val boundArchive = archive ?: error("缺少会话身份，无法保存压缩原文")
+                val prefix = working.take(cut)
+                val id = boundArchive.save(prefix)
+                boundArchive.record(id, "started")
                 try {
-                    val summary = AgentContextCompactor.compress(history, config)
-                    val result = archive.attachReferences(prefix, id, summary, history.size - cut)
+                    val summary = AgentContextCompactor.compress(
+                        working,
+                        config.copy(compactionArchive = null),
+                        keepStartOverride = cut,
+                    )
+                    val result = boundArchive.attachReferences(prefix, id, summary, working.size - cut)
                     require(result.sumOf { AgentContextBudget.countMessage(it).toLong() } < history.sumOf { AgentContextBudget.countMessage(it).toLong() }) { "摘要及索引未缩小上下文" }
-                    archive.record(id, "ready")
+                    boundArchive.record(id, "ready")
                     result
                 } catch (failure: Throwable) {
-                    runCatching { archive.record(id, "failed") }
+                    runCatching { boundArchive.record(id, "failed") }
+                    if (working.sumOf { AgentContextBudget.countMessage(it).toLong() } < history.sumOf { AgentContextBudget.countMessage(it).toLong() }) {
+                        AndroidAgentLogger.warn("摘要失败，已保留工具修剪结果：${failure.javaClass.simpleName}: ${failure.message}")
+                        return@runInterruptible working
+                    }
                     throw failure
                 }
             }
@@ -1863,7 +1875,7 @@ internal class AgentAppState(
                 failure is io.github.mangi.eta.agent.runtime.AgentRunCancelledException) {
                 throw CancellationException("摘要已取消").also { it.initCause(failure) }
             }
-            AndroidAgentLogger.warn("压缩失败，保留原文：${failure.javaClass.simpleName}")
+            AndroidAgentLogger.warn("压缩失败，保留原文：${failure.javaClass.simpleName}: ${failure.message}")
             withContext(Dispatchers.Main) {
                 if (conversationId == selectedConversationId) Toast.makeText(appContext,
                     failure.message ?: "压缩失败，原历史保持不变", Toast.LENGTH_LONG).show()

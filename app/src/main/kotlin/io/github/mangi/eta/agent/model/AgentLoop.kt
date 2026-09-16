@@ -433,7 +433,12 @@ internal class AgentLoop(
             val compressed = if (compactHistory != null) {
                 compactHistory.invoke(history, compactPolicy.copy(keepRecentMessages = budgetKeepRecent, targetTokens = target.coerceIn(500, 4000)))
             } else AgentContextCompactor.compress(
-                history, AgentContextCompactor.Config(target.coerceIn(500, 4000), compactPolicy.keepRecentMessages, compressConfig),
+                history, AgentContextCompactor.Config(
+                    target.coerceIn(500, 4000),
+                    compactPolicy.keepRecentMessages,
+                    compressConfig,
+                    compactionArchive = compactionArchive,
+                ),
                 keepStartOverride = cut, controller = runController,
                 replay = if (compressConfig.providerType == config.providerType && compressConfig.baseUrl == config.baseUrl &&
                     compressConfig.model == config.model && compressConfig.openAiEndpointMode == config.openAiEndpointMode)

@@ -84,7 +84,29 @@ class AgentContextCompactorTest {
     }
 
     @Test
+    fun keepZeroRetainsLastUserNotTheLastToolBatch() {
+        val history = listOf(
+            msg("user", "u1"),
+            msg("assistant", "a1"),
+            msg("tool", "huge-tool-1"),
+            msg("tool", "huge-tool-2"),
+            msg("user", "u2"),
+            msg("assistant", "a2"),
+            msg("tool", "huge-tool-3"),
+            msg("tool", "huge-tool-4"),
+            msg("tool", "huge-tool-5"),
+        )
+        val start = AgentContextCompactor.recentKeepStartIndex(history, 0)
+        val kept = history.subList(start, history.size)
+        assertEquals("u2", kept.first().content)
+        assertTrue(kept.any { it.content == "huge-tool-5" })
+        assertFalse(kept.any { it.content == "u1" })
+        assertFalse(kept.any { it.content == "huge-tool-1" })
+    }
+
+    @Test
     fun keepRecentFollowsStrategyDefaults() {
+
         assertEquals(0, AgentContextCompactor.keepRecentFor(AgentCompressionStrategy.CONTINUE_TASK))
         assertEquals(1, AgentContextCompactor.keepRecentFor(AgentCompressionStrategy.PRESERVE_TURN))
     }

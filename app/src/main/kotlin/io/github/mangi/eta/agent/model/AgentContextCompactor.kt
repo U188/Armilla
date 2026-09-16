@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.tool.AgentToolCapabilities
+import io.github.mangi.eta.core.AndroidAgentLogger
+import java.util.concurrent.TimeUnit
 
 internal object AgentContextCompactor {
     const val DEFAULT_KEEP_RECENT = 4
@@ -8,6 +10,12 @@ internal object AgentContextCompactor {
     const val MIN_KEEP_RECENT_CONTINUE = 0
     const val MAX_KEEP_RECENT = 100
     const val DEFAULT_TARGET_TOKENS = 2000
+    /** DeepSeek harness 按 token 留尾巴；单次摘要输入也按真实窗口收紧，避免 1M 覆盖把 128k 模型打爆。 */
+    internal const val SUMMARIZER_INPUT_CAP = 128_000
+    internal const val SUMMARY_REQUEST_TIMEOUT_MS = 120_000L
+    private const val TOOL_PRUNE_LIMIT = 8_192
+    private const val TOOL_PRUNE_HEAD = 4_096
+    private const val TOOL_PRUNE_TAIL = 1_024
     internal const val SUMMARY_PREFIX = "[Conversation summary]"
     internal const val SUMMARY_PREFIX_ZH = "[\u5bf9\u8bdd\u6458\u8981]"
     internal const val STEERING_USER_PREFIX = "用户补充指令："
@@ -32,6 +40,7 @@ internal object AgentContextCompactor {
         val keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         val compressModelConfig: AgentModelClient.ModelConfig? = null,
         val summaryProvider: AgentProviderClient? = null,
+        val compactionArchive: AgentCompactionArchive? = null,
     )
 
     fun keepRecentFor(strategy: AgentCompressionStrategy): Int =
@@ -119,18 +128,21 @@ internal object AgentContextCompactor {
         replay: ReplayContext? = null,
     ): List<AgentModelClient.ConversationMessage> {
         if (history.isEmpty()) return history
-        val keepStart = keepStartOverride ?: recentKeepStartIndex(history, config.keepRecentMessages)
-        require(keepStart in 0..history.size && keepStart in AgentCompressionBoundary.balancedCuts(history)) { "压缩范围不是完整工具边界" }
-        if (keepStart <= 0) return history
+        val working = pruneOversizedToolResults(history, config.compactionArchive)
+        val keepStart = keepStartOverride ?: recentKeepStartIndex(working, config.keepRecentMessages)
+        require(keepStart in 0..working.size && keepStart in AgentCompressionBoundary.availableCuts(working)) { "压缩范围不是完整工具边界" }
+        if (keepStart <= 0) return working
 
-        val messagesToCompress = history.subList(0, keepStart).toList()
-        val messagesToKeep = history.subList(keepStart, history.size).toList()
+        val messagesToCompress = working.subList(0, keepStart).toList()
+        val messagesToKeep = working.subList(keepStart, working.size).toList()
 
         val chunks = splitMessages(messagesToCompress, config, replay)
+        AndroidAgentLogger.info("开始摘要：${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条")
         val perChunk = config.copy(targetTokens = (config.targetTokens / chunks.size).coerceAtLeast(128))
         var offset = 0
-        val summaries = chunks.map { chunk ->
+        val summaries = chunks.mapIndexed { index, chunk ->
             controller.throwIfCancelled()
+            AndroidAgentLogger.info("摘要第 ${index + 1}/${chunks.size} 块（${chunk.size} 条）")
             val chunkReplay = replay?.copy(historyMessages = org.json.JSONArray().also { array ->
                 for (i in offset until offset + chunk.size) array.put(replay.historyMessages.getJSONObject(i))
             })
@@ -171,8 +183,11 @@ internal object AgentContextCompactor {
         val keep = keepRecentMessages.coerceIn(MIN_KEEP_RECENT_CONTINUE, MAX_KEEP_RECENT)
         if (history.isEmpty()) return 0
         if (keep == 0) {
-            // 不额外保护最近轮次，但仍必须留下最新完整批次；切在 history.size 会把当前轮也摘要掉，失败后再压形成死循环。
-            return AgentCompressionBoundary.availableCuts(history).lastOrNull { it in 1 until history.size } ?: 0
+            // 对齐 DeepSeek harness：按最近一条真实用户消息留尾巴，不要把上一轮整批工具输出当成必须保留的完整批次。
+            val lastUser = history.indices.lastOrNull { isKeepCountedUserMessage(history[it]) } ?: return 0
+            return AgentCompressionBoundary.availableCuts(history)
+                .lastOrNull { it <= lastUser && it in 1 until history.size }
+                ?: 0
         }
         var remaining = keep
         var start: Int? = null
@@ -195,6 +210,40 @@ internal object AgentContextCompactor {
         }
         if (remaining > 0 || start == null) return 0
         return start
+    }
+
+    internal fun pruneOversizedToolResults(
+        history: List<AgentModelClient.ConversationMessage>,
+        archive: AgentCompactionArchive?,
+    ): List<AgentModelClient.ConversationMessage> {
+        if (archive == null || history.isEmpty()) return history
+        var changed = false
+        val next = history.map { message ->
+            if (!message.role.equals("tool", ignoreCase = true) || message.content.isBlank()) {
+                return@map message
+            }
+            if (message.content.contains("[Eta tool output pruned;")) return@map message
+            val points = message.content.codePointCount(0, message.content.length)
+            if (points <= TOOL_PRUNE_LIMIT) return@map message
+            val id = archive.save(listOf(message))
+            archive.record(id, "started")
+            val head = message.content.offsetByCodePoints(0, TOOL_PRUNE_HEAD.coerceAtMost(points))
+            val tail = message.content.offsetByCodePoints(message.content.length, -TOOL_PRUNE_TAIL.coerceAtMost(points))
+            if (tail <= head) return@map message
+            val shorter = message.content.substring(0, head) +
+                "\n[Eta tool output pruned; original: context-checkpoint:$id; read_compacted_history]\n" +
+                message.content.substring(tail)
+            if (AgentContextBudget.countTokens(shorter) >= AgentContextBudget.countTokens(message.content)) {
+                return@map message
+            }
+            archive.record(id, "committed")
+            changed = true
+            message.copy(content = shorter)
+        }
+        if (changed) {
+            AndroidAgentLogger.info("压缩前已修剪超大工具输出")
+        }
+        return if (changed) next else history
     }
 
     private fun isKeepCountedUserMessage(
@@ -267,9 +316,10 @@ internal object AgentContextCompactor {
     ): List<List<AgentModelClient.ConversationMessage>> {
         val window = config.compressModelConfig?.contextWindow?.takeIf { it > 0 }
             ?: error("请先配置摘要模型的上下文窗口")
+        val summarizerWindow = minOf(window, SUMMARIZER_INPUT_CAP)
         val overhead = if (replay == null) 1024 else AgentContextBudget.estimate(replay.systemMessages) +
             AgentContextBudget.countTokens(replay.tools.toString()) + 1024
-        val budget = AgentCompressionBoundary.inputLimit(window, maxOf(1024, config.targetTokens * 2)) - overhead
+        val budget = AgentCompressionBoundary.inputLimit(summarizerWindow, maxOf(1024, config.targetTokens * 2)) - overhead
         require(budget > 0) { "摘要模型窗口太小" }
         val cuts = AgentCompressionBoundary.balancedCuts(messages)
         val result = mutableListOf<List<AgentModelClient.ConversationMessage>>()
@@ -351,25 +401,45 @@ internal object AgentContextCompactor {
         val remembered = CompressionReasoningStore.effortFor(base)
         val start = remembered?.let { ladder.indexOf(it) }?.takeIf { it >= 0 } ?: 0
         var lastError: Exception? = null
-        for (index in start until ladder.size) {
-            controller.throwIfCancelled()
-            val model = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.forCompression(base, ladder[index])
+        val timed = io.github.mangi.eta.agent.runtime.AgentRunController()
+        val watchdog = Thread({
             try {
-                val response = acceptSummaryResponse(
-                    (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
-                        ProviderRequest(model, outbound, tools, sessionId),
-                        controller,
-                    ),
-                )
-                controller.throwIfCancelled()
-                CompressionReasoningStore.remember(base, ladder[index])
-                return model to response
-            } catch (cancelled: io.github.mangi.eta.agent.runtime.AgentRunCancelledException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                lastError = failure
-                if (!isUnsupportedCompressionReasoning(failure) || index == ladder.lastIndex) throw failure
+                Thread.sleep(SUMMARY_REQUEST_TIMEOUT_MS)
+                timed.cancel()
+            } catch (_: InterruptedException) {
             }
+        }, "eta-summary-timeout").apply {
+            isDaemon = true
+            start()
+        }
+        try {
+            for (index in start until ladder.size) {
+                controller.throwIfCancelled()
+                timed.throwIfCancelled()
+                val model = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.forCompression(base, ladder[index])
+                try {
+                    val response = acceptSummaryResponse(
+                        (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
+                            ProviderRequest(model, outbound, tools, sessionId),
+                            timed,
+                        ),
+                    )
+                    controller.throwIfCancelled()
+                    CompressionReasoningStore.remember(base, ladder[index])
+                    return model to response
+                } catch (cancelled: io.github.mangi.eta.agent.runtime.AgentRunCancelledException) {
+                    controller.throwIfCancelled()
+                    if (timed.isCancelled) {
+                        throw IllegalStateException("摘要超时（${SUMMARY_REQUEST_TIMEOUT_MS / 1000} 秒内未返回），原历史保持不变")
+                    }
+                    throw cancelled
+                } catch (failure: Exception) {
+                    lastError = failure
+                    if (!isUnsupportedCompressionReasoning(failure) || index == ladder.lastIndex) throw failure
+                }
+            }
+        } finally {
+            watchdog.interrupt()
         }
         throw lastError ?: IllegalStateException("摘要模型思考档均不可用")
     }

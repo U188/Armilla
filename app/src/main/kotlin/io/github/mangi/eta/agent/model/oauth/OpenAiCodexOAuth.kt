@@ -43,7 +43,7 @@ internal object OpenAiCodexOAuth {
     }
 
     fun isCodexEndpoint(baseUrl: String): Boolean {
-        val host = runCatching { Uri.parse(baseUrl.trim()).host }.getOrNull().orEmpty()
+        val host = OAuthCallback.hostOf(baseUrl).orEmpty()
         return host.equals("chatgpt.com", ignoreCase = true) ||
             host.equals("auth.openai.com", ignoreCase = true)
     }

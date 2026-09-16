@@ -44,6 +44,7 @@ sealed interface ProviderSetting {
     val customHeaders: List<CustomHeader>
     val customBody: List<CustomBody>
     val createdAt: Long
+    val authMode: String
     val hostedWebSearchEnabled: Boolean
         get() = false
     val balanceOption: BalanceOption
@@ -73,6 +74,7 @@ data class OpenAiCompatibleProviderSetting(
     override val customHeaders: List<CustomHeader> = emptyList(),
     override val customBody: List<CustomBody> = emptyList(),
     override val createdAt: Long = System.currentTimeMillis(),
+    override val authMode: String = ProviderAuthMode.DEFAULT,
     val endpointMode: String = OpenAiEndpointMode.CHAT_COMPLETIONS,
     override val hostedWebSearchEnabled: Boolean = false,
     override val balanceOption: BalanceOption = BalanceOption(),
@@ -94,6 +96,7 @@ data class AnthropicProviderSetting(
     override val customHeaders: List<CustomHeader> = emptyList(),
     override val customBody: List<CustomBody> = emptyList(),
     override val createdAt: Long = System.currentTimeMillis(),
+    override val authMode: String = ProviderAuthMode.DEFAULT,
     val anthropicVersion: String = DEFAULT_ANTHROPIC_VERSION,
     override val balanceOption: BalanceOption = BalanceOption(),
 ) : ProviderSetting {
@@ -118,6 +121,7 @@ data class CustomProviderSetting(
     override val customHeaders: List<CustomHeader> = emptyList(),
     override val customBody: List<CustomBody> = emptyList(),
     override val createdAt: Long = System.currentTimeMillis(),
+    override val authMode: String = ProviderAuthMode.DEFAULT,
     val endpointMode: String = OpenAiEndpointMode.CHAT_COMPLETIONS,
     override val hostedWebSearchEnabled: Boolean = false,
     override val balanceOption: BalanceOption = BalanceOption(),

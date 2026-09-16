@@ -12,7 +12,14 @@ internal object ProviderRequestHeaders {
         customHeaders: List<CustomHeader>,
         sessionId: String = UUID.randomUUID().toString(),
     ) {
-        builder.set("User-Agent", "Eta")
+        val host = baseUrl.toHttpUrlOrNull()?.host
+        if (host == "chatgpt.com") {
+            builder.set("User-Agent", "codex_cli_rs/0.144.1 (Android; arm64)")
+            builder.set("Originator", "codex_cli_rs")
+            builder.set("Version", "0.144.1")
+        } else {
+            builder.set("User-Agent", "Eta")
+        }
         CustomHeaderFilter.mergeInto(builder, customHeaders)
         if (baseUrl.toHttpUrlOrNull()?.host == "opencode.ai") {
             // 会话头由 Runtime 持有，避免固定自定义值把所有对话合并到同一路由。

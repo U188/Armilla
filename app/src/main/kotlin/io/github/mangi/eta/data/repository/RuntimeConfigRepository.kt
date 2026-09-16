@@ -9,7 +9,10 @@ import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.model.ProviderSetting
+import io.github.mangi.eta.data.model.usesOAuth
+import io.github.mangi.eta.data.model.withApiKey
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.model.runtimeProviderType
 import io.github.mangi.eta.data.model.selectedOrFirstModel
@@ -78,7 +81,7 @@ internal object RuntimeConfigRepository {
         val settings = ProviderRepository.repairSelection()
         val provider = settings.selectedProviderId?.let { ProviderRepository.providerById(it) } ?: return null
         val model = provider.selectedOrFirstModel(settings.selectedModelId) ?: return null
-        return buildRuntimeConfig(provider, model, AssistantRepository.active())
+        return buildRuntimeConfig(resolveOAuth(provider), model, AssistantRepository.active())
     }
 
     suspend fun syncToRemotePreferences(service: XposedService?): Boolean {
@@ -175,7 +178,30 @@ internal object RuntimeConfigRepository {
     ): AgentModelClient.ModelConfig? {
         val provider = ProviderRepository.providerById(providerId)?.takeIf { it.isEnabled } ?: return null
         val model = provider.models.firstOrNull { it.id == modelId && it.isEnabled } ?: return null
-        return buildRuntimeConfig(provider, model, assistant)
+        return buildRuntimeConfig(resolveOAuth(provider), model, assistant)
+    }
+
+    private suspend fun resolveOAuth(provider: ProviderSetting): ProviderSetting {
+        if (!provider.usesOAuth) return provider
+        val context = ProviderRepository.context()
+        val token = OpenAiCodexOAuth.validAccessToken(context, provider.id) ?: provider.apiKey
+        val extra = OpenAiCodexOAuth.extraHeaders(context, provider.id, provider.baseUrl)
+        val mergedHeaders = extra + provider.customHeaders.filterNot { header ->
+            extra.any { it.name.equals(header.name, ignoreCase = true) }
+        }
+        return if (token == provider.apiKey && extra.isEmpty()) {
+            provider
+        } else {
+            provider.withApiKey(token).let { updated ->
+                when (updated) {
+                    is io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting ->
+                        updated.copy(customHeaders = mergedHeaders)
+                    is io.github.mangi.eta.data.model.CustomProviderSetting ->
+                        updated.copy(customHeaders = mergedHeaders)
+                    is io.github.mangi.eta.data.model.AnthropicProviderSetting ->
+                        updated.copy(customHeaders = mergedHeaders)
+                }
+            }
+        }
     }
 }
-

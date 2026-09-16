@@ -69,7 +69,13 @@ sealed interface AppRoute : NavKey {
     data class ModelProviderDetail(val providerId: String) : AppRoute
 
     @Serializable
-    data class ModelProviderNew(val providerType: NewProviderType) : AppRoute
+    data class ModelProviderAuthMethod(val providerType: NewProviderType) : AppRoute
+
+    @Serializable
+    data class ModelProviderNew(
+        val providerType: NewProviderType,
+        val authMode: String = "api_key",
+    ) : AppRoute
 
     @Serializable
     data object ContextCompression : AppRoute

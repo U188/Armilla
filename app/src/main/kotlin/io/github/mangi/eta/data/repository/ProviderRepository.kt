@@ -19,6 +19,7 @@ import io.github.mangi.eta.data.model.withModels
 import io.github.mangi.eta.data.model.withSortOrder
 import io.github.mangi.eta.data.provider.BuiltinProviders
 import io.github.mangi.eta.data.provider.OfficialModelCatalog
+import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -81,6 +82,7 @@ internal object ProviderRepository {
     suspend fun deleteProvider(id: String) {
         val provider = providerById(id) ?: return
         if (provider.isBuiltIn) return
+        OpenAiCodexOAuth.clear(appContext(), id)
         dao().deleteProvider(id)
         SettingsDataStore.clearSelectedModelIdForProvider(id)
         repairSelection()
@@ -166,6 +168,8 @@ internal object ProviderRepository {
 
     private fun dao() =
         EtaDatabase.get(appContext()).providerDao()
+
+    internal fun context(): Context = appContext()
 
     private fun appContext(): Context {
         check(::applicationContext.isInitialized) {

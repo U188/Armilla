@@ -8,6 +8,7 @@ import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.ProviderAuthMode
 import io.github.mangi.eta.data.model.ProviderSetting
 import java.util.UUID
 
@@ -20,6 +21,7 @@ internal data class ProviderConfigDraft(
     val name: String,
     val baseUrl: String,
     val apiKey: String,
+    val authMode: String = ProviderAuthMode.DEFAULT,
     val isEnabled: Boolean,
     val endpointMode: String,
     val hostedWebSearchEnabled: Boolean,
@@ -33,6 +35,7 @@ internal data class ProviderConfigDraft(
             name = provider.name,
             baseUrl = provider.baseUrl,
             apiKey = provider.apiKey,
+            authMode = ProviderAuthMode.parse(provider.authMode),
             isEnabled = provider.isEnabled,
             endpointMode = when (provider) {
                 is OpenAiCompatibleProviderSetting -> provider.endpointMode
@@ -54,6 +57,7 @@ internal val ProviderConfigDraftSaver = mapSaver(
             "name" to draft.name,
             "baseUrl" to draft.baseUrl,
             "apiKey" to draft.apiKey,
+            "authMode" to draft.authMode,
             "isEnabled" to draft.isEnabled,
             "endpointMode" to draft.endpointMode,
             "hostedWebSearchEnabled" to draft.hostedWebSearchEnabled,
@@ -74,6 +78,7 @@ internal val ProviderConfigDraftSaver = mapSaver(
             name = state.getValue("name") as String,
             baseUrl = state.getValue("baseUrl") as String,
             apiKey = state.getValue("apiKey") as String,
+            authMode = ProviderAuthMode.parse(state["authMode"] as? String),
             isEnabled = state.getValue("isEnabled") as Boolean,
             endpointMode = state.getValue("endpointMode") as String,
             hostedWebSearchEnabled = state.getValue("hostedWebSearchEnabled") as Boolean,
@@ -95,6 +100,7 @@ internal fun buildUpdatedProvider(
     name: String,
     baseUrl: String,
     apiKey: String,
+    authMode: String = ProviderAuthMode.DEFAULT,
     isEnabled: Boolean,
     endpointMode: String,
     hostedWebSearchEnabled: Boolean,
@@ -109,6 +115,7 @@ internal fun buildUpdatedProvider(
             name = name.trim(),
             baseUrl = baseUrl.trim(),
             apiKey = apiKey.trim(),
+            authMode = ProviderAuthMode.parse(authMode),
             isEnabled = isEnabled,
             endpointMode = endpointMode,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
@@ -119,6 +126,7 @@ internal fun buildUpdatedProvider(
             name = name.trim(),
             baseUrl = baseUrl.trim(),
             apiKey = apiKey.trim(),
+            authMode = ProviderAuthMode.parse(authMode),
             isEnabled = isEnabled,
             endpointMode = endpointMode,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
@@ -129,6 +137,7 @@ internal fun buildUpdatedProvider(
             name = name.trim(),
             baseUrl = baseUrl.trim(),
             apiKey = apiKey.trim(),
+            authMode = ProviderAuthMode.parse(authMode),
             isEnabled = isEnabled,
             anthropicVersion = anthropicVersion.trim().ifBlank { AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
         )

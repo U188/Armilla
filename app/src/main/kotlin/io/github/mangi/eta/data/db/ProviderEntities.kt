@@ -47,6 +47,8 @@ internal data class ProviderEntity(
     @ColumnInfo(name = "anthropic_version") val anthropicVersion: String,
     @ColumnInfo(name = "balance_option_json", defaultValue = "'{}'")
     val balanceOptionJson: String = "{}",
+    @ColumnInfo(name = "auth_mode", defaultValue = "'api_key'")
+    val authMode: String = "api_key",
 )
 
 @Serializable
@@ -127,6 +129,7 @@ internal fun ProviderSetting.toEntity(): ProviderEntity =
         },
         hostedWebSearchEnabled = hostedWebSearchEnabled,
         balanceOptionJson = ProviderJson.encodeBalance(balanceOption),
+        authMode = io.github.mangi.eta.data.model.ProviderAuthMode.parse(authMode),
         anthropicVersion = when (this) {
             is AnthropicProviderSetting -> anthropicVersion
             else -> AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION
@@ -160,6 +163,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             customHeaders = ProviderJson.decodeHeaders(provider.customHeadersJson),
             customBody = ProviderJson.decodeBody(provider.customBodyJson),
             createdAt = provider.createdAt,
+            authMode = io.github.mangi.eta.data.model.ProviderAuthMode.parse(provider.authMode),
             balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),
             anthropicVersion = provider.anthropicVersion.ifBlank {
                 AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION
@@ -180,6 +184,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             customHeaders = ProviderJson.decodeHeaders(provider.customHeadersJson),
             customBody = ProviderJson.decodeBody(provider.customBodyJson),
             createdAt = provider.createdAt,
+            authMode = io.github.mangi.eta.data.model.ProviderAuthMode.parse(provider.authMode),
             endpointMode = provider.endpointMode.ifBlank { OpenAiEndpointMode.CHAT_COMPLETIONS },
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),
@@ -199,6 +204,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             customHeaders = ProviderJson.decodeHeaders(provider.customHeadersJson),
             customBody = ProviderJson.decodeBody(provider.customBodyJson),
             createdAt = provider.createdAt,
+            authMode = io.github.mangi.eta.data.model.ProviderAuthMode.parse(provider.authMode),
             endpointMode = provider.endpointMode.ifBlank { OpenAiEndpointMode.CHAT_COMPLETIONS },
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),

@@ -317,6 +317,7 @@ private fun titleForRoute(route: AppRoute?, currentConversationTitle: String? = 
     is AppRoute.McpServers -> stringResource(R.string.route_mcp_servers)
     is AppRoute.McpServerDetail -> stringResource(R.string.route_mcp_server_detail)
     is AppRoute.ModelProviderDetail -> stringResource(R.string.route_provider_details)
+    is AppRoute.ModelProviderAuthMethod -> stringResource(R.string.provider_auth_method_title)
     is AppRoute.ModelProviderNew -> stringResource(R.string.route_new_provider)
     is AppRoute.ContextCompression -> stringResource(R.string.route_context_compression)
     is AppRoute.UsageStats -> stringResource(R.string.stats_page_title)

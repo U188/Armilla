@@ -1430,4 +1430,19 @@
     <string name="assistant_memory_summary">Only affects this assistant. MEMORY.md is shared. Turning this off skips injection and memory tools, but keeps existing notes.</string>
     <string name="assistant_skills_summary">Only affects this assistant. The three built-in skills start on; newly installed skills stay off until you enable them here.</string>
     <string name="settings_assistants">Assistants</string>
+
+    <string name="provider_auth_method_title">Auth method</string>
+    <string name="provider_auth_method_choose">Choose how to sign in</string>
+    <string name="provider_auth_api_key">API Key</string>
+    <string name="provider_auth_api_key_summary">OpenAI official API and compatible third-party endpoints</string>
+    <string name="provider_auth_oauth">OAuth</string>
+    <string name="provider_auth_oauth_summary">Sign in with OpenAI Codex</string>
+    <string name="provider_auth_method_note">OAuth opens the provider website. API Key uses a secret from your account dashboard.</string>
+    <string name="provider_oauth_sign_in">Sign in with OpenAI</string>
+    <string name="provider_oauth_signed_in">Signed in with OpenAI Codex</string>
+    <string name="provider_oauth_sign_in_note">Opens ChatGPT login in the browser, then returns here.</string>
+    <string name="provider_oauth_signed_in_note">Token is stored on this device. Sign in again if requests start failing.</string>
+    <string name="provider_oauth_sign_in_ok">Signed in</string>
+    <string name="provider_oauth_sign_in_failed">Sign-in failed</string>
+    <string name="provider_oauth_need_sign_in">Sign in with OpenAI Codex first</string>
 </resources>

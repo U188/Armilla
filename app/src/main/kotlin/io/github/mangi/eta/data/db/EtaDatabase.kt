@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -65,6 +65,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_21_22,
                         MIGRATION_22_23,
                         MIGRATION_23_24,
+                        MIGRATION_24_25,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -152,6 +153,14 @@ internal abstract class EtaDatabase : RoomDatabase() {
             // Older versions mixed user choices and remote metadata in attachment.
             // Preserve existing explicit values; resetting automatic clears only the new override.
             database.execSQL("UPDATE provider_models SET vision_override = attachment WHERE attachment IS NOT NULL")
+        }
+
+        internal val MIGRATION_24_25 = Migration(24, 25) { database ->
+            if (!tableHasColumn(database, "model_providers", "auth_mode")) {
+                database.execSQL(
+                    "ALTER TABLE model_providers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'api_key'",
+                )
+            }
         }
 
         internal val MIGRATION_22_23 = Migration(22, 23) { database ->

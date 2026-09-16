@@ -75,6 +75,7 @@ import io.github.mangi.eta.ui.model.PermissionHealthAction
 import io.github.mangi.eta.ui.navigation.AgentNavigator
 import io.github.mangi.eta.ui.navigation.AppRoute
 import io.github.mangi.eta.ui.pages.providers.ModelProviderDetailScreen
+import io.github.mangi.eta.ui.pages.providers.ProviderAuthMethodScreen
 import io.github.mangi.eta.ui.pages.providers.ModelProviderListScreen
 import io.github.mangi.eta.ui.screens.assistants.AssistantEditScreen
 import io.github.mangi.eta.ui.screens.assistants.AssistantsScreen
@@ -857,9 +858,17 @@ fun AgentAppRoot(
                     onBack = ::popRoute,
                 )
             }
+            entry<AppRoute.ModelProviderAuthMethod>(swipeDismiss = swipeDismiss) { route ->
+                ProviderAuthMethodScreen(
+                    providerType = route.providerType,
+                    onNavigate = { destination -> pushRoute(destination) },
+                    onBack = ::popRoute,
+                )
+            }
             entry<AppRoute.ModelProviderNew>(swipeDismiss = swipeDismiss) { route ->
                 ModelProviderDetailScreen(
                     newType = route.providerType,
+                    authMode = route.authMode,
                     onBack = ::popRoute
                 )
             }

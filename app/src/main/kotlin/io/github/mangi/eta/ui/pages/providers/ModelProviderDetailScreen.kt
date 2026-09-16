@@ -42,7 +42,11 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.CustomProviderSetting
+import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.data.model.ProviderAuthMode
+import io.github.mangi.eta.data.model.usesOAuth
+import io.github.mangi.eta.data.model.withModels
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.withId
 import io.github.mangi.eta.data.repository.ProviderRepository
@@ -83,6 +87,7 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 internal fun ModelProviderDetailScreen(
     providerId: String? = null,
     newType: NewProviderType? = null,
+    authMode: String = ProviderAuthMode.DEFAULT,
     onBack: () -> Unit,
     currentModelId: String? = null,
     onSelectCurrentModel: ((String) -> Unit)? = null,
@@ -95,14 +100,24 @@ internal fun ModelProviderDetailScreen(
     val provider = remember(providers, effectiveId) {
         effectiveId?.let { id -> providers.firstOrNull { it.id == id } }
     }
-    val draft = remember(newType) {
+    val draft = remember(newType, authMode) {
         when (newType) {
-            NewProviderType.OpenAiCompatible -> CustomProviderSetting(
-                id = "",
-                name = "",
-                baseUrl = "",
-                endpointMode = OpenAiEndpointMode.CHAT_COMPLETIONS,
-            )
+            NewProviderType.OpenAiCompatible -> if (ProviderAuthMode.isOAuth(authMode)) {
+                CustomProviderSetting(
+                    id = ProviderRepository.newId(),
+                    name = OpenAiCodexOAuth.DEFAULT_NAME,
+                    baseUrl = OpenAiCodexOAuth.CODEX_BASE_URL,
+                    endpointMode = OpenAiCodexOAuth.defaultEndpointMode(),
+                    authMode = ProviderAuthMode.OAUTH,
+                )
+            } else {
+                CustomProviderSetting(
+                    id = "",
+                    name = "",
+                    baseUrl = "",
+                    endpointMode = OpenAiEndpointMode.CHAT_COMPLETIONS,
+                )
+            }
             NewProviderType.Anthropic -> AnthropicProviderSetting(
                 id = "",
                 name = "",
@@ -249,22 +264,33 @@ private fun ProviderConfigTab(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    TextField(
-                        value = draft.apiKey,
-                        onValueChange = { onDraftChange(draft.copy(apiKey = it)) },
-                        label = "API Key",
-                        singleLine = true,
-                        visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
-                                Icon(
-                                    imageVector = if (apiKeyVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-                                    contentDescription = if (apiKeyVisible) context.getString(R.string.page_hide_bb0e7e) else context.getString(R.string.page_show_71b677),
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (ProviderAuthMode.isOAuth(draft.authMode)) {
+                        ProviderOAuthLoginRow(
+                            providerId = provider.id,
+                            signedIn = draft.apiKey.isNotBlank(),
+                            enabled = !isWorking,
+                            onToken = { token -> onDraftChange(draft.copy(apiKey = token)) },
+                            onBusy = { isWorking = it },
+                            onStatus = { status = it },
+                        )
+                    } else {
+                        TextField(
+                            value = draft.apiKey,
+                            onValueChange = { onDraftChange(draft.copy(apiKey = it)) },
+                            label = "API Key",
+                            singleLine = true,
+                            visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                                    Icon(
+                                        imageVector = if (apiKeyVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                        contentDescription = if (apiKeyVisible) context.getString(R.string.page_hide_bb0e7e) else context.getString(R.string.page_show_71b677),
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     if (provider is AnthropicProviderSetting) {
                         Spacer(modifier = Modifier.height(12.dp))
                         TextField(
@@ -336,6 +362,7 @@ private fun ProviderConfigTab(
                                         name = draft.name,
                                         baseUrl = draft.baseUrl,
                                         apiKey = draft.apiKey,
+                                        authMode = draft.authMode,
                                         isEnabled = draft.isEnabled,
                                         endpointMode = draft.endpointMode,
                                         hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
@@ -380,6 +407,7 @@ private fun ProviderConfigTab(
                         name = draft.name,
                         baseUrl = draft.baseUrl,
                         apiKey = draft.apiKey,
+                        authMode = draft.authMode,
                         isEnabled = draft.isEnabled,
                         endpointMode = draft.endpointMode,
                         hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
@@ -412,6 +440,11 @@ private fun ProviderConfigTab(
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                     onClick = {
                         val validationError = validateProviderDraft(context, draft)
+                            ?: if (ProviderAuthMode.isOAuth(draft.authMode) && draft.apiKey.isBlank()) {
+                                context.getString(R.string.provider_oauth_need_sign_in)
+                            } else {
+                                null
+                            }
                         if (validationError != null) {
                             status = context.getString(R.string.provider_error, validationError)
                             return@TextButton
@@ -423,6 +456,7 @@ private fun ProviderConfigTab(
                                 name = draft.name,
                                 baseUrl = draft.baseUrl,
                                 apiKey = draft.apiKey,
+                                authMode = draft.authMode,
                                 isEnabled = draft.isEnabled,
                                 endpointMode = draft.endpointMode,
                                 hostedWebSearchEnabled = draft.hostedWebSearchEnabled,
@@ -432,9 +466,15 @@ private fun ProviderConfigTab(
                             )
                             try {
                                 if (isNew) {
-                                    val added = ProviderRepository.addProvider(
-                                        built.withId(ProviderRepository.newId())
-                                    )
+                                    val newId = provider.id.ifBlank { ProviderRepository.newId() }
+                                    val toSave = built.withId(newId).let { saved ->
+                                        if (saved.usesOAuth && saved.models.isEmpty()) {
+                                            saved.withModels(OpenAiCodexOAuth.defaultModels())
+                                        } else {
+                                            saved
+                                        }
+                                    }
+                                    val added = ProviderRepository.addProvider(toSave)
                                     RuntimeConfigRepository.syncToRemotePreferences(
                                         EtaApp.serviceInstance
                                     )
@@ -590,8 +630,16 @@ private fun ProviderConfigTab(
 private suspend fun testConnection(
     context: android.content.Context,
     provider: ProviderSetting,
-): String =
-    RemoteModelFetcher.fetch(provider)
+): String {
+    if (provider.usesOAuth && OpenAiCodexOAuth.isCodexEndpoint(provider.baseUrl)) {
+        val token = OpenAiCodexOAuth.validAccessToken(context, provider.id) ?: provider.apiKey
+        return if (token.isBlank()) {
+            context.getString(R.string.provider_oauth_need_sign_in)
+        } else {
+            context.getString(R.string.provider_oauth_signed_in)
+        }
+    }
+    return RemoteModelFetcher.fetch(provider)
         .map { context.resources.getQuantityString(R.plurals.provider_models_fetched, it.size, it.size) }
         .getOrElse { throwable ->
             context.getString(
@@ -599,3 +647,60 @@ private suspend fun testConnection(
                 throwable.message ?: throwable.javaClass.simpleName,
             )
         }
+}
+
+@Composable
+private fun ProviderOAuthLoginRow(
+    providerId: String,
+    signedIn: Boolean,
+    enabled: Boolean,
+    onToken: (String) -> Unit,
+    onBusy: (Boolean) -> Unit,
+    onStatus: (String?) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val id = providerId
+    TextButton(
+        text = if (signedIn) {
+            context.getString(R.string.provider_oauth_signed_in)
+        } else {
+            context.getString(R.string.provider_oauth_sign_in)
+        },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.textButtonColorsPrimary(),
+        onClick = {
+            onBusy(true)
+            onStatus(null)
+            scope.launch {
+                try {
+                    val token = OpenAiCodexOAuth.login(context, id)
+                    onToken(token)
+                    onStatus(context.getString(R.string.provider_oauth_sign_in_ok))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (throwable: Throwable) {
+                    onStatus(
+                        context.getString(
+                            R.string.provider_error,
+                            throwable.message ?: context.getString(R.string.provider_oauth_sign_in_failed),
+                        ),
+                    )
+                } finally {
+                    onBusy(false)
+                }
+            }
+        },
+    )
+    Text(
+        text = if (signedIn) {
+            context.getString(R.string.provider_oauth_signed_in_note)
+        } else {
+            context.getString(R.string.provider_oauth_sign_in_note)
+        },
+        style = MiuixTheme.textStyles.footnote2,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}

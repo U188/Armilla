@@ -71,6 +71,7 @@ internal object ProviderSourceRegistry {
         val httpUrl = baseUrl?.trim()?.toHttpUrlOrNull() ?: return null
         return when {
             httpUrl.host == "api.openai.com" -> ProviderSourceTypes.OPENAI
+            httpUrl.host == "chatgpt.com" -> ProviderSourceTypes.OPENAI
             httpUrl.host == "api.anthropic.com" -> ProviderSourceTypes.ANTHROPIC
             httpUrl.host == "api.deepseek.com" -> ProviderSourceTypes.DEEPSEEK
             httpUrl.host == "api.moonshot.cn" -> ProviderSourceTypes.MOONSHOT

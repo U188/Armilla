@@ -178,7 +178,7 @@ internal fun ModelProviderListScreen(
                             startAction = {
                                 ProviderBrandIcon(ProviderSourceTypes.OPENAI)
                             },
-                            onClick = { onNavigate(AppRoute.ModelProviderNew(NewProviderType.OpenAiCompatible)) },
+                            onClick = { onNavigate(AppRoute.ModelProviderAuthMethod(NewProviderType.OpenAiCompatible)) },
                         )
 
                         ArrowPreference(

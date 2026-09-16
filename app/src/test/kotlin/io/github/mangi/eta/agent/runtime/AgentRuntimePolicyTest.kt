@@ -191,7 +191,26 @@ class AgentRuntimePolicyTest {
             ),
         )
         assertTrue(constrained.thinkingEnabled)
-        assertEquals(ReasoningEffort.LOW, constrained.reasoningEffort)
+        assertEquals(ReasoningEffort.MINIMAL, constrained.reasoningEffort)
+        assertEquals(
+            listOf(
+                ReasoningEffort.MINIMAL,
+                ReasoningEffort.LOW,
+                ReasoningEffort.MEDIUM,
+                ReasoningEffort.HIGH,
+                ReasoningEffort.XHIGH,
+                ReasoningEffort.MAX,
+            ),
+            AgentRuntimePolicy.compressionEffortLadder(
+                modelConfig(terminalTools = true, browserTools = false, thinking = true).copy(
+                    reasoningCapabilities = ModelReasoningCapabilities(
+                        supportedEfforts = listOf(ReasoningEffort.LOW, ReasoningEffort.HIGH),
+                        canDisable = false,
+                        mandatory = true,
+                    ),
+                ),
+            ),
+        )
     }
 
     @Test

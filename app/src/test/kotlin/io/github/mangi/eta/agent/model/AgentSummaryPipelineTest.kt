@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.runtime.AgentRunCancelledException
 import io.github.mangi.eta.agent.runtime.AgentRunController
+import io.github.mangi.eta.data.model.ReasoningEffort
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -129,6 +130,39 @@ class AgentSummaryPipelineTest {
         assertEquals(2, calls)
         assertEquals("user", result.first().role)
         assertTrue(result.first().content.contains("## Next step"))
+    }
+
+    @Test fun compressionProbesReasoningFromOffThenRemembersWorkingEffort() {
+        CompressionReasoningStore.clearForTests()
+        var calls = 0
+        val source = history()
+        val cfg = config().copy(providerId = "compress-probe", model = "probe-model")
+        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, cfg, provider {
+            calls++
+            when (it.config.reasoningEffort) {
+                ReasoningEffort.OFF, ReasoningEffort.MINIMAL ->
+                    throw AgentModelFailure(
+                        "HTTP_400",
+                        false,
+                        "DeepSeek reasoning_effort 只支持 low、medium、high、xhigh、max",
+                    )
+                else -> {
+                    assertEquals(ReasoningEffort.LOW, it.config.reasoningEffort)
+                    response(validSummary())
+                }
+            }
+        }))
+        assertEquals(3, calls)
+        assertEquals(ReasoningEffort.LOW, CompressionReasoningStore.effortFor(cfg))
+        assertEquals("user", result.first().role)
+
+        val again = AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, cfg, provider {
+            calls++
+            assertEquals(ReasoningEffort.LOW, it.config.reasoningEffort)
+            response(validSummary())
+        }))
+        assertEquals(4, calls)
+        assertEquals(history().last(), again.last())
     }
 
     @Test fun turnIdsPersistButNeverLeakToProviderMessages() {

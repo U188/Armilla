@@ -323,18 +323,82 @@ internal object AgentContextCompactor {
         require(AgentContextBudget.estimate(outbound) + AgentContextBudget.countTokens(requestTools.toString()) <= AgentCompressionBoundary.inputLimit(requireNotNull(model.contextWindow), requireNotNull(model.summaryOutputLimit))) {
             "摘要请求超过输入预算，未修改历史"
         }
-        // A one-shot provider call: never invokes AgentLoop or the caller's tool executor.
-        val response = (config.summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
-            ProviderRequest(model, outbound, requestTools, replay?.sessionId ?: java.util.UUID.randomUUID().toString()), controller)
-        controller.throwIfCancelled()
-        require(response.stopReason == AssistantStopReason.END_TURN) { "摘要未正常结束或被截断，原历史保持不变" }
-        require((response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) == 0) { "摘要模型返回了工具调用" }
+        val (resolved, response) = completeCompression(
+            base = model,
+            outbound = outbound,
+            tools = requestTools,
+            sessionId = replay?.sessionId ?: java.util.UUID.randomUUID().toString(),
+            controller = controller,
+            summaryProvider = config.summaryProvider,
+        )
         val text = response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")
         coerceSummary(text)?.let { return it }
-        val repaired = repairSummaryWithModel(text, model, controller, config.summaryProvider)
+        val repaired = repairSummaryWithModel(text, resolved, controller, config.summaryProvider)
         return coerceSummary(repaired)
             ?: error("摘要结构不完整或顺序无效，原历史保持不变")
+    }
+
+    private fun completeCompression(
+        base: AgentModelClient.ModelConfig,
+        outbound: org.json.JSONArray,
+        tools: org.json.JSONArray,
+        sessionId: String,
+        controller: io.github.mangi.eta.agent.runtime.AgentRunController,
+        summaryProvider: AgentProviderClient?,
+    ): Pair<AgentModelClient.ModelConfig, ProviderResponse> {
+        val ladder = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.compressionEffortLadder(base)
+        val remembered = CompressionReasoningStore.effortFor(base)
+        val start = remembered?.let { ladder.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+        var lastError: Exception? = null
+        for (index in start until ladder.size) {
+            controller.throwIfCancelled()
+            val model = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.forCompression(base, ladder[index])
+            try {
+                val response = acceptSummaryResponse(
+                    (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
+                        ProviderRequest(model, outbound, tools, sessionId),
+                        controller,
+                    ),
+                )
+                CompressionReasoningStore.remember(base, ladder[index])
+                return model to response
+            } catch (cancelled: io.github.mangi.eta.agent.runtime.AgentRunCancelledException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                lastError = failure
+                if (!isUnsupportedCompressionReasoning(failure) || index == ladder.lastIndex) throw failure
+            }
+        }
+        throw lastError ?: IllegalStateException("摘要模型思考档均不可用")
+    }
+
+    private fun acceptSummaryResponse(response: ProviderResponse): ProviderResponse {
+        require(response.stopReason == AssistantStopReason.END_TURN) { "摘要未正常结束或被截断，原历史保持不变" }
+        require((response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) == 0) { "摘要模型返回了工具调用" }
+        return response
+    }
+
+    internal fun isUnsupportedCompressionReasoning(failure: Throwable): Boolean {
+        val text = buildString {
+            append(failure.message.orEmpty())
+            (failure as? AgentModelFailure)?.code?.let { append(' ').append(it) }
+        }.lowercase()
+        if ("http_400" !in text && "400" !in text && failure !is AgentModelFailure) {
+            val msg = failure.message.orEmpty().lowercase()
+            if ("reasoning" !in msg && "thinking" !in msg && "思考" !in msg) return false
+        }
+        return listOf(
+            "reasoning_effort",
+            "reasoning effort",
+            "thinking_level",
+            "thinking level",
+            "只支持",
+            "not support",
+            "unsupported",
+            "invalid",
+            "unknown",
+        ).any { it in text } && listOf("reasoning", "thinking", "effort", "思考").any { it in text }
     }
 
     internal fun messageToSummaryText(message: AgentModelClient.ConversationMessage): String = buildString {
@@ -442,13 +506,12 @@ internal object AgentContextCompactor {
         val input = org.json.JSONArray()
             .put(org.json.JSONObject().put("role", "system").put("content", model.systemPrompt))
             .put(org.json.JSONObject().put("role", "user").put("content", prompt))
-        val response = (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
-            ProviderRequest(model, input, org.json.JSONArray(), java.util.UUID.randomUUID().toString()),
-            controller,
+        val response = acceptSummaryResponse(
+            (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
+                ProviderRequest(model, input, org.json.JSONArray(), java.util.UUID.randomUUID().toString()),
+                controller,
+            ),
         )
-        controller.throwIfCancelled()
-        require(response.stopReason == AssistantStopReason.END_TURN) { "摘要未正常结束或被截断，原历史保持不变" }
-        require((response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) == 0) { "摘要模型返回了工具调用" }
         return response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")
     }

@@ -11,6 +11,15 @@ import org.json.JSONObject
 
 /** Runtime 自己裁决可选能力，不能把入口进程提交的布尔值当作授权。 */
 internal object AgentRuntimePolicy {
+    private val COMPRESSION_EFFORT_PROBE = listOf(
+        ReasoningEffort.MINIMAL,
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    )
+
     data class Permissions(
         val terminalTools: Boolean,
         val browserTools: Boolean,
@@ -49,15 +58,25 @@ internal object AgentRuntimePolicy {
     }
 
     /**
-     * 压缩专用思考档：能关就关。强制思考的模型用它允许的最低档，不沿用对话里的 high/max。
+     * 压缩思考探测顺序：能关先关；否则从 minimal 一档档往上，不沿用对话里的 high/max。
      */
-    fun forCompression(config: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
+    fun compressionEffortLadder(config: AgentModelClient.ModelConfig): List<ReasoningEffort> {
         val capabilities = config.reasoningCapabilities
-        val effort = if (capabilities == null) {
-            ReasoningEffort.OFF
-        } else {
-            capabilities.normalize(ReasoningEffort.OFF)
+        val steps = ArrayList<ReasoningEffort>()
+        if (capabilities == null || (capabilities.canDisable && !capabilities.mandatory)) {
+            steps += ReasoningEffort.OFF
         }
+        steps += COMPRESSION_EFFORT_PROBE
+        if (steps.isEmpty()) {
+            steps += if (capabilities?.mandatory == true) ReasoningEffort.DEFAULT else ReasoningEffort.OFF
+        }
+        return steps.distinct()
+    }
+
+    fun forCompression(
+        config: AgentModelClient.ModelConfig,
+        effort: ReasoningEffort = compressionEffortLadder(config).first(),
+    ): AgentModelClient.ModelConfig {
         val disabled = constrain(
             config.copy(reasoningEffort = effort, thinkingEnabled = effort.enablesReasoning),
             Permissions(

@@ -28,8 +28,8 @@ import org.json.JSONObject
 
 internal object GoogleAntigravityOAuth {
     const val DEFAULT_NAME = "反重力"
-    const val BASE_URL = "https://daily-cloudcode-pa.googleapis.com"
-    const val CLIENT_VERSION = "1.18.3"
+    const val BASE_URL = "https://cloudcode-pa.googleapis.com"
+    const val CLIENT_VERSION = "4.3.0"
     private const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
     private const val CLIENT_ID = "1071006060591-tmhssin2h21lcre235vt" + "olojh4g403ep.apps.googleuserco" + "ntent.com"
@@ -40,8 +40,8 @@ internal object GoogleAntigravityOAuth {
     private const val DEFAULT_PROJECT_ID = "rising-fact-p41fc"
     private val JSON = "application/json".toMediaType()
     private val endpoints = listOf(
-        "https://daily-cloudcode-pa.googleapis.com",
         "https://cloudcode-pa.googleapis.com",
+        "https://daily-cloudcode-pa.googleapis.com",
         "https://daily-cloudcode-pa.sandbox.googleapis.com",
     )
     private val httpClient: OkHttpClient by lazy {
@@ -89,7 +89,7 @@ internal object GoogleAntigravityOAuth {
         return projectId(context, providerId)
     }
     fun extraHeaders(): List<CustomHeader> = listOf(
-        CustomHeader("User-Agent", "antigravity/" + CLIENT_VERSION + " darwin/arm64"),
+        CustomHeader("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/" + CLIENT_VERSION + " Chrome/132.0.6834.160 Electron/39.2.3 Safari/537.36"),
         CustomHeader("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1"),
         CustomHeader("Client-Metadata", """{"ideType":"ANTIGRAVITY","platform":"MACOS","pluginType":"GEMINI"}"""),
     )

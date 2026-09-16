@@ -54,7 +54,7 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
  * - Settings 由标准二级页骨架自己提供 TopAppBar，壳层在此路由不重复绘制。
  */
 @Composable
-fun AgentAppShell(
+internal fun AgentAppShell(
     currentRoute: AppRoute?,
     isCurrentRoute: Boolean,
     conversationPaneState: ConversationPaneUiState?,

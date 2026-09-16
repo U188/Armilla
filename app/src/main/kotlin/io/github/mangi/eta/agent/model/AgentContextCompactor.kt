@@ -331,8 +331,10 @@ internal object AgentContextCompactor {
         require((response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) == 0) { "摘要模型返回了工具调用" }
         val text = response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")
-        validateSummary(text)
-        return text
+        coerceSummary(text)?.let { return it }
+        val repaired = repairSummaryWithModel(text, model, controller, config.summaryProvider)
+        return coerceSummary(repaired)
+            ?: error("摘要结构不完整或顺序无效，原历史保持不变")
     }
 
     internal fun messageToSummaryText(message: AgentModelClient.ConversationMessage): String = buildString {
@@ -348,9 +350,107 @@ internal object AgentContextCompactor {
         "Errors and open issues", "Current state", "Pending work", "Next step")
 
     internal fun validateSummary(text: String) {
-        require(text.startsWith(SUMMARY_PREFIX) || text.startsWith(SUMMARY_PREFIX_ZH)) { "摘要缺少检查点标记" }
-        val actual = text.lineSequence().map(String::trim).filter { it.startsWith("## ") }.map { it.removePrefix("## ") }.toList()
-        require(actual == SUMMARY_SECTIONS) { "摘要结构不完整或顺序无效，原历史保持不变" }
+        require(coerceSummary(text) != null) { "摘要结构不完整或顺序无效，原历史保持不变" }
+    }
+
+    internal fun coerceSummary(text: String): String? {
+        val body = stripSummaryWrapper(text)
+        if (body.isBlank()) return null
+        val sections = extractSummarySections(body) ?: return null
+        return buildString {
+            appendLine(SUMMARY_PREFIX_ZH)
+            SUMMARY_SECTIONS.forEachIndexed { index, heading ->
+                append("## ").append(heading).append('\n')
+                append(sections[index].ifBlank { "- (none)" })
+                if (index != SUMMARY_SECTIONS.lastIndex) append('\n')
+            }
+        }.trimEnd()
+    }
+
+    private fun stripSummaryWrapper(text: String): String {
+        var body = text.trim()
+        if (body.startsWith("```")) {
+            body = body.removePrefix("```").substringAfter('\n', body)
+            if (body.endsWith("```")) body = body.removeSuffix("```")
+            body = body.trim()
+        }
+        val marker = listOf(SUMMARY_PREFIX, SUMMARY_PREFIX_ZH, "[Summary of previous conversation]", "[Summary")
+            .firstOrNull { needle -> body.contains(needle) }
+        if (marker != null) {
+            body = body.substring(body.indexOf(marker)).trim()
+        }
+        return body
+    }
+
+    private fun extractSummarySections(text: String): List<String>? {
+        val aliases = mapOf(
+            "goal" to 0, "目标" to 0,
+            "constraints" to 1, "约束" to 1, "限制" to 1,
+            "verified evidence" to 2, "已验证证据" to 2, "已核实证据" to 2, "证据" to 2,
+            "files and identifiers" to 3, "文件和标识符" to 3, "文件与标识符" to 3, "文件" to 3,
+            "errors and open issues" to 4, "错误和待解决问题" to 4, "错误与待办" to 4, "错误" to 4,
+            "current state" to 5, "当前状态" to 5, "现状" to 5,
+            "pending work" to 6, "待办工作" to 6, "未完成工作" to 6, "待办" to 6,
+            "next step" to 7, "下一步" to 7, "下一步行动" to 7,
+        )
+        val heading = Regex("^#{1,3}\s+(.+)$")
+        val buckets = MutableList(SUMMARY_SECTIONS.size) { StringBuilder() }
+        var current = -1
+        var sawHeading = false
+        text.lineSequence().forEach { raw ->
+            val line = raw.trimEnd()
+            val match = heading.matchEntire(line.trim())
+            if (match != null) {
+                val title = match.groupValues[1].trim().trimStart('#', ' ', '：', ':')
+                    .removePrefix("[")
+                    .removeSuffix("]")
+                    .lowercase()
+                val index = aliases[title] ?: aliases.entries.firstOrNull { title.startsWith(it.key) }?.value
+                if (index != null) {
+                    current = index
+                    sawHeading = true
+                    return@forEach
+                }
+            }
+            if (current >= 0 && line.isNotBlank() && !line.startsWith(SUMMARY_PREFIX) && !line.startsWith(SUMMARY_PREFIX_ZH)) {
+                if (buckets[current].isNotEmpty()) buckets[current].append('\n')
+                buckets[current].append(line.trim())
+            }
+        }
+        if (!sawHeading) return null
+        return buckets.map { it.toString().trim() }
+    }
+
+    private fun repairSummaryWithModel(
+        raw: String,
+        model: AgentModelClient.ModelConfig,
+        controller: io.github.mangi.eta.agent.runtime.AgentRunController,
+        summaryProvider: AgentProviderClient?,
+    ): String {
+        controller.throwIfCancelled()
+        val headings = SUMMARY_SECTIONS.joinToString("\n") { heading -> "## $heading" }
+        val prompt = buildString {
+            appendLine("Rewrite the checkpoint below into the required format. Do not add commentary.")
+            appendLine("Start with $SUMMARY_PREFIX.")
+            appendLine("Use EXACTLY these Markdown headings, in this order. Keep the original facts. Write (none) when empty:")
+            appendLine(headings)
+            appendLine()
+            appendLine("<checkpoint>")
+            appendLine(raw.take(12_000))
+            append("</checkpoint>")
+        }
+        val input = org.json.JSONArray()
+            .put(org.json.JSONObject().put("role", "system").put("content", model.systemPrompt))
+            .put(org.json.JSONObject().put("role", "user").put("content", prompt))
+        val response = (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
+            ProviderRequest(model, input, org.json.JSONArray(), java.util.UUID.randomUUID().toString()),
+            controller,
+        )
+        controller.throwIfCancelled()
+        require(response.stopReason == AssistantStopReason.END_TURN) { "摘要未正常结束或被截断，原历史保持不变" }
+        require((response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) == 0) { "摘要模型返回了工具调用" }
+        return response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
+            ?: error("摘要模型返回为空")
     }
 
     private fun buildCompressPrompt(content: String, targetTokens: Int): String {

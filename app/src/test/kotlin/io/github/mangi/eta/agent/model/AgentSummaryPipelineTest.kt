@@ -81,8 +81,54 @@ class AgentSummaryPipelineTest {
 
     @Test fun duplicateMissingAndReorderedHeadingsFailAcceptance() {
         AgentContextCompactor.validateSummary(validSummary())
-        assertThrows(IllegalArgumentException::class.java) { AgentContextCompactor.validateSummary(validSummary() + "\n## Goal\nagain") }
-        assertThrows(IllegalArgumentException::class.java) { AgentContextCompactor.validateSummary(validSummary().replace("## Pending work", "## Tasks")) }
+        assertThrows(IllegalArgumentException::class.java) { AgentContextCompactor.validateSummary("not structured") }
+        assertThrows(IllegalArgumentException::class.java) { AgentContextCompactor.validateSummary("## Tasks\n- x") }
+    }
+
+    @Test fun chineseHeadingsAndFencesAreCoercedIntoCheckpoint() {
+        val raw = """```markdown
+好的，下面是摘要。
+[对话摘要]
+## 目标
+- 修压缩
+## 约束
+- 不要丢原文
+## 已验证证据
+- 存档 failed
+## 文件和标识符
+- /workspace/Eta
+## 错误和待解决问题
+- 格式不对
+## 当前状态
+- 已回滚
+## 待办工作
+- 重试
+## 下一步
+- 修校验
+```""".trimIndent()
+        val coerced = AgentContextCompactor.coerceSummary(raw)
+        assertNotNull(coerced)
+        AgentContextCompactor.validateSummary(coerced!!)
+        assertTrue(coerced.startsWith(AgentContextCompactor.SUMMARY_PREFIX_ZH))
+        assertTrue(coerced.contains("## Verified evidence"))
+        assertTrue(coerced.contains("存档 failed"))
+        assertFalse(coerced.contains("```"))
+    }
+
+    @Test fun malformedSummaryIsRepairedWithASecondFormatOnlyCall() {
+        var calls = 0
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+            calls++
+            if (calls == 1) response("下面是摘要\n目标：继续任务")
+            else {
+                assertTrue(it.messages.toString().contains("Rewrite the checkpoint"))
+                assertFalse(it.messages.toString().contains("OLD "))
+                response(validSummary())
+            }
+        }))
+        assertEquals(2, calls)
+        assertEquals("user", result.first().role)
+        assertTrue(result.first().content.contains("## Next step"))
     }
 
     @Test fun turnIdsPersistButNeverLeakToProviderMessages() {

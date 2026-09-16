@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var assistantConversationKey by mutableStateOf<String?>(null)
+    private var inboundShareUris by mutableStateOf<List<String>>(emptyList())
     private var appliedPredictiveBackEnabled = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN,
         )
         updateAssistantHandoff(intent)
+        consumeShareIntent(intent)
         lifecycleScope.launch {
             val initialAppearance = AppearanceSettingsRepository.settings()
             appliedPredictiveBackEnabled = initialAppearance.predictiveBackEnabled
@@ -58,12 +60,14 @@ class MainActivity : ComponentActivity() {
                 ) {
                     AgentAppRoot(
                         assistantConversationKey = assistantConversationKey,
+                        inboundShareUris = inboundShareUris,
                         onAssistantConversationOpened = { opened ->
                             assistantConversationKey = null
                             if (opened) {
                                 EtaAssistantOverlayService.notifyHandoffReady(this@MainActivity)
                             }
                         },
+                        onInboundShareConsumed = { inboundShareUris = emptyList() },
                     )
                 }
             }
@@ -74,6 +78,58 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         updateAssistantHandoff(intent)
+        consumeShareIntent(intent)
+    }
+
+    private fun consumeShareIntent(intent: Intent?) {
+        val uris = inboundUris(intent)
+        if (uris.isEmpty()) return
+        uris.forEach { uri ->
+            val flags = intent?.flags ?: 0
+            if (flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
+                runCatching {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+            }
+        }
+        inboundShareUris = uris.map { it.toString() }
+        intent?.removeExtra(Intent.EXTRA_STREAM)
+        intent?.data = null
+    }
+
+    private fun inboundUris(intent: Intent?): List<android.net.Uri> {
+        if (intent == null) return emptyList()
+        val fromStream = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.parcelableExtraCompat<android.net.Uri>(Intent.EXTRA_STREAM))
+            Intent.ACTION_SEND_MULTIPLE -> intent.parcelableArrayListExtraCompat<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
+            else -> emptyList()
+        }
+        val fromData = intent.data?.takeIf {
+            intent.action == Intent.ACTION_VIEW || intent.action == Intent.ACTION_SEND
+        }
+        return (fromStream + listOfNotNull(fromData)).distinct()
+    }
+
+    private inline fun <reified T : android.os.Parcelable> Intent.parcelableExtraCompat(name: String): T? {
+        return if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getParcelableExtra(name, T::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getParcelableExtra(name) as? T
+        }
+    }
+
+    private inline fun <reified T : android.os.Parcelable> Intent.parcelableArrayListExtraCompat(name: String): ArrayList<T>? {
+        return if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getParcelableArrayListExtra(name, T::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            @Suppress("UNCHECKED_CAST")
+            getParcelableArrayListExtra(name) as? ArrayList<T>
+        }
     }
 
     private fun updateAssistantHandoff(intent: Intent?) {

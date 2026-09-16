@@ -120,7 +120,9 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 @Composable
 fun AgentAppRoot(
     assistantConversationKey: String? = null,
+    inboundShareUris: List<String> = emptyList(),
     onAssistantConversationOpened: (Boolean) -> Unit = {},
+    onInboundShareConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val uiScope = rememberCoroutineScope()
@@ -258,6 +260,13 @@ fun AgentAppRoot(
             navigator.replace(AppRoute.Chat)
         }
         onAssistantConversationOpened(opened)
+    }
+
+    LaunchedEffect(inboundShareUris) {
+        if (inboundShareUris.isEmpty()) return@LaunchedEffect
+        agentState.attachSharedUris(inboundShareUris)
+        navigator.replace(AppRoute.Chat)
+        onInboundShareConsumed()
     }
 
     fun pushRoute(route: AppRoute) {

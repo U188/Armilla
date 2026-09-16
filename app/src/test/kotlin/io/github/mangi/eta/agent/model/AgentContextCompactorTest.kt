@@ -106,10 +106,8 @@ class AgentContextCompactorTest {
         val cut = AgentContextCompactor.recentKeepStartIndex(history, 0)
         assertTrue(cut > 0)
         assertTrue(cut < history.size)
-        assertNotEquals(
-            AgentContextCompactor.recentKeepStartIndex(history, 1),
-            cut,
-        )
+        assertEquals(history.size - 1, cut)
+        assertEquals(history.indexOfLast { it.role == "user" }, AgentContextCompactor.recentKeepStartIndex(history, 1))
     }
 
     @Test
@@ -122,7 +120,7 @@ class AgentContextCompactorTest {
     private fun turn(n: Int) = listOf(
         msg("user", "u$n"),
         msg("assistant", "", toolCallsJson = "[{\"id\":\"t$n\"}]"),
-        msg("tool", "tool$n"),
+        msg("tool", "tool$n", toolCallId = "t$n"),
         msg("assistant", "a$n"),
     )
 
@@ -130,10 +128,12 @@ class AgentContextCompactorTest {
         role: String,
         content: String,
         toolCallsJson: String = "",
+        toolCallId: String = "",
     ) = AgentModelClient.ConversationMessage(
         role = role,
         content = content,
         toolCallsJson = toolCallsJson,
+        toolCallId = toolCallId,
     )
 
     @Test

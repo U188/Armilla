@@ -24,14 +24,19 @@ internal object AgentCompressionBoundary {
         val cuts = mutableListOf(0)
         history.forEachIndexed { index, message ->
             if (message.toolCallsJson.isNotBlank()) {
-                val calls = org.json.JSONArray(message.toolCallsJson)
-                for (i in 0 until calls.length()) {
-                    val id = calls.getJSONObject(i).getString("id")
-                    require(id.isNotBlank() && pending.add(id)) { "工具调用 ID 缺失或重复" }
+                val calls = runCatching { org.json.JSONArray(message.toolCallsJson) }.getOrNull()
+                if (calls != null) {
+                    for (i in 0 until calls.length()) {
+                        val id = calls.optJSONObject(i)?.optString("id").orEmpty()
+                        if (id.isNotBlank()) pending.add(id)
+                    }
                 }
             }
             if (message.role == "tool") {
-                require(message.toolCallId.isNotBlank() && pending.remove(message.toolCallId)) { "工具结果缺少对应调用" }
+                val id = message.toolCallId.ifBlank {
+                    pending.lastOrNull().orEmpty()
+                }
+                if (id.isNotBlank()) pending.remove(id)
             }
             if (pending.isEmpty()) cuts += index + 1
         }

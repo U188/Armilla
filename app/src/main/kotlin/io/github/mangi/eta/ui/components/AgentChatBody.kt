@@ -737,15 +737,6 @@ internal fun AgentConversationMessages(
         ) {
             val trailingWorkKey =
                 (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
-            val itemModifier = if (isStreaming) {
-                Modifier
-            } else {
-                Modifier.animateItem(
-                    fadeInSpec = tween(durationMillis = 180),
-                    placementSpec = null,
-                    fadeOutSpec = null,
-                )
-            }
             timelineEntries.forEach { entry ->
                 when (entry) {
                     is AgentTimelineEntry.Message -> {
@@ -781,7 +772,11 @@ internal fun AgentConversationMessages(
                                 onRegenerateMessage = onRegenerateMessage,
                                 onBranchMessage = onBranchMessage,
                                 isPaused = isPaused,
-                                modifier = itemModifier,
+                                modifier = if (isStreaming) Modifier else Modifier.animateItem(
+                                    fadeInSpec = tween(durationMillis = 180),
+                                    placementSpec = null,
+                                    fadeOutSpec = null,
+                                ),
                             )
                         }
                     }
@@ -817,7 +812,11 @@ internal fun AgentConversationMessages(
                                 stepsAsLazyItems = true,
                                 expandedOverride = expanded,
                                 onExpandedChange = { workProcessExpanded[entry.key] = it },
-                                modifier = itemModifier,
+                                modifier = if (isStreaming) Modifier else Modifier.animateItem(
+                                    fadeInSpec = tween(durationMillis = 180),
+                                    placementSpec = null,
+                                    fadeOutSpec = null,
+                                ),
                             )
                         }
                         if (expanded) {
@@ -833,7 +832,11 @@ internal fun AgentConversationMessages(
                                     retainedStreamingState = streamingMarkdownStates[message.id],
                                     isPaused = isPaused,
                                     enableLivePreview = !isStreaming,
-                                    modifier = itemModifier,
+                                    modifier = if (isStreaming) Modifier else Modifier.animateItem(
+                                        fadeInSpec = tween(durationMillis = 180),
+                                        placementSpec = null,
+                                        fadeOutSpec = null,
+                                    ),
                                 )
                             }
                         }

@@ -327,7 +327,11 @@ private fun BrowserWindow(
         ) {
             // 不把 snapshot 传进 WebView 宿主，进度刷新只重绘遮罩和工具栏。
             BrowserWebViewHost(modifier = Modifier.fillMaxSize())
-            BrowserWindowOverlays(snapshot = snapshot, onRetry = onRefresh)
+            BrowserLoadingProgress(snapshot)
+            BrowserStateOverlay(
+                snapshot = snapshot,
+                onRetry = onRefresh,
+            )
         }
     }
 }
@@ -698,15 +702,6 @@ private fun BrowserFailedState(
             colors = ButtonDefaults.textButtonColorsPrimary(),
         )
     }
-}
-
-@Composable
-private fun BrowserWindowOverlays(
-    snapshot: BrowserSessionSnapshot,
-    onRetry: () -> Unit,
-) {
-    BrowserLoadingProgress(snapshot)
-    BrowserStateOverlay(snapshot = snapshot, onRetry = onRetry)
 }
 
 @Composable

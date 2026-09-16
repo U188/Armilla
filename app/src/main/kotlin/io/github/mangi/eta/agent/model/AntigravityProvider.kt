@@ -31,12 +31,12 @@ internal object AntigravityProvider : AgentProviderClient {
         val headers = okhttp3.Headers.Builder()
             .add("Content-Type", "application/json")
             .add("Accept", "text/event-stream")
-            .apply { if (config.apiKey.isNotBlank()) add("Authorization", "Bearer ${config.apiKey}") }
+            .apply { if (config.apiKey.isNotBlank()) add("Authorization", "Bearer " + config.apiKey) }
             .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders, request.sessionId) }
             .build()
-        val url = GoogleAntigravityOAuth.BASE_URL.trimEnd(/) + "/v1internal:streamGenerateContent?alt=sse"
+        val url = GoogleAntigravityOAuth.BASE_URL.trimEnd('/') + "/v1internal:streamGenerateContent?alt=sse"
         val httpRequest = Request.Builder().url(if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl)) {
-            config.baseUrl.trimEnd(/) + "/v1internal:streamGenerateContent?alt=sse"
+            config.baseUrl.trimEnd('/') + "/v1internal:streamGenerateContent?alt=sse"
         } else url).headers(headers).post(body).build()
         try {
             runController.throwIfCancelled()

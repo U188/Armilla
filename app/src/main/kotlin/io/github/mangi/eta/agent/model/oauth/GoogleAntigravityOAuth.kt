@@ -80,7 +80,7 @@ internal object GoogleAntigravityOAuth {
     fun extraHeaders(): List<CustomHeader> = listOf(
         CustomHeader("User-Agent", "antigravity/" + CLIENT_VERSION + " darwin/arm64"),
         CustomHeader("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1"),
-        CustomHeader("Client-Metadata", "{"ideType":"ANTIGRAVITY","platform":"ANDROID","pluginType":"GEMINI"}"),
+        CustomHeader("Client-Metadata", """{"ideType":"ANTIGRAVITY","platform":"ANDROID","pluginType":"GEMINI"}"""),
     )
     suspend fun withResolvedAuth(context: Context, provider: ProviderSetting): ProviderSetting {
         if (!usesBackend(provider)) return provider

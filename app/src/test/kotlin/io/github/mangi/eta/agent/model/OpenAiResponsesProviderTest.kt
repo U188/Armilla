@@ -512,9 +512,35 @@ class OpenAiResponsesProviderTest {
         else -> null
     }
 
+    @Test
+    fun completeAcceptsSseWithoutContentType() {
+        val body = buildString {
+            append(event("response.output_text.delta", JSONObject().put("delta", "你好")))
+            append(
+                event(
+                    "response.completed",
+                    JSONObject().put("response", JSONObject().put("status", "completed")),
+                ),
+            )
+        }
+        withSseServer(body, includeContentType = false) { baseUrl ->
+            val result = OpenAiResponsesProvider.complete(
+                request = ProviderRequest(
+                    config = config(baseUrl),
+                    messages = JSONArray().put(JSONObject().put("role", "user").put("content", "你好")),
+                    tools = JSONArray(),
+                ),
+                runController = AgentRunController(),
+                onEvent = {},
+            )
+            assertEquals("你好", result.assistantMessage.getString("content"))
+        }
+    }
+
     private fun withSseServer(
         body: String,
         onRequest: (String) -> Unit = {},
+        includeContentType: Boolean = true,
         block: (String) -> Unit,
     ) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -523,7 +549,9 @@ class OpenAiResponsesProviderTest {
         server.createContext("/responses") { exchange ->
             onRequest(exchange.requestBody.use { it.readBytes().toString(Charsets.UTF_8) })
             val bytes = body.toByteArray(Charsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "text/event-stream")
+            if (includeContentType) {
+                exchange.responseHeaders.add("Content-Type", "text/event-stream")
+            }
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }

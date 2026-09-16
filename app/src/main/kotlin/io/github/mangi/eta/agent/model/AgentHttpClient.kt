@@ -1,7 +1,9 @@
 package io.github.mangi.eta.agent.model
 
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.asResponseBody
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,6 +30,7 @@ internal object AgentHttpClient {
             .retryOnConnectionFailure(true)
             .addInterceptor(ProviderRequestInterceptor)
             .addNetworkInterceptor(JsonContentTypeInterceptor)
+            .addNetworkInterceptor(SseContentTypeInterceptor)
             .build()
     }
 
@@ -67,5 +70,25 @@ private object JsonContentTypeInterceptor : Interceptor {
                 .header("Content-Type", "application/json")
                 .build(),
         )
+    }
+}
+
+
+private object SseContentTypeInterceptor : Interceptor {
+    private val eventStream = "text/event-stream".toMediaType()
+
+    override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+        val request = chain.request()
+        val response = chain.proceed(request)
+        val accept = request.header("Accept").orEmpty()
+        if (!accept.contains("text/event-stream", ignoreCase = true)) return response
+        if (!response.isSuccessful) return response
+        val contentType = response.header("Content-Type").orEmpty()
+        if (contentType.contains("text/event-stream", ignoreCase = true)) return response
+        val body = response.body ?: return response
+        return response.newBuilder()
+            .header("Content-Type", "text/event-stream")
+            .body(body.source().asResponseBody(eventStream, body.contentLength()))
+            .build()
     }
 }

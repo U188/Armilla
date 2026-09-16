@@ -30,7 +30,7 @@ internal object AntigravityProvider : AgentProviderClient {
             config.providerId,
             config.apiKey,
         ).orEmpty()
-        val body = AntigravityRequestBuilder.build(config, request.messages, request.tools, projectId)
+        val body = AntigravityRequestBuilder.build(config, request.messages, request.tools, projectId, request.sessionId)
             .toString().toRequestBody(JSON_MEDIA_TYPE)
         val url = GoogleAntigravityOAuth.BASE_URL.trimEnd('/') + "/v1internal:streamGenerateContent?alt=sse"
         fun buildRequest(token: String): Request {

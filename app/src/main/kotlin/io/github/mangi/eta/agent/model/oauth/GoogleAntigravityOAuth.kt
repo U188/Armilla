@@ -28,8 +28,8 @@ import org.json.JSONObject
 
 internal object GoogleAntigravityOAuth {
     const val DEFAULT_NAME = "反重力"
-    const val BASE_URL = "https://cloudcode-pa.googleapis.com"
-    const val CLIENT_VERSION = "4.3.0"
+    const val BASE_URL = "https://daily-cloudcode-pa.googleapis.com"
+    const val CLIENT_VERSION = "2.9.1"
     private const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
     private const val CLIENT_ID = "1071006060591-tmhssin2h21lcre235vt" + "olojh4g403ep.apps.googleuserco" + "ntent.com"
@@ -40,8 +40,8 @@ internal object GoogleAntigravityOAuth {
     private const val DEFAULT_PROJECT_ID = "rising-fact-p41fc"
     private val JSON = "application/json".toMediaType()
     private val endpoints = listOf(
-        "https://cloudcode-pa.googleapis.com",
         "https://daily-cloudcode-pa.googleapis.com",
+        "https://cloudcode-pa.googleapis.com",
         "https://daily-cloudcode-pa.sandbox.googleapis.com",
     )
     private val httpClient: OkHttpClient by lazy {
@@ -88,10 +88,12 @@ internal object GoogleAntigravityOAuth {
         discoverProjectId(store, providerId, accessToken)
         return projectId(context, providerId)
     }
+    fun requestUserAgent(): String = "antigravity/hub/" + CLIENT_VERSION + " darwin/arm64"
+
+    fun onboardUserAgent(): String = requestUserAgent() + " google-api-nodejs-client/10.3.0"
+
     fun extraHeaders(): List<CustomHeader> = listOf(
-        CustomHeader("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/" + CLIENT_VERSION + " Chrome/132.0.6834.160 Electron/39.2.3 Safari/537.36"),
-        CustomHeader("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1"),
-        CustomHeader("Client-Metadata", """{"ideType":"ANTIGRAVITY","platform":"MACOS","pluginType":"GEMINI"}"""),
+        CustomHeader("User-Agent", requestUserAgent()),
     )
     suspend fun withResolvedAuth(context: Context, provider: ProviderSetting): ProviderSetting {
         if (!usesBackend(provider)) return provider
@@ -257,7 +259,7 @@ internal object GoogleAntigravityOAuth {
     }
     private fun discoverProjectId(store: ProviderOAuthStore, providerId: String, accessToken: String) {
         if (accessToken.isBlank()) return
-        val metadata = JSONObject().put("ideType", "ANTIGRAVITY").put("platform", "MACOS").put("pluginType", "GEMINI")
+        val metadata = JSONObject().put("ideType", "ANTIGRAVITY")
         endpoints.forEach { endpoint ->
             val project = runCatching { provisionProject(endpoint, accessToken, metadata) }.getOrNull()
             if (!project.isNullOrBlank() && project != DEFAULT_PROJECT_ID) {
@@ -289,7 +291,7 @@ internal object GoogleAntigravityOAuth {
 
     private fun onboardUser(endpoint: String, token: String, metadata: JSONObject) {
         val body = JSONObject().put("tierId", "free-tier").put("metadata", metadata)
-        val request = cloudRequest(endpoint + "/v1internal:onboardUser", token, body)
+        val request = cloudRequest(endpoint + "/v1internal:onboardUser", token, body, onboardUserAgent())
         val operation = httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (response.code !in 200..299) return
@@ -303,7 +305,7 @@ internal object GoogleAntigravityOAuth {
             Thread.sleep(1000)
             val poll = Request.Builder().url(endpoint + "/v1internal/" + name)
                 .header("Authorization", "Bearer " + token)
-                .apply { extraHeaders().forEach { addHeader(it.name, it.value) } }
+                .header("User-Agent", onboardUserAgent())
                 .get().build()
             current = httpClient.newCall(poll).execute().use { response ->
                 val text = response.body?.string().orEmpty()
@@ -329,11 +331,11 @@ internal object GoogleAntigravityOAuth {
             ?: json.optJSONObject("response")?.optString("cloudaicompanionProject")?.takeIf { it.isNotBlank() }
     }
 
-    private fun cloudRequest(url: String, token: String, payload: JSONObject): Request =
+    private fun cloudRequest(url: String, token: String, payload: JSONObject, userAgent: String = requestUserAgent()): Request =
         Request.Builder().url(url)
             .header("Authorization", "Bearer " + token)
             .header("Content-Type", "application/json")
-            .apply { extraHeaders().forEach { addHeader(it.name, it.value) } }
+            .header("User-Agent", userAgent)
             .post(payload.toString().toRequestBody(JSON)).build()
     private fun postToken(body: FormBody): JSONObject {
         var lastError: Exception? = null

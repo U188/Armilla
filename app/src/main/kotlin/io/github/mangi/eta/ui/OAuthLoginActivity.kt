@@ -152,6 +152,7 @@ class OAuthLoginActivity : Activity() {
 
     companion object {
         private const val EXTRA_URL = "oauth_url"
+        private const val EXTRA_TITLE = "oauth_title"
         @Volatile private var pending: CompletableDeferred<Pair<String, String?>>? = null
         @Volatile private var current: WeakReference<OAuthLoginActivity>? = null
 

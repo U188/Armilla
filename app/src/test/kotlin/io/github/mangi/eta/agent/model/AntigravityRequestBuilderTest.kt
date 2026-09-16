@@ -33,6 +33,7 @@ class AntigravityRequestBuilderTest {
         )
         assertEquals("proj-1", request.getString("project"))
         assertEquals("gemini-3-flash", request.getString("model"))
+        assertEquals("agent", request.getString("requestType"))
         val inner = request.getJSONObject("request")
         assertEquals("user", inner.getJSONArray("contents").getJSONObject(0).getString("role"))
         assertEquals("device_info", inner.getJSONArray("tools").getJSONObject(0)

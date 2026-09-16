@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object AntigravityRequestBuilder {
-    fun build(config: AgentModelClient.ModelConfig, messages: JSONArray, tools: JSONArray, projectId: String): JSONObject {
+    fun build(config: AgentModelClient.ModelConfig, messages: JSONArray, tools: JSONArray, projectId: String, sessionId: String = ""): JSONObject {
         val contents = JSONArray()
         val systemParts = JSONArray()
         val callNames = linkedMapOf<String, String>()
@@ -54,7 +54,10 @@ internal object AntigravityRequestBuilder {
         if (projectId.isNotBlank()) request.put("project", projectId)
         request.put("model", config.model)
         request.put("userAgent", "antigravity")
+        request.put("requestType", "agent")
+        request.put("requestId", "agent-" + java.util.UUID.randomUUID().toString())
         val inner = JSONObject().put("contents", contents)
+        if (sessionId.isNotBlank()) inner.put("sessionId", sessionId)
         if (systemParts.length() > 0) inner.put("systemInstruction", JSONObject().put("parts", systemParts))
         val declarations = functionDeclarations(tools)
         if (declarations.length() > 0) {

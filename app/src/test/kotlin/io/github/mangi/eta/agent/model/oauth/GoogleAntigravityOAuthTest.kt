@@ -9,11 +9,12 @@ class GoogleAntigravityOAuthTest {
     @Test
     fun cloudcodeHostIsAntigravityEndpoint() {
         assertTrue(GoogleAntigravityOAuth.isAntigravityEndpoint("https://cloudcode-pa.googleapis.com"))
-        assertEquals("4.3.0", GoogleAntigravityOAuth.CLIENT_VERSION)
+        assertEquals("2.9.1", GoogleAntigravityOAuth.CLIENT_VERSION)
         assertTrue(GoogleAntigravityOAuth.isAntigravityEndpoint("https://daily-cloudcode-pa.googleapis.com"))
         assertTrue(GoogleAntigravityOAuth.isAntigravityEndpoint("https://cloudcode-pa.googleapis.com/"))
         assertFalse(GoogleAntigravityOAuth.isAntigravityEndpoint("https://chatgpt.com/backend-api/codex"))
         assertFalse(GoogleAntigravityOAuth.isAntigravityEndpoint("https://api.openai.com/v1"))
+        assertTrue(GoogleAntigravityOAuth.requestUserAgent().startsWith("antigravity/hub/"))
     }
 
     @Test

@@ -48,6 +48,7 @@ import io.github.mangi.eta.agent.runtime.AgentExternalArchivePayload
 import io.github.mangi.eta.agent.runtime.AgentRunArchiveStore
 import io.github.mangi.eta.agent.runtime.AgentRunCheckpointStore
 import io.github.mangi.eta.agent.runtime.AgentRuntimeClient
+import io.github.mangi.eta.agent.runtime.AgentRuntimePolicy
 import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
 import io.github.mangi.eta.agent.runtime.AgentTokenUsage
 import io.github.mangi.eta.agent.runtime.AgentUiHandoffPayload
@@ -1877,18 +1878,21 @@ internal class AgentAppState(
         val resolvedModelId = modelId
             ?: prefs?.takeIf { customEnabled }
                 ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
-        if (resolvedProviderId.isNullOrBlank() || resolvedModelId.isNullOrBlank()) {
-            return fallback
-        }
-        val assistant = fallback?.assistantId?.takeIf { it.isNotBlank() }?.let {
-            runCatching { AssistantRepository.currentProfile(it) }.getOrNull()
-        }
-        return RuntimeConfigRepository.configForProviderAndModel(resolvedProviderId, resolvedModelId, assistant)
-            ?.let { resolved ->
-                fallback?.let { source ->
-                    resolved.copy(assistantId = source.assistantId, systemPrompt = source.systemPrompt)
-                } ?: resolved
+        val resolved = if (resolvedProviderId.isNullOrBlank() || resolvedModelId.isNullOrBlank()) {
+            fallback
+        } else {
+            val assistant = fallback?.assistantId?.takeIf { it.isNotBlank() }?.let {
+                runCatching { AssistantRepository.currentProfile(it) }.getOrNull()
             }
+            RuntimeConfigRepository.configForProviderAndModel(resolvedProviderId, resolvedModelId, assistant)
+                ?.let { model ->
+                    fallback?.let { source ->
+                        model.copy(assistantId = source.assistantId, systemPrompt = source.systemPrompt)
+                    } ?: model
+                }
+                ?: fallback
+        }
+        return resolved?.let(AgentRuntimePolicy::forCompression)
     }
 
     private fun launchConversationRun(

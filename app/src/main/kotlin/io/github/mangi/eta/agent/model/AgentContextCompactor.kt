@@ -457,7 +457,7 @@ internal object AgentContextCompactor {
             "pending work" to 6, "待办工作" to 6, "未完成工作" to 6, "待办" to 6,
             "next step" to 7, "下一步" to 7, "下一步行动" to 7,
         )
-        val heading = Regex("^#{1,3}\s+(.+)$")
+        val heading = Regex("""^#{1,3}\s+(.+)$""")
         val buckets = MutableList(SUMMARY_SECTIONS.size) { StringBuilder() }
         var current = -1
         var sawHeading = false

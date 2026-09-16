@@ -416,13 +416,17 @@ internal class AgentRuntimeRunExecutor(
             ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID, null)
         val modelId = prefs?.takeIf { customEnabled }
             ?.getString(Prefs.Keys.AGENT_COMPRESS_MODEL_ID, null)
-        if (providerId.isNullOrBlank() || modelId.isNullOrBlank()) return fallback
-        val assistant = fallback.assistantId.takeIf { it.isNotBlank() }?.let {
-            runCatching { AssistantRepository.currentProfile(it) }.getOrNull()
+        val resolved = if (providerId.isNullOrBlank() || modelId.isNullOrBlank()) {
+            fallback
+        } else {
+            val assistant = fallback.assistantId.takeIf { it.isNotBlank() }?.let {
+                runCatching { AssistantRepository.currentProfile(it) }.getOrNull()
+            }
+            runCatching {
+                RuntimeConfigRepository.configForProviderAndModel(providerId, modelId, assistant)
+            }.getOrNull()?.copy(assistantId = fallback.assistantId, systemPrompt = fallback.systemPrompt)
+                ?: fallback
         }
-        return runCatching {
-            RuntimeConfigRepository.configForProviderAndModel(providerId, modelId, assistant)
-        }.getOrNull()?.copy(assistantId = fallback.assistantId, systemPrompt = fallback.systemPrompt)
-            ?: fallback
+        return AgentRuntimePolicy.forCompression(resolved)
     }
 }

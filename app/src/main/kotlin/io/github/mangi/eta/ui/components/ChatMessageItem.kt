@@ -147,6 +147,7 @@ import io.github.mangi.eta.agent.browser.AgentBrowserSession
 import io.github.mangi.eta.agent.browser.BrowserSessionSnapshot
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.overlay.toolDisplayName
+import io.github.mangi.eta.ui.markdown.NumericCitationMarkup
 import io.github.mangi.eta.ui.markdown.StreamingGfmParserSession
 import io.github.mangi.eta.ui.markdown.StreamingGfmSnapshot
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
@@ -790,6 +791,7 @@ private fun AgentMessageBlock(
     val view = LocalView.current
     var copied by remember(message.id) { mutableStateOf(false) }
     val keepStreamingMarkdown = remember(message.id) { message.isStreaming }
+    val displayContent = remember(message.content) { NumericCitationMarkup.strip(message.content) }
     val liveStreaming = message.isStreaming && !isPaused
     var streamingRevealComplete by remember(message.id) {
         mutableStateOf(!keepStreamingMarkdown)
@@ -837,7 +839,7 @@ private fun AgentMessageBlock(
                     streamingState != null && !streamingRevealComplete -> {
                         StreamingMarkdown(
                             state = streamingState,
-                            content = message.content,
+                            content = displayContent,
                             isStreaming = liveStreaming,
                             onRevealCompleteChange = { streamingRevealComplete = it },
                             modifier = Modifier.fillMaxWidth(),
@@ -845,7 +847,7 @@ private fun AgentMessageBlock(
                     }
                     keepStreamingMarkdown || message.renderMarkdown -> {
                         StableMarkdown(
-                            content = message.content,
+                            content = displayContent,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

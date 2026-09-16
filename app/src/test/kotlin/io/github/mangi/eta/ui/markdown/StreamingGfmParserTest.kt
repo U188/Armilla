@@ -12,6 +12,18 @@ import org.junit.Test
 
 class StreamingGfmParserTest {
     @Test
+    fun numericCitationClusterIsStrippedBeforeParse() {
+        val raw = "[[10]](<https://github.com/a>) [[9]](<https://github.com/b>) [[1]](<https://github.com/c>)先看 DeepSeek harness"
+        assertEquals(
+            "先看 DeepSeek harness",
+            NumericCitationMarkup.strip(raw),
+        )
+        val snapshot = StreamingGfmParserSession().parse(raw, isComplete = true)
+        assertFalse(snapshot.renderedSource.contains("[[10]]"))
+        assertTrue(snapshot.renderedSource.contains("先看 DeepSeek harness"))
+    }
+
+    @Test
     fun headingIsParsedAsHeadingFromFirstStreamingSnapshot() {
         val snapshot = StreamingGfmParserSession().parse(
             source = "## 标题",

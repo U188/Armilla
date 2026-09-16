@@ -20,6 +20,7 @@ internal class StreamingGfmParserSession {
     private var acceptedSource = ""
 
     fun parse(source: String, isComplete: Boolean): StreamingGfmSnapshot {
+        val source = NumericCitationMarkup.strip(source)
         if (!source.startsWith(acceptedSource)) {
             // 会话恢复或上游修正消息时重新建立基线；解析器本身没有可泄漏到新文档
             // 的语法状态，后续快照仍保持追加式处理。
@@ -332,4 +333,22 @@ internal object StreamingGfmProjection {
         val length: Int,
         val isClosing: Boolean,
     )
+}
+
+
+/**
+ * Grok 等模型会在段首堆 `[[10]](<url>) [[9]](<url>)`。
+ * 链文本只是数字，渲染成 [10] [9] … [1]，观感很差。显示前去掉这类编号引用。
+ */
+internal object NumericCitationMarkup {
+    private val CLUSTER = Regex(
+        """(?:[ 	]*\[\[(\d{1,3})\]\](?:\(<[^>
+]*>\)|\([^)
+]*\)))+[ 	]*""",
+    )
+
+    fun strip(source: String): String {
+        if (!source.contains("[[")) return source
+        return CLUSTER.replace(source, "")
+    }
 }

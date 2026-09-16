@@ -25,7 +25,7 @@ class AgentSummaryPipelineTest {
         var calls = 0
         val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
             calls++
-            assertEquals(1024, it.config.summaryOutputLimit)
+            assertEquals(8192, it.config.summaryOutputLimit)
             assertEquals(0, it.tools.length())
             assertFalse(it.config.hostedWebSearchEnabled)
             assertTrue(it.messages.toString().contains("historical"))
@@ -163,6 +163,94 @@ class AgentSummaryPipelineTest {
             }))
         }
         assertTrue(failure.message.orEmpty().contains("OUTPUT_LIMIT"))
+    }
+
+    @Test fun truncatedSummaryRetriesOnceWithLargerGenerationBudgetAndSameInput() {
+        val limits = mutableListOf<Int>()
+        val inputs = mutableListOf<String>()
+        val sessions = mutableListOf<String>()
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+            limits += requireNotNull(it.config.summaryOutputLimit)
+            inputs += it.messages.toString()
+            sessions += it.sessionId
+            if (limits.size == 1) response("INCOMPLETE_MUST_NOT_SURVIVE", "length") else response(validSummary())
+        }))
+        assertEquals(listOf(8192, 16384), limits)
+        assertEquals(inputs.first(), inputs.last())
+        assertEquals(sessions.first(), sessions.last())
+        assertFalse(result.first().content.contains("INCOMPLETE_MUST_NOT_SURVIVE"))
+        assertEquals(history().last(), result.last())
+    }
+
+    @Test fun repeatedOutputLimitStopsAfterOneRetryAndPreservesHistory() {
+        var calls = 0
+        val source = history()
+        val snapshot = source.toList()
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
+                calls++
+                response(validSummary(), "length")
+            }))
+        }
+        assertEquals(2, calls)
+        assertTrue(error.message.orEmpty().contains("生成上限=16384"))
+        assertTrue(error.message.orEmpty().contains("已重试=1"))
+        assertEquals(snapshot, source)
+    }
+
+    @Test fun outputRetryRespectsWindowRoomAndHardCap() {
+        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(500, 200_000))
+        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(128, 200_000))
+        assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(500, 8192))
+        assertEquals(16384, AgentContextCompactor.summaryRetryLimit(12_000, 200_000, 1000))
+        // window=10000 leaves 9488 total after the minimum 512-token safety reserve.
+        assertEquals(2988, AgentContextCompactor.summaryRetryLimit(2048, 10_000, 6500))
+        assertNull(AgentContextCompactor.summaryRetryLimit(2988, 10_000, 6500))
+        assertNull(AgentContextCompactor.summaryRetryLimit(16384, 200_000, 1000))
+    }
+
+    @Test fun cancellationAfterTruncationPreventsRetry() {
+        val parent = AgentRunController()
+        var calls = 0
+        assertThrows(AgentRunCancelledException::class.java) {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+                calls++
+                parent.cancel()
+                response("partial", "length")
+            }), controller = parent)
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun outputLimitWithToolCallsIsNotRetried() {
+        var calls = 0
+        assertThrows(IllegalArgumentException::class.java) {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+                calls++
+                response("partial", "length").put("tool_calls", JSONArray().put(JSONObject().put("id", "bad")))
+            }))
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun contentFilterIsNotRetriedAsOutputLimit() {
+        var calls = 0
+        assertThrows(IllegalArgumentException::class.java) {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+                calls++
+                response("filtered", "content_filter")
+            }))
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun biggerGenerationLimitDoesNotRelaxCheckpointLengthValidation() {
+        val oversized = validSummary() + "\n" + "x".repeat(8000)
+        assertThrows(IllegalArgumentException::class.java) {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+                response(oversized)
+            }))
+        }
     }
 
     @Test fun sameModelReplayRetainsPrefixToolsAndSessionButDoesNotRunAgentLoop() {

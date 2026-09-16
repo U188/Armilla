@@ -265,7 +265,7 @@ fun AgentAppRoot(
     LaunchedEffect(inboundShareUris) {
         if (inboundShareUris.isEmpty()) return@LaunchedEffect
         agentState.attachSharedUris(inboundShareUris)
-        navigator.replace(AppRoute.Chat)
+        navigator.popToHome()
         onInboundShareConsumed()
     }
 

@@ -8,6 +8,38 @@ import org.junit.Test
 
 class AgentContextCompactionUiTest {
     @Test
+    fun runtimePruningEventIsRecognizedEvenWhenUiHistoryHasNotCaughtUp() {
+        val old = listOf(msg("user", "task"))
+        val live = old + msg("assistant", "tool call") + msg("tool", "trimmed")
+        val updated = AgentContextCompactionUi.applyMarker(
+            messages = listOf(UserMessageUi("u", "task")), originalHistory = old, compressedHistory = live,
+            compressorLabel = "工具输出预算修剪（原文可回读）", markerId = "pruned",
+        )
+        assertEquals(0, updated.filterIsInstance<ContextCompactedMessageUi>().single().compactedCount)
+    }
+
+    @Test
+    fun pruningOnlyIsNotReportedAsANewConversationSummary() {
+        val original = listOf(
+            msg("user", "[Conversation summary]\nold checkpoint"),
+            msg("user", "task"),
+            AgentModelClient.ConversationMessage("tool", "long tool output", toolCallId = "call"),
+        )
+        val compressed = original.dropLast(1) + original.last().copy(
+            content = "head [Eta tool output pruned; original: context-checkpoint:test] tail")
+        val updated = AgentContextCompactionUi.applyMarker(
+            messages = listOf(UserMessageUi("u", "task")),
+            originalHistory = original, compressedHistory = compressed,
+            compressorLabel = "summary model", markerId = "pruned",
+        )
+        val marker = updated.filterIsInstance<ContextCompactedMessageUi>().single()
+        assertEquals(0, marker.compactedCount)
+        assertEquals("工具输出修剪（非摘要）", marker.compressorLabel)
+        assertTrue(marker.summary.contains("未生成新的对话摘要"))
+        assertTrue(!marker.summary.contains("old checkpoint"))
+    }
+
+    @Test
     fun insertMarkerSitsBeforeKeptUserMessages() {
         val messages = listOf(
             UserMessageUi("u1", "旧问题"),

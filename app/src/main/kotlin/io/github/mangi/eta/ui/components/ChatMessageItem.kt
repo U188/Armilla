@@ -2997,7 +2997,7 @@ private fun ContextCompactedDivider(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = pluralStringResource(
+                text = if (message.compactedCount == 0 && message.compressorLabel.contains("工具输出")) stringResource(R.string.context_tool_outputs_pruned) else pluralStringResource(
                     R.plurals.context_compacted_messages,
                     message.compactedCount,
                     message.compactedCount,

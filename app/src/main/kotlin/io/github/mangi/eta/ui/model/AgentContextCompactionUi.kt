@@ -16,16 +16,17 @@ internal object AgentContextCompactionUi {
         markerId: String = "compacted-${System.currentTimeMillis()}",
     ): List<AgentChatMessageUi> {
         if (compressedHistory == originalHistory) return messages
+        val pruningOnly = isPruningOnly(originalHistory, compressedHistory, compressorLabel)
         val keptHistory = compressedHistory.filterNot(AgentContextCompactor::isCompressionSummary)
-        val keepStart = (originalHistory.size - keptHistory.size).coerceIn(0, originalHistory.size)
+        val keepStart = if (pruningOnly) 0 else (originalHistory.size - keptHistory.size).coerceIn(0, originalHistory.size)
         val compactedVisible = if (keepStart > 0) {
             originalHistory.subList(0, keepStart)
                 .count(AgentContextCompactor::isVisibleConversationMessage)
         } else {
             0
         }
-        val compactedCount = compactedVisible.takeIf { it > 0 } ?: keepStart.coerceAtLeast(1)
-        val summary = compressedHistory
+        val compactedCount = if (pruningOnly) 0 else compactedVisible.takeIf { it > 0 } ?: keepStart.coerceAtLeast(1)
+        val summary = if (pruningOnly) "仅修剪超大工具输出，未生成新的对话摘要；原文可通过检查点回读。" else compressedHistory
             .filter(AgentContextCompactor::isCompressionSummary)
             .joinToString("\n\n") { AgentContextCompactor.displaySummary(it.content) }
         val keptUserCount = keptHistory.count { message ->
@@ -47,13 +48,29 @@ internal object AgentContextCompactionUi {
                 id = markerId,
                 compactedCount = compactedCount,
                 summary = summary,
-                compressorLabel = compressorLabel,
+                compressorLabel = if (pruningOnly) "工具输出修剪（非摘要）" else compressorLabel,
                 baselineTokens = baselineTokens,
                 resumeRound = resumeRound,
                 preservedUsage = preservedUsage,
             ),
             keptUserCount = keptUserCount,
         ).let(::clearBilledTokenUsage)
+    }
+
+    internal fun isPruningOnly(
+        originalHistory: List<AgentModelClient.ConversationMessage>,
+        compressedHistory: List<AgentModelClient.ConversationMessage>,
+        compressorLabel: String = "",
+    ): Boolean {
+        // Runtime events may include tool records not yet reflected in UI history.
+        if (compressorLabel == "工具输出预算修剪（原文可回读）") return true
+        if (originalHistory == compressedHistory) return false
+        return originalHistory.size == compressedHistory.size &&
+            originalHistory.zip(compressedHistory).all { (before, after) ->
+                before == after || (before.role == "tool" && after.role == "tool" &&
+                    before.copy(content = after.content) == after &&
+                    after.content.contains("[Eta tool output pruned;"))
+            }
     }
 
     internal fun insertMarker(

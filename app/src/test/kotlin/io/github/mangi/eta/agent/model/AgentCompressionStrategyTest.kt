@@ -7,6 +7,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -14,6 +16,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class AgentCompressionStrategyTest {
+    @get:Rule val temporary = TemporaryFolder()
     private fun message(role: String, text: String = "", id: String = "", calls: String = "") =
         AgentModelClient.ConversationMessage(role, content = text, toolCallId = id, toolCallsJson = calls)
 
@@ -43,6 +46,31 @@ class AgentCompressionStrategyTest {
         assertEquals(listOf(0, 1, 4, 5), AgentCompressionBoundary.balancedCuts(history))
         assertEquals(4, AgentCompressionBoundary.continuationStart(history, 1))
         assertEquals(1, AgentCompressionBoundary.continuationStart(history.dropLast(1), 1))
+    }
+
+    @Test fun continuationUsesTheSameTokenTailInIdleAndActiveRuns() {
+        val history = listOf(message("user", "one long task"),
+            message("assistant", calls = """[{"id":"old"}]"""),
+            message("tool", "x".repeat(20_000), id = "old"),
+            message("assistant", calls = """[{"id":"latest"}]"""),
+            message("tool", "y".repeat(8_000), id = "latest"))
+        val idle = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000)
+        val active = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000, activeStart = 0)
+        assertEquals(3, idle)
+        assertEquals(idle, active)
+        assertEquals(0, AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.PRESERVE_TURN, 1, 10_000, activeStart = 0))
+        assertTrue(AgentContextCompactor.shouldCompress(history, 10_000, 0,
+            estimatedTokens = 9500, strategy = AgentCompressionStrategy.CONTINUE_TASK))
+        assertFalse(AgentContextCompactor.shouldCompress(history, 10_000, 1,
+            estimatedTokens = 9500, strategy = AgentCompressionStrategy.PRESERVE_TURN))
+    }
+
+    @Test fun overflowCanReduceRetentionButNeverSplitsTheLatestParallelBatch() {
+        val history = listOf(message("user", "task"), message("assistant", "x".repeat(8000)),
+            message("assistant", calls = """[{"id":"a"},{"id":"b"}]"""),
+            message("tool", "a", id = "a"), message("tool", "b", id = "b"))
+        assertEquals(1, AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000))
+        assertEquals(2, AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000, overflow = true))
     }
 
     @Test fun orphanedOrUnfinishedToolsCannotBeCompacted() {
@@ -122,6 +150,75 @@ class AgentCompressionStrategyTest {
         ).run()
         assertTrue(compressed)
         assertEquals(2, calls)
+    }
+
+    @Test fun firstRequestCompactsAtPressureBeforeSendingAnOtherwiseValidRequest() {
+        val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(352_000)))
+            .put(JSONObject().put("role", "assistant").put("content", "old result"))
+            .put(AgentConversationCodec.userTextMessage("y".repeat(8000)))
+        val model = config(100_000)
+        var compacted = false
+        var requests = 0
+        AgentLoop(model, source, JSONArray(), provider { request ->
+            requests++
+            assertTrue(compacted)
+            assertTrue(request.messages.getJSONObject(0).getString("content").contains("summary"))
+            assertFalse(request.messages.toString().contains("x".repeat(100)))
+            JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
+        }, AgentModelClient.ToolExecutor { error("No tools") }, AgentRunController(), AgentTraceFormatter(),
+            onEvent = { if (it is AgentEvent.ContextCompacted && it.applied) compacted = true },
+            compactPolicy = AgentLoop.CompactPolicy(true, 100_000, 1, 500, model),
+            compactHistory = { history, _ -> listOf(message("user", "[Conversation summary]\nold task")) + history.drop(2) },
+        ).run()
+        assertEquals(1, requests)
+    }
+
+    @Test fun manualContinuationPrunesOldStepsButPreservesLatestBatchWithinOneRun() {
+        val controller = AgentRunController()
+        val model = config(20_000)
+        val events = mutableListOf<AgentEvent>()
+        val tail = "L".repeat(16_000)
+        var requests = 0
+        var toolRuns = 0
+        var summaries = 0
+        val result = AgentLoop(model, JSONArray().put(AgentConversationCodec.userTextMessage("one long task")),
+            JSONArray("""[{"type":"function","function":{"name":"get_current_context","parameters":{"type":"object","properties":{}}}}]"""), provider { request ->
+                requests++
+                if (requests <= 2) JSONObject().put("role", "assistant").put("content", "")
+                    .put("finish_reason", "tool_calls").put("tool_calls", JSONArray().put(JSONObject()
+                        .put("id", "call-$requests").put("type", "function").put("function", JSONObject()
+                            .put("name", "get_current_context").put("arguments", "{}"))))
+                else {
+                    assertEquals(1, summaries)
+                    val liveTool = (0 until request.messages.length()).map { request.messages.getJSONObject(it) }
+                        .single { it.optString("role") == "tool" }
+                    assertEquals("call-2", liveTool.getString("tool_call_id"))
+                    assertEquals(tail, liveTool.getString("content"))
+                    JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
+                }
+            }, AgentModelClient.ToolExecutor {
+                toolRuns++
+                if (toolRuns == 2) controller.requestCompact(0, 500, strategy = AgentCompressionStrategy.CONTINUE_TASK)
+                AgentModelClient.ToolResult(if (toolRuns == 1) "O".repeat(20_000) else tail)
+            }, controller, AgentTraceFormatter(), onEvent = {
+                if (it is AgentEvent.ContextCompacted) assertFalse(it.reason, it.blocked)
+                events += it
+            },
+            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, 500, model, AgentCompressionStrategy.CONTINUE_TASK),
+            compactionArchive = AgentCompactionArchive(temporary.root, "same-run"),
+            compactHistory = { history, _ ->
+                summaries++
+                assertTrue(history[2].content.contains("[Eta tool output pruned;"))
+                assertEquals(tail, history.last().content)
+                val cut = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 20_000)
+                assertEquals(3, cut)
+                listOf(message("user", "[Conversation summary]\nfirst step verified")) + history.drop(cut)
+            },
+        ).run()
+        assertEquals("done", result.content)
+        assertEquals(3, requests)
+        assertEquals(2, toolRuns)
+        assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompacted>().count { it.applied })
     }
 
     @Test fun providerOverflowDoesNotBlindlyRetryAnUnchangedRequest() {

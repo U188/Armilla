@@ -760,7 +760,7 @@ class AgentModelClientLoopTest {
                     assistant(
                         finishReason = "tool_calls",
                         toolCalls = listOf(toolCall("call-1", "get_current_context", "{}")),
-                        promptTokens = 100,
+                        promptTokens = 95_000,
                     )
                 },
                 { _, _ -> assistant(content = "完成", finishReason = "stop", promptTokens = 20) },
@@ -792,7 +792,7 @@ class AgentModelClientLoopTest {
             onEvent = events::add,
             compactPolicy = AgentLoop.CompactPolicy(
                 enabled = true,
-                contextWindow = 8,
+                contextWindow = 100_000,
                 keepRecentMessages = 2,
                 targetTokens = 2000,
                 compressModelConfig = modelConfig(),

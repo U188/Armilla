@@ -62,6 +62,109 @@ class AgentSummaryPipelineTest {
         assertEquals("protected", source.last().content)
     }
 
+    @Test fun parentCancellationImmediatelyCancelsInFlightProviderResource() {
+        val parent = AgentRunController()
+        var resourceCancelled = false
+        val blockingProvider = object : AgentProviderClient {
+            override val id = "cancel-resource"
+            override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+            override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                val binding = runController.register { resourceCancelled = true }
+                try {
+                    parent.cancel()
+                    assertTrue("Parent cancellation must reach the active HTTP controller", runController.isCancelled)
+                    assertTrue(resourceCancelled)
+                    throw java.io.IOException("socket closed by cancellation")
+                } finally { binding.close() }
+            }
+        }
+        assertThrows(AgentRunCancelledException::class.java) {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), blockingProvider), controller = parent)
+        }
+        assertTrue(resourceCancelled)
+    }
+
+    @Test fun completedSummaryDetachesParentCancellationBinding() {
+        val parent = AgentRunController()
+        var captured: AgentRunController? = null
+        val completedProvider = object : AgentProviderClient {
+            override val id = "cancel-binding"
+            override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+            override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                captured = runController
+                return ProviderResponse(response(validSummary()))
+            }
+        }
+        AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), completedProvider), controller = parent)
+        parent.cancel()
+        assertNotNull(captured)
+        assertFalse(captured!!.isCancelled)
+    }
+
+    @Test fun interruptedUiWorkerCancelsProviderWithoutWaitingForSummaryTimeout() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val blockingProvider = object : AgentProviderClient {
+            override val id = "interrupt-resource"
+            override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+            override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                val binding = runController.register { cancelled.set(true) }
+                try {
+                    entered.countDown()
+                    val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3)
+                    while (!cancelled.get() && System.nanoTime() < deadline) {
+                        // Models a network call whose resource must be explicitly closed.
+                        java.util.concurrent.locks.LockSupport.parkNanos(1_000_000)
+                    }
+                    if (!cancelled.get()) throw AssertionError("Provider was not cancelled")
+                    throw java.io.IOException("cancelled")
+                } finally { binding.close() }
+            }
+        }
+        val worker = Thread {
+            try {
+                AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), blockingProvider))
+            } catch (caught: Throwable) { failure.set(caught) }
+        }.apply { isDaemon = true; start() }
+        try {
+            assertTrue(entered.await(3, java.util.concurrent.TimeUnit.SECONDS))
+            worker.interrupt()
+            worker.join(4000)
+            assertFalse(worker.isAlive)
+            assertTrue(cancelled.get())
+            assertTrue(failure.get() is InterruptedException)
+        } finally { worker.interrupt(); worker.join(4000) }
+    }
+
+    @Test fun formatRepairAlsoUsesLinkedCancellationController() {
+        val parent = AgentRunController()
+        var calls = 0
+        val repairingProvider = object : AgentProviderClient {
+            override val id = "cancel-repair"
+            override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+            override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                if (++calls == 1) return ProviderResponse(response("unstructured checkpoint"))
+                parent.cancel()
+                assertTrue(runController.isCancelled)
+                return ProviderResponse(response(validSummary()))
+            }
+        }
+        assertThrows(AgentRunCancelledException::class.java) {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), repairingProvider), controller = parent)
+        }
+        assertEquals(2, calls)
+    }
+
+    @Test fun outputLimitFailureReportsNormalizedReasonAndNeverAcceptsPartialSummary() {
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+                response(validSummary(), "length")
+            }))
+        }
+        assertTrue(failure.message.orEmpty().contains("OUTPUT_LIMIT"))
+    }
+
     @Test fun sameModelReplayRetainsPrefixToolsAndSessionButDoesNotRunAgentLoop() {
         val source = history()
         val system = JSONObject().put("role", "system").put("content", "original instructions")

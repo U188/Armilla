@@ -78,6 +78,7 @@ internal class AgentLoop(
     private var manualBudgetAttempt = false
     private var budgetKeepRecent = compactPolicy.keepRecentMessages
     private var budgetStrategy = compactPolicy.strategy
+    private var budgetTargetTokens = compactPolicy.targetTokens
     private var overflowPending = false
     private var overflowRecoveryAttempts = 0
     private var lastFailedCompaction: Pair<String, Int>? = null
@@ -329,7 +330,7 @@ internal class AgentLoop(
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
         val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
         if (!forced && skipIneffectiveAutoCompact && !charPressure && !requestOverBudget()) return
-        if (!forced && !charPressure && (round <= 1 || estimatedRequestTokens() < window * 0.9)) return
+        if (!forced && !charPressure && estimatedRequestTokens() < window * 0.9) return
         val strategy = override?.strategy ?: compactPolicy.strategy
         val keep = AgentContextCompactor.coerceKeepRecent(
             override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
@@ -337,15 +338,24 @@ internal class AgentLoop(
         )
         budgetKeepRecent = keep
         budgetStrategy = strategy
-        val history = historyForCompaction()
-        val cut = runCatching { AgentCompressionBoundary.protectedStart(history, keep, activeTurnStart) }.getOrDefault(0)
+        budgetTargetTokens = override?.targetTokens ?: compactPolicy.targetTokens
+        var history = historyForCompaction()
+        var cut = compactionStart(history)
         if (cut <= 0) {
             if (forced) onEvent(AgentEvent.ContextCompacted(round, false, messages.length(), messages.length(),
-                reason = "当前历史均在保护范围内，没有可压缩的旧历史。"))
+                reason = "当前保留范围内没有可压缩的完整历史单元。"))
             return
         }
-        val reduced = applyCompaction(round, history, cut, override?.targetTokens ?: compactPolicy.targetTokens)
-        if (reduced) {
+        val pruned = pruneOversizedToolResults(round, systemCount + cut)
+        if (pruned) {
+            // Both the DTO and same-model JSON replay must come from this new snapshot.
+            history = historyForCompaction()
+            cut = compactionStart(history)
+            if (!forced && storedHistoryChars() <= persistenceCharLimit() * 7 / 10 &&
+                estimatedRequestTokens() < window * 0.9 && !requestOverBudget()) return
+        }
+        val reduced = cut > 0 && applyCompaction(round, history, cut, budgetTargetTokens)
+        if (reduced || pruned) {
             overflowPending = false
             skipIneffectiveAutoCompact = false
         } else if (!forced) {
@@ -353,32 +363,38 @@ internal class AgentLoop(
         }
     }
 
+    private fun compactionStart(history: List<AgentModelClient.ConversationMessage>): Int {
+        val mayRelax = budgetStrategy == AgentCompressionStrategy.CONTINUE_TASK || runController.allowCurrentTurnCompaction
+        // Without an archive, fail closed to the original full-turn boundary.
+        val strategy = if (mayRelax && compactionArchive != null) AgentCompressionStrategy.CONTINUE_TASK
+            else AgentCompressionStrategy.PRESERVE_TURN
+        return runCatching {
+            AgentCompressionBoundary.selectStart(history, strategy, budgetKeepRecent,
+                config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow,
+                activeTurnStart, overflowPending)
+        }.getOrDefault(0)
+    }
+
     private fun tryBudgetCompaction(round: Int): Boolean {
         if (!compactPolicy.enabled && !manualBudgetAttempt && !runController.allowCurrentTurnCompaction) return false
         val history = historyForCompaction()
-        val normalCut = runCatching { AgentCompressionBoundary.protectedStart(history, budgetKeepRecent, activeTurnStart) }.getOrDefault(0)
-        if (normalCut > 0 && pruneOversizedToolResults(round, systemCount + normalCut)) return true
-        if (normalCut > 0 && applyCompaction(round, history, normalCut, compactPolicy.targetTokens)) return true
-        val mayRelax = budgetStrategy == AgentCompressionStrategy.CONTINUE_TASK || runController.allowCurrentTurnCompaction
-        if (!mayRelax) return false
-        if (compactionArchive == null) {
-            compactionFailure = "未提供原文存档与回读能力，不能压缩受保护轮次。"
-            return false
-        }
-        if (pruneOversizedToolResults(round)) return true
-        val cut = runCatching { AgentCompressionBoundary.continuationStart(history,
-            if (overflowPending) 1 else maxOf(1024, (config.contextWindow ?: 0) / 6)) }.getOrDefault(0)
+        val cut = compactionStart(history)
         if (cut <= 0) return false
-        return applyCompaction(round, history, cut, compactPolicy.targetTokens)
+        // Commit a pruning-only reduction first. The caller remeasures and takes a
+        // fresh snapshot before attempting a summary if pressure is still high.
+        if (pruneOversizedToolResults(round, systemCount + cut)) return true
+        return applyCompaction(round, history, cut, budgetTargetTokens)
     }
 
-    /** Lossy pruning is permitted only after the caller has opted into continuation. */
-    private fun pruneOversizedToolResults(round: Int, endExclusive: Int = messages.length()): Boolean {
+    /** Only prune the selected prefix; the retained tail is always verbatim. */
+    private fun pruneOversizedToolResults(round: Int, endExclusive: Int): Boolean {
         val archive = compactionArchive ?: return false
         val replacements = mutableListOf<Pair<Int, JSONObject>>()
         val checkpoints = mutableListOf<String>()
         try {
             for (index in systemCount until endExclusive) {
+                runController.throwIfCancelled()
+                if (Thread.currentThread().isInterrupted) throw io.github.mangi.eta.agent.runtime.AgentRunCancelledException()
                 val original = messages.getJSONObject(index)
                 if (original.optString("role") != "tool" || original.optString("tool_call_id") in sensitiveToolCallIds) continue
                 val text = original.opt("content") as? String ?: continue
@@ -395,6 +411,8 @@ internal class AgentLoop(
                 checkpoints += id
             }
         } catch (failure: Exception) {
+            runController.throwIfCancelled()
+            if (Thread.currentThread().isInterrupted || failure is io.github.mangi.eta.agent.runtime.AgentRunCancelledException) throw failure
             compactionFailure = failure.message ?: "工具原文存档失败，未应用修剪"
             return false
         }
@@ -435,7 +453,7 @@ internal class AgentLoop(
             } else AgentContextCompactor.compress(
                 history, AgentContextCompactor.Config(
                     target.coerceIn(500, 4000),
-                    compactPolicy.keepRecentMessages,
+                    budgetKeepRecent,
                     compressConfig,
                     compactionArchive = compactionArchive,
                 ),
@@ -463,7 +481,8 @@ internal class AgentLoop(
             withPointers
         } catch (failure: Exception) {
             savedCheckpoint?.let { runCatching { compactionArchive?.record(it, "failed") } }
-            if (runController.isCancelled || failure is io.github.mangi.eta.agent.runtime.AgentRunCancelledException) throw failure
+            if (runController.isCancelled || Thread.currentThread().isInterrupted || failure is InterruptedException ||
+                failure is io.github.mangi.eta.agent.runtime.AgentRunCancelledException) throw failure
             lastFailedCompaction = original to cut
             compactionFailure = failure.message ?: "压缩失败，原文保留"
             onEvent(AgentEvent.ContextCompacted(round, false, originalCount, originalCount, reason = compactionFailure))

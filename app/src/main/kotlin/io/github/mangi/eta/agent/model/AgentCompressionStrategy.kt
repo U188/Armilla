@@ -69,6 +69,23 @@ internal object AgentCompressionBoundary {
         return availableCuts(history).lastOrNull { it <= requested && it < history.size } ?: 0
     }
 
+    /** Shared selection for idle/manual, pre-request pressure and overflow recovery.
+     * Continuation retains a token-priced tail, not the entire latest user turn.
+     * Strict protection continues to honor both recent turns and the active run.
+     */
+    fun selectStart(
+        history: List<AgentModelClient.ConversationMessage>,
+        strategy: AgentCompressionStrategy,
+        keep: Int,
+        contextWindow: Int,
+        activeStart: Int = history.size,
+        overflow: Boolean = false,
+    ): Int = if (strategy == AgentCompressionStrategy.CONTINUE_TASK && contextWindow > 0) {
+        continuationStart(history, if (overflow) 1 else maxOf(1, (contextWindow.toLong() * 16 / 100).toInt()))
+    } else {
+        protectedStart(history, keep, activeStart)
+    }
+
     /** Never summarize the newest complete unit; walk backward to the next balanced cut. */
     fun continuationStart(history: List<AgentModelClient.ConversationMessage>, retainTokens: Int): Int {
         if (history.size < 2) return 0

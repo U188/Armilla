@@ -2,7 +2,6 @@ package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.tool.AgentToolCapabilities
 import io.github.mangi.eta.core.AndroidAgentLogger
-import java.util.concurrent.TimeUnit
 
 internal object AgentContextCompactor {
     const val DEFAULT_KEEP_RECENT = 4
@@ -62,9 +61,10 @@ internal object AgentContextCompactor {
         keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         thresholdPercent: Int = 90,
         estimatedTokens: Int? = null,
+        strategy: AgentCompressionStrategy = AgentCompressionStrategy.PRESERVE_TURN,
     ): Boolean {
         if (contextWindow <= 0) return false
-        val cut = recentKeepStartIndex(history, keepRecentMessages)
+        val cut = AgentCompressionBoundary.selectStart(history, strategy, keepRecentMessages, contextWindow)
         if (cut <= 0 || cut >= history.size) return false
         val estimated = estimatedTokens ?: history.sumOf { AgentContextBudget.countMessage(it) }
         return estimated >= contextWindow * thresholdPercent / 100
@@ -128,13 +128,20 @@ internal object AgentContextCompactor {
         replay: ReplayContext? = null,
     ): List<AgentModelClient.ConversationMessage> {
         if (history.isEmpty()) return history
-        val working = pruneOversizedToolResults(history, config.compactionArchive)
-        val keepStart = keepStartOverride ?: recentKeepStartIndex(working, config.keepRecentMessages)
-        require(keepStart in 0..working.size && keepStart in AgentCompressionBoundary.availableCuts(working)) { "压缩范围不是完整工具边界" }
-        if (keepStart <= 0) return working
+        controller.throwIfCancelled()
+        // Summarization is read-only. Pruning must be committed by the caller BEFORE
+        // taking the history/replay snapshot, and must never touch the retained tail.
+        val keepStart = keepStartOverride ?: recentKeepStartIndex(history, config.keepRecentMessages)
+        require(keepStart in 0..history.size && keepStart in AgentCompressionBoundary.availableCuts(history)) { "压缩范围不是完整工具边界" }
+        if (keepStart <= 0) return history
 
-        val messagesToCompress = working.subList(0, keepStart).toList()
-        val messagesToKeep = working.subList(keepStart, working.size).toList()
+        val messagesToCompress = history.subList(0, keepStart).toList()
+        val messagesToKeep = history.subList(keepStart, history.size).toList()
+        replay?.let {
+            require(it.historyMessages.length() == keepStart && messagesToCompress.indices.all { index ->
+                AgentConversationCodec.fromJsonObject(it.historyMessages.getJSONObject(index)) == messagesToCompress[index]
+            }) { "摘要回放与选中历史不一致，未发送请求" }
+        }
 
         val chunks = splitMessages(messagesToCompress, config, replay)
         runCatching { AndroidAgentLogger.info("开始摘要：${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条") }
@@ -215,28 +222,32 @@ internal object AgentContextCompactor {
     internal fun pruneOversizedToolResults(
         history: List<AgentModelClient.ConversationMessage>,
         archive: AgentCompactionArchive?,
+        endExclusive: Int = history.size,
     ): List<AgentModelClient.ConversationMessage> {
+        require(endExclusive in 0..history.size)
         if (archive == null || history.isEmpty()) return history
         var changed = false
-        val next = history.map { message ->
-            if (!message.role.equals("tool", ignoreCase = true) || message.content.isBlank()) {
-                return@map message
+        val next = history.mapIndexed { index, message ->
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("工具输出修剪已取消")
+            if (index >= endExclusive || !message.role.equals("tool", ignoreCase = true) ||
+                message.content.isBlank() || message.contentJson.isNotBlank()) {
+                return@mapIndexed message
             }
-            if (message.content.contains("[Eta tool output pruned;")) return@map message
+            if (message.content.contains("[Eta tool output pruned;")) return@mapIndexed message
             val points = message.content.codePointCount(0, message.content.length)
-            if (points <= TOOL_PRUNE_LIMIT) return@map message
+            if (points <= TOOL_PRUNE_LIMIT) return@mapIndexed message
             val id = archive.save(listOf(message))
             archive.record(id, "started")
             val head = message.content.offsetByCodePoints(0, TOOL_PRUNE_HEAD.coerceAtMost(points))
             val tail = message.content.offsetByCodePoints(message.content.length, -TOOL_PRUNE_TAIL.coerceAtMost(points))
-            if (tail <= head) return@map message
+            if (tail <= head) return@mapIndexed message
             val shorter = message.content.substring(0, head) +
                 "\n[Eta tool output pruned; original: context-checkpoint:$id; read_compacted_history]\n" +
                 message.content.substring(tail)
             if (AgentContextBudget.countTokens(shorter) >= AgentContextBudget.countTokens(message.content)) {
-                return@map message
+                return@mapIndexed message
             }
-            archive.record(id, "committed")
+            archive.record(id, "ready")
             changed = true
             message.copy(content = shorter)
         }
@@ -402,50 +413,62 @@ internal object AgentContextCompactor {
         val start = remembered?.let { ladder.indexOf(it) }?.takeIf { it >= 0 } ?: 0
         var lastError: Exception? = null
         val timed = io.github.mangi.eta.agent.runtime.AgentRunController()
+        val parentBinding = controller.register { timed.cancel() }
+        val requestThread = Thread.currentThread()
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(SUMMARY_REQUEST_TIMEOUT_MS)
+        // runInterruptible (idle/UI path) cancels by interrupting this thread, not
+        // through AgentRunController. Forward that cancellation to the HTTP call too.
         val watchdog = Thread({
             try {
-                Thread.sleep(SUMMARY_REQUEST_TIMEOUT_MS)
-                timed.cancel()
+                while (!Thread.currentThread().isInterrupted) {
+                    if (requestThread.isInterrupted || System.nanoTime() >= deadline) {
+                        timed.cancel()
+                        break
+                    }
+                    Thread.sleep(100)
+                }
             } catch (_: InterruptedException) {
             }
-        }, "eta-summary-timeout").apply {
-            isDaemon = true
-            start()
+        }, "eta-summary-timeout").apply { isDaemon = true }
+        fun checkCancellation() {
+            controller.throwIfCancelled()
+            if (requestThread.isInterrupted) throw InterruptedException("摘要已取消")
+            if (timed.isCancelled) {
+                throw IllegalStateException("摘要超时（${SUMMARY_REQUEST_TIMEOUT_MS / 1000} 秒内未返回），原历史保持不变")
+            }
         }
         try {
+            watchdog.start()
             for (index in start until ladder.size) {
-                controller.throwIfCancelled()
-                timed.throwIfCancelled()
+                checkCancellation()
                 val model = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.forCompression(base, ladder[index])
                 try {
-                    val response = acceptSummaryResponse(
-                        (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
-                            ProviderRequest(model, outbound, tools, sessionId),
-                            timed,
-                        ),
+                    val response = (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
+                        ProviderRequest(model, outbound, tools, sessionId), timed,
                     )
-                    controller.throwIfCancelled()
+                    // Cancellation wins over HTTP errors, malformed output and a
+                    // successful response racing with the user's stop request.
+                    checkCancellation()
+                    acceptSummaryResponse(response)
                     CompressionReasoningStore.remember(base, ladder[index])
                     return model to response
-                } catch (cancelled: io.github.mangi.eta.agent.runtime.AgentRunCancelledException) {
-                    controller.throwIfCancelled()
-                    if (timed.isCancelled) {
-                        throw IllegalStateException("摘要超时（${SUMMARY_REQUEST_TIMEOUT_MS / 1000} 秒内未返回），原历史保持不变")
-                    }
-                    throw cancelled
                 } catch (failure: Exception) {
+                    checkCancellation()
                     lastError = failure
                     if (!isUnsupportedCompressionReasoning(failure) || index == ladder.lastIndex) throw failure
                 }
             }
         } finally {
             watchdog.interrupt()
+            parentBinding.close()
         }
         throw lastError ?: IllegalStateException("摘要模型思考档均不可用")
     }
 
     private fun acceptSummaryResponse(response: ProviderResponse): ProviderResponse {
-        require(response.stopReason == AssistantStopReason.END_TURN) { "摘要未正常结束或被截断，原历史保持不变" }
+        require(response.stopReason == AssistantStopReason.END_TURN) {
+            "摘要未正常结束（${response.stopReason}），原历史保持不变"
+        }
         require((response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) == 0) { "摘要模型返回了工具调用" }
         return response
     }
@@ -577,11 +600,9 @@ internal object AgentContextCompactor {
         val input = org.json.JSONArray()
             .put(org.json.JSONObject().put("role", "system").put("content", model.systemPrompt))
             .put(org.json.JSONObject().put("role", "user").put("content", prompt))
-        val response = acceptSummaryResponse(
-            (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
-                ProviderRequest(model, input, org.json.JSONArray(), java.util.UUID.randomUUID().toString()),
-                controller,
-            ),
+        val (_, response) = completeCompression(
+            model, input, org.json.JSONArray(), java.util.UUID.randomUUID().toString(),
+            controller, summaryProvider,
         )
         return response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")

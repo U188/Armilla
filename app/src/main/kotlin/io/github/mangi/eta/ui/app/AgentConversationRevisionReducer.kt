@@ -120,6 +120,42 @@ internal object AgentConversationRevisionReducer {
             else -> null
         }
     }
+
+    /**
+     * 暂停/结束任务后，屏幕上已写出的助手正文必须进模型历史。
+     * 否则下一轮请求看不到刚才的完整回答。
+     */
+    fun commitVisibleAssistantIntoHistory(
+        history: List<AgentModelClient.ConversationMessage>,
+        messages: List<AgentChatMessageUi>,
+    ): List<AgentModelClient.ConversationMessage> {
+        val lastUserIndex = messages.indexOfLast { message ->
+            message is UserMessageUi && !message.isSteerSupplement()
+        }
+        val partial = messages
+            .drop((lastUserIndex + 1).coerceAtLeast(0))
+            .filterIsInstance<AgentMessageUi>()
+            .lastOrNull { it.content.isNotBlank() }
+            ?: return history
+        return historyWithTrailingPartial(history, partial)
+    }
+
+    fun historyWithTrailingPartial(
+        history: List<AgentModelClient.ConversationMessage>,
+        partial: AgentMessageUi,
+    ): List<AgentModelClient.ConversationMessage> {
+        val partialMessage = AgentModelClient.ConversationMessage(
+            role = "assistant",
+            content = partial.content,
+        )
+        val last = history.lastOrNull()
+        return if (last?.role == "assistant") {
+            if (last.content == partial.content) history else history.dropLast(1) + partialMessage
+        } else {
+            history + partialMessage
+        }
+    }
+
 }
 
 internal fun AgentChatMessageUi.withId(id: String): AgentChatMessageUi = when (this) {
@@ -155,3 +191,4 @@ internal fun AgentModelClient.ConversationMessage.rewritePaths(
     content = rewrite(content),
     contentJson = rewrite(contentJson),
 )
+

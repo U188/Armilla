@@ -188,4 +188,18 @@ class AgentConversationRevisionReducerTest {
         assertEquals("第一问", branched.history.first().content)
         assertEquals("第一答", branched.history.last().content)
     }
+
+    @Test
+    fun abortKeepsVisibleAssistantInOutboundHistory() {
+        val history = listOf(
+            AgentModelClient.ConversationMessage(role = "user", content = "写2000字"),
+        )
+        val messages = listOf(
+            UserMessageUi(id = "u1", content = "写2000字"),
+            AgentMessageUi(id = "a1", content = "原因是暂停把打字机锁在追平模式。", isStreaming = false),
+        )
+        val next = AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(history, messages)
+        assertEquals("assistant", next.last().role)
+        assertEquals("原因是暂停把打字机锁在追平模式。", next.last().content)
+    }
 }

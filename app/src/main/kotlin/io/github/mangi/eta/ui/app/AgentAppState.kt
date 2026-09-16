@@ -1343,7 +1343,14 @@ internal class AgentAppState(
             return
         }
 
-        val history = editBoundary?.historyPrefix ?: homeState.history
+        val history = if (editBoundary != null) {
+            editBoundary.historyPrefix
+        } else {
+            AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(
+                homeState.history,
+                homeState.messages,
+            )
+        }
         if (!generateImage && !generateVideo && rejectSendIfContextWindowExceeded(history, prompt, pendingImages, pendingFileReferences)) {
             return
         }
@@ -2726,26 +2733,37 @@ internal class AgentAppState(
             runCompressedDuringRun.remove(runId)
         }
         if (conversationId == null) {
+            val frozen = freezeStreamingMessages(homeState.messages)
             homeState = homeState.copy(
                 isStreaming = false,
                 isPaused = false,
                 isCompressingContext = shouldKeepCompressingIndicator(null),
-                messages = freezeStreamingMessages(homeState.messages),
+                messages = frozen,
+                history = AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(
+                    homeState.history,
+                    frozen,
+                ),
             )
         } else {
             val state = conversationsById[conversationId]
             if (state != null) {
+                val frozen = freezeStreamingMessages(state.messages)
                 updateConversation(
                     conversationId,
                     state.copy(
                         isStreaming = false,
                         isPaused = false,
                         isCompressingContext = shouldKeepCompressingIndicator(conversationId),
-                        messages = freezeStreamingMessages(state.messages),
+                        messages = frozen,
+                        history = AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(
+                            state.history,
+                            frozen,
+                        ),
                     ),
                 )
             }
         }
+        persistConversations()
         if (startPendingCompress && pendingManualCompress != null) {
             conversationId?.let(::onConversationRunSettled)
                 ?: startPendingManualCompress()
@@ -4466,7 +4484,7 @@ internal class AgentAppState(
             runId = runId,
             prompt = prompt,
             images = emptyList(),
-            history = historyWithTrailingPartial(state.history, partial),
+            history = AgentConversationRevisionReducer.historyWithTrailingPartial(state.history, partial),
             userHistoryMessage = AgentModelClient.ConversationMessage(
                 role = "user",
                 content = prompt,
@@ -4477,23 +4495,6 @@ internal class AgentAppState(
             skipAutoCompress = true,
         )
     }
-
-    private fun historyWithTrailingPartial(
-        history: List<AgentModelClient.ConversationMessage>,
-        partial: AgentMessageUi,
-    ): List<AgentModelClient.ConversationMessage> {
-        val partialMessage = AgentModelClient.ConversationMessage(
-            role = "assistant",
-            content = partial.content,
-        )
-        val last = history.lastOrNull()
-        return if (last?.role == "assistant") {
-            if (last.content == partial.content) history else history.dropLast(1) + partialMessage
-        } else {
-            history + partialMessage
-        }
-    }
-
 
     private fun freezeStreamingMessages(
         messages: List<AgentChatMessageUi>,

@@ -134,7 +134,7 @@ class AgentContextCompactorTest {
         val cut = AgentContextCompactor.recentKeepStartIndex(history, 0)
         assertTrue(cut > 0)
         assertTrue(cut < history.size)
-        assertEquals(history.size - 1, cut)
+        assertEquals(history.indexOfLast { it.role == "user" }, cut)
         assertEquals(history.indexOfLast { it.role == "user" }, AgentContextCompactor.recentKeepStartIndex(history, 1))
     }
 

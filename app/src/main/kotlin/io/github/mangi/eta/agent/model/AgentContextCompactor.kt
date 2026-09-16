@@ -137,12 +137,12 @@ internal object AgentContextCompactor {
         val messagesToKeep = working.subList(keepStart, working.size).toList()
 
         val chunks = splitMessages(messagesToCompress, config, replay)
-        AndroidAgentLogger.info("开始摘要：${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条")
+        runCatching { AndroidAgentLogger.info("开始摘要：${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条") }
         val perChunk = config.copy(targetTokens = (config.targetTokens / chunks.size).coerceAtLeast(128))
         var offset = 0
         val summaries = chunks.mapIndexed { index, chunk ->
             controller.throwIfCancelled()
-            AndroidAgentLogger.info("摘要第 ${index + 1}/${chunks.size} 块（${chunk.size} 条）")
+            runCatching { AndroidAgentLogger.info("摘要第 ${index + 1}/${chunks.size} 块（${chunk.size} 条）") }
             val chunkReplay = replay?.copy(historyMessages = org.json.JSONArray().also { array ->
                 for (i in offset until offset + chunk.size) array.put(replay.historyMessages.getJSONObject(i))
             })
@@ -241,7 +241,7 @@ internal object AgentContextCompactor {
             message.copy(content = shorter)
         }
         if (changed) {
-            AndroidAgentLogger.info("压缩前已修剪超大工具输出")
+            runCatching { AndroidAgentLogger.info("压缩前已修剪超大工具输出") }
         }
         return if (changed) next else history
     }

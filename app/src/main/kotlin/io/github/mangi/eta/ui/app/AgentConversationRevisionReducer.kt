@@ -12,6 +12,7 @@ import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
+import io.github.mangi.eta.ui.model.isSteerSupplement
 
 /** 以用户轮次为边界同步裁剪展示消息与模型上下文。 */
 internal object AgentConversationRevisionReducer {

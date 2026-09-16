@@ -1,8 +1,8 @@
 package io.github.mangi.eta.agent.model.oauth
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
+import io.github.mangi.eta.ui.OAuthLoginActivity
 import io.github.mangi.eta.data.model.CustomHeader
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelSource
@@ -15,15 +15,12 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CompletableDeferred
+import okhttp3.FormBody
 
 internal object OpenAiCodexOAuth {
     const val CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
@@ -35,10 +32,8 @@ internal object OpenAiCodexOAuth {
     private const val CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
     private const val CALLBACK_PORT = 1455
     private const val REDIRECT_PATH = "/auth/callback"
-    private const val SCOPES = "openid profile email offline_access"
+    private const val SCOPES = "openid profile email offline_access api.connectors.read api.connectors.invoke"
     private const val REDIRECT_URI = "http://localhost:$CALLBACK_PORT$REDIRECT_PATH"
-    private val JSON = "application/json".toMediaType()
-
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -149,35 +144,38 @@ internal object OpenAiCodexOAuth {
             "state=$state",
             "code_challenge=$challenge",
             "code_challenge_method=S256",
-            "codex_cli_simplified_flow=true",
             "originator=codex_cli_rs",
             "id_token_add_organizations=true",
         ).joinToString("&")
 
-    private suspend fun waitForCallback(context: Context, authUrl: String): Pair<String, String?> =
-        suspendCancellableCoroutine { cont ->
-            val server = OAuthCallbackServer(CALLBACK_PORT) { code, state ->
-                if (cont.isActive) cont.resume(code to state)
-            }
-            server.onExternalCancel = {
-                if (cont.isActive) cont.resumeWithException(IllegalStateException("已取消登录"))
-            }
-            server.start()
-            cont.invokeOnCancellation { server.stop() }
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
+    private suspend fun waitForCallback(context: Context, authUrl: String): Pair<String, String?> {
+        val result = CompletableDeferred<Pair<String, String?>>()
+        val server = OAuthCallbackServer(CALLBACK_PORT) { code, state ->
+            result.complete(code to state)
         }
+        server.onFailure = { error ->
+            if (result.isActive) result.completeExceptionally(error)
+        }
+        runCatching { server.start() }
+        withContext(Dispatchers.Main.immediate) {
+            OAuthLoginActivity.start(context, authUrl, result)
+        }
+        try {
+            return result.await()
+        } finally {
+            server.stop()
+            OAuthLoginActivity.finishIfOpen()
+        }
+    }
 
     private fun exchangeCode(store: ProviderOAuthStore, providerId: String, code: String): String {
-        val body = JSONObject().apply {
-            put("grant_type", "authorization_code")
-            put("client_id", CLIENT_ID)
-            put("code", code)
-            put("redirect_uri", REDIRECT_URI)
-            put("code_verifier", store.loadString(providerId, "verifier").orEmpty())
-        }
+        val body = FormBody.Builder()
+            .add("grant_type", "authorization_code")
+            .add("client_id", CLIENT_ID)
+            .add("code", code)
+            .add("redirect_uri", REDIRECT_URI)
+            .add("code_verifier", store.loadString(providerId, "verifier").orEmpty())
+            .build()
         val json = postToken(body)
         persistTokens(store, providerId, json)
         val access = json.optString("access_token")
@@ -187,11 +185,11 @@ internal object OpenAiCodexOAuth {
 
     private fun refresh(store: ProviderOAuthStore, providerId: String, stored: JSONObject): String? {
         val refreshToken = stored.optString("refresh_token").ifBlank { return null }
-        val body = JSONObject().apply {
-            put("grant_type", "refresh_token")
-            put("refresh_token", refreshToken)
-            put("client_id", CLIENT_ID)
-        }
+        val body = FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", refreshToken)
+            .add("client_id", CLIENT_ID)
+            .build()
         val json = runCatching { postToken(body) }.getOrNull() ?: return null
         if (!json.has("refresh_token")) json.put("refresh_token", refreshToken)
         persistTokens(store, providerId, json)
@@ -210,13 +208,14 @@ internal object OpenAiCodexOAuth {
         }
     }
 
-    private fun postToken(body: JSONObject): JSONObject {
+    private fun postToken(body: FormBody): JSONObject {
         var lastError: Exception? = null
         repeat(3) { attempt ->
             try {
                 val request = Request.Builder()
                     .url(TOKEN_URL)
-                    .post(body.toString().toRequestBody(JSON))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .post(body)
                     .build()
                 httpClient.newCall(request).execute().use { response ->
                     val text = response.body?.string().orEmpty()

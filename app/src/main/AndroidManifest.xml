@@ -122,6 +122,14 @@
         </activity>
 
         <activity
+            android:name=".ui.OAuthLoginActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:label="@string/provider_oauth_login_title"
+            android:theme="@style/Theme.Eta"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".agent.voice.EtaVoiceAssistActivity"
             android:excludeFromRecents="true"
             android:exported="true"

@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.model.oauth
 
+import android.net.Uri
 import io.github.mangi.eta.data.model.ProviderAuthMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -44,5 +45,25 @@ class OpenAiCodexOAuthTest {
         assertTrue(ids.contains("gpt-5.6-sol"))
         assertTrue(ids.contains("gpt-5.4-mini"))
         assertTrue(OpenAiCodexOAuth.defaultModels().all { it.toolCall == true && it.reasoning == true })
+    }
+
+    @Test
+    fun callbackParsesAuthorizationCode() {
+        val uri = Uri.parse("http://localhost:1455/auth/callback?code=abc&state=xyz")
+        assertTrue(OAuthCallback.isRedirect(uri))
+        val (code, state) = OAuthCallback.parse(uri)
+        assertEquals("abc", code)
+        assertEquals("xyz", state)
+    }
+
+    @Test
+    fun callbackIgnoresUnrelatedLocalhost() {
+        assertFalse(OAuthCallback.isRedirect(Uri.parse("http://localhost:1455/")))
+        assertFalse(OAuthCallback.isRedirect(Uri.parse("https://auth.openai.com/oauth/authorize")))
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun callbackSurfacesOauthError() {
+        OAuthCallback.parse(Uri.parse("http://localhost:1455/auth/callback?error=access_denied"))
     }
 }

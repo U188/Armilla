@@ -1409,7 +1409,9 @@
     <string name="provider_auth_method_note">OAuth 通过服务商网页登录；API Key 使用账户面板里的密钥。</string>
     <string name="provider_oauth_sign_in">使用 OpenAI 登录</string>
     <string name="provider_oauth_signed_in">已用 OpenAI Codex 登录</string>
-    <string name="provider_oauth_sign_in_note">会打开 ChatGPT 登录页，完成后回到这里。</string>
+    <string name="provider_oauth_sign_in_note">在应用内打开 ChatGPT 登录页，选好账户后会自动回来。</string>
+    <string name="provider_oauth_login_title">登录 OpenAI</string>
+    <string name="provider_oauth_cancelled">已取消登录</string>
     <string name="provider_oauth_signed_in_note">令牌保存在本机。请求失败时再登录一次即可。</string>
     <string name="provider_oauth_sign_in_ok">登录成功</string>
     <string name="provider_oauth_sign_in_failed">登录失败</string>

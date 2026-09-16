@@ -1409,7 +1409,9 @@
     <string name="provider_auth_method_note">OAuth 透過服務商網頁登入；API Key 使用帳戶面板中的金鑰。</string>
     <string name="provider_oauth_sign_in">使用 OpenAI 登入</string>
     <string name="provider_oauth_signed_in">已用 OpenAI Codex 登入</string>
-    <string name="provider_oauth_sign_in_note">會開啟 ChatGPT 登入頁，完成後回到這裡。</string>
+    <string name="provider_oauth_sign_in_note">在應用內開啟 ChatGPT 登入頁，選好帳戶後會自動回來。</string>
+    <string name="provider_oauth_login_title">登入 OpenAI</string>
+    <string name="provider_oauth_cancelled">已取消登入</string>
     <string name="provider_oauth_signed_in_note">權杖保存在本機。請求失敗時再登入一次即可。</string>
     <string name="provider_oauth_sign_in_ok">登入成功</string>
     <string name="provider_oauth_sign_in_failed">登入失敗</string>

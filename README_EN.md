@@ -143,6 +143,7 @@ These implementation notes are currently in Chinese:
 
 - QQ group: [735910197](https://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=QZmmrmSQqSAyI8Mo5NHAMc9l6TejcBrw&authKey=mQrh5avqMDc09GunNdtCmuN5tk9UynOekkjHxfuKPjhN4ELWBMJN5edaYw51UXbQ&noverify=0&group_code=735910197)
 - Telegram: [channel](https://t.me/+6JhB2iRjjDExYWM1)
+- Feedback: [GitHub Issues](https://github.com/y2485871697/Eta/issues)
 - Source and releases: [y2485871697/Eta](https://github.com/y2485871697/Eta)
 
 ## License

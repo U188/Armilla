@@ -187,6 +187,7 @@ Eta 先从现有 Android 上的模型、上下文与工具做起。真正落地�
 
 - QQ 群：[735910197](https://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=QZmmrmSQqSAyI8Mo5NHAMc9l6TejcBrw&authKey=mQrh5avqMDc09GunNdtCmuN5tk9UynOekkjHxfuKPjhN4ELWBMJN5edaYw51UXbQ&noverify=0&group_code=735910197)
 - Telegram：[频道](https://t.me/+6JhB2iRjjDExYWM1)
+- 反馈问题：[GitHub Issues](https://github.com/y2485871697/Eta/issues)
 - 源码与发版：[y2485871697/Eta](https://github.com/y2485871697/Eta)
 
 ## 许可证

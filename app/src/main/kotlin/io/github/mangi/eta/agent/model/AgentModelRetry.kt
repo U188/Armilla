@@ -53,7 +53,7 @@ internal class AgentModelRetry(
                 // 还没吐出可见正文就被 steering/压缩打断：当作空助手回合，Loop 继续同一 run。
                 // 已有可见正文时必须由 Provider 带回部分内容，这里不能用空消息盖掉。
                 if (
-                    (controller.hasPendingSteering || controller.hasPendingCompact) &&
+                    (controller.hasPendingSteering || controller.hasPendingCompact || controller.hasPausedInterrupt) &&
                     !sawVisibleText &&
                     !hostedToolStarted &&
                     !sawCompleted

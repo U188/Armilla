@@ -26,6 +26,8 @@ internal class AgentRunController {
     private var acceptingSteering = true
     @Volatile
     private var paused = false
+    @Volatile
+    private var pausedInterrupt = false
     private var pendingCompact: CompactRequest? = null
     @Volatile var allowCurrentTurnCompaction: Boolean = false
         private set
@@ -112,10 +114,14 @@ internal class AgentRunController {
 
     /**
      * 只取消当前请求占用的资源（SSE），不把整个 run 标成 cancelled。
-     * 暂停中不打断：用户明确停住了生成，恢复后再处理排队的 steering。
+     * 暂停中的 steering 不再次打断：生成流已在 pause() 里拆掉。
      */
     private fun interruptCurrentRequest() {
-        resources.filter { it.interruptible }.forEach { resource ->
+        val interruptibles = resources.filter { it.interruptible }
+        if (paused && interruptibles.isNotEmpty()) {
+            pausedInterrupt = true
+        }
+        interruptibles.forEach { resource ->
             runCatching { resource.cancel() }
         }
     }
@@ -146,8 +152,21 @@ internal class AgentRunController {
      * 暂停执行：后续 [throwIfCancelled] 调用会阻塞挂起，直到 [resume] 或 [cancel]。
      * 在工作线程的检查点调用，不会阻塞调用方线程。
      */
+    val isPaused: Boolean
+        get() = paused
+
+    val hasPausedInterrupt: Boolean
+        get() = pausedInterrupt
+
+    fun consumePausedInterrupt(): Boolean = lock.withLock {
+        val value = pausedInterrupt
+        pausedInterrupt = false
+        value
+    }
+
     fun pause() {
         lock.withLock { paused = true }
+        interruptCurrentRequest()
     }
 
     /**

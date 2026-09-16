@@ -790,11 +790,15 @@ private fun AgentMessageBlock(
     val view = LocalView.current
     var copied by remember(message.id) { mutableStateOf(false) }
     val keepStreamingMarkdown = remember(message.id) { message.isStreaming }
+    val liveStreaming = message.isStreaming && !isPaused
     var streamingRevealComplete by remember(message.id) {
-        mutableStateOf(!keepStreamingMarkdown)
+        mutableStateOf(!keepStreamingMarkdown || isPaused)
     }
-    LaunchedEffect(message.isStreaming) {
-        if (message.isStreaming) streamingRevealComplete = false
+    LaunchedEffect(liveStreaming, isPaused) {
+        when {
+            isPaused -> streamingRevealComplete = true
+            liveStreaming -> streamingRevealComplete = false
+        }
     }
     // 渲染会话由列表层按 message.id 持有，item 滚出视口被销毁后滑回时复用同一
     // 会话；没有外部持有者时（如嵌套条目）退回组合内 remember，行为与之前一致。
@@ -825,16 +829,16 @@ private fun AgentMessageBlock(
         } else {
             HapticSelectionContainer {
                 when {
-                    streamingState != null && !streamingRevealComplete -> {
+                    streamingState != null && !streamingRevealComplete && !isPaused -> {
                         StreamingMarkdown(
                             state = streamingState,
                             content = message.content,
-                            isStreaming = message.isStreaming,
+                            isStreaming = liveStreaming,
                             onRevealCompleteChange = { streamingRevealComplete = it },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    message.renderMarkdown -> {
+                    keepStreamingMarkdown || message.renderMarkdown -> {
                         StableMarkdown(
                             content = message.content,
                             modifier = Modifier.fillMaxWidth(),
@@ -2272,7 +2276,7 @@ private fun ThinkingRow(
     var manuallyExpanded by rememberSaveable(message.id) { mutableStateOf(false) }
     // 思考结束后立即切换为与完成态回答相同的稳定 Markdown。工具执行期间 App 可能
     // 处于后台，不能让旧思考保留显现债务，回来后在新回答旁边补播整段内容。
-    val streamingState = if (message.isStreaming) {
+    val streamingState = if (message.isStreaming && !isPaused) {
         retainedStreamingState ?: remember(message.id) { StreamingMarkdownState() }
     } else {
         null
@@ -2286,7 +2290,7 @@ private fun ThinkingRow(
     // 后台解析，而不是等到首次点击展开。否则首帧只能测量 loading fallback 的纯文本高度，
     // 解析完成后正文高度会再次变化；状态挂在行级还能在收起/展开循环中存活，
     // 避免每次展开都重新走一遍异步解析。
-    val stableMarkdownState = if (!message.isStreaming) {
+    val stableMarkdownState = if (!message.isStreaming || isPaused) {
         rememberMarkdownState(
             content = message.content,
             retainState = true,
@@ -2400,7 +2404,7 @@ private fun ThinkingRow(
                         StreamingMarkdown(
                             state = streamingState,
                             content = message.content,
-                            isStreaming = message.isStreaming,
+                            isStreaming = message.isStreaming && !isPaused,
                             onRevealCompleteChange = {},
                             tone = ChatMarkdownTone.Thinking,
                             modifier = contentModifier,

@@ -172,11 +172,12 @@ internal class AgentLoop(
                 accumulatedReasoning.append(assistantReasoning)
             }
 
+            val pausedInterrupt = runController.consumePausedInterrupt()
             if (hasAssistantPayload) {
                 messages.put(
                     AgentConversationCodec.assistantHistoryMessage(
                         source = assistantMessage,
-                        toolCalls = toolCalls,
+                        toolCalls = if (pausedInterrupt) emptyList() else toolCalls,
                     ).put(AgentTurnIdentity.JSON_KEY, turnId)
                 )
                 onEvent(
@@ -184,10 +185,14 @@ internal class AgentLoop(
                         round = round,
                         contentChars = assistantMessage.optString("content").length,
                         reasoningContent = assistantReasoning,
-                        toolNames = toolCalls.map { it.name },
+                        toolNames = if (pausedInterrupt) emptyList() else toolCalls.map { it.name },
                     )
                 )
-            } else if (runController.hasPendingSteering || runController.hasPendingCompact) {
+                if (pausedInterrupt) {
+                    round += 1
+                    continue
+                }
+            } else if (runController.hasPendingSteering || runController.hasPendingCompact || pausedInterrupt) {
                 appendPendingSteeringMessage()
                 round += 1
                 continue

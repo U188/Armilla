@@ -68,13 +68,13 @@ internal object AgentSseClient {
                 type: String?,
                 data: String,
             ) {
-                if (completed.get() || runController.hasPendingSteering) {
+                if (completed.get() || runController.hasPendingSteering || runController.isPaused) {
                     stream.finish()
                     return
                 }
                 try {
                     runController.throwIfCancelled()
-                    if (runController.hasPendingSteering) {
+                    if (runController.hasPendingSteering || runController.isPaused) {
                         stream.finish()
                         return
                     }
@@ -103,7 +103,7 @@ internal object AgentSseClient {
                     when {
                         runController.isCancelled ->
                             failure.compareAndSet(null, AgentRunCancelledException())
-                        runController.hasPendingSteering -> Unit
+                        runController.hasPendingSteering || runController.isPaused || runController.hasPausedInterrupt -> Unit
                         response != null && !response.isSuccessful -> {
                             if (!opened.get()) {
                                 runCatching { emitOpen(response.code) }
@@ -162,7 +162,7 @@ internal object AgentSseClient {
             runController.throwIfCancelled()
             done.await()
             runController.throwIfCancelled()
-            if (!runController.hasPendingSteering) {
+            if (!runController.hasPendingSteering && !runController.hasPausedInterrupt) {
                 failure.get()?.let { throw it }
             }
         } finally {

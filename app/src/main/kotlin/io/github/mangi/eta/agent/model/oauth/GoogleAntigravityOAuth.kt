@@ -28,7 +28,7 @@ import org.json.JSONObject
 
 internal object GoogleAntigravityOAuth {
     const val DEFAULT_NAME = "反重力"
-    const val BASE_URL = "https://cloudcode-pa.googleapis.com"
+    const val BASE_URL = "https://daily-cloudcode-pa.googleapis.com"
     const val CLIENT_VERSION = "1.18.3"
     private const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -40,8 +40,8 @@ internal object GoogleAntigravityOAuth {
     private const val DEFAULT_PROJECT_ID = "rising-fact-p41fc"
     private val JSON = "application/json".toMediaType()
     private val endpoints = listOf(
-        "https://cloudcode-pa.googleapis.com",
         "https://daily-cloudcode-pa.googleapis.com",
+        "https://cloudcode-pa.googleapis.com",
         "https://daily-cloudcode-pa.sandbox.googleapis.com",
     )
     private val httpClient: OkHttpClient by lazy {
@@ -76,7 +76,16 @@ internal object GoogleAntigravityOAuth {
         token
     }
     fun projectId(context: Context, providerId: String): String? =
-        ProviderOAuthStore(context).loadString(providerId, "project_id")?.takeIf { it.isNotBlank() }
+        ProviderOAuthStore(context).loadString(providerId, "project_id")
+            ?.takeIf { it.isNotBlank() && it != DEFAULT_PROJECT_ID }
+
+    fun ensureProjectId(context: Context, providerId: String, accessToken: String): String? {
+        projectId(context, providerId)?.let { return it }
+        if (accessToken.isBlank()) return null
+        val store = ProviderOAuthStore(context)
+        discoverProjectId(store, providerId, accessToken)
+        return projectId(context, providerId)
+    }
     fun extraHeaders(): List<CustomHeader> = listOf(
         CustomHeader("User-Agent", "antigravity/" + CLIENT_VERSION + " darwin/arm64"),
         CustomHeader("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1"),
@@ -217,28 +226,84 @@ internal object GoogleAntigravityOAuth {
     }
     private fun discoverProjectId(store: ProviderOAuthStore, providerId: String, accessToken: String) {
         if (accessToken.isBlank()) return
-        val payload = JSONObject().put("metadata", JSONObject().put("ideType", "ANTIGRAVITY").put("platform", "ANDROID").put("pluginType", "GEMINI"))
+        val metadata = JSONObject().put("ideType", "ANTIGRAVITY")
         endpoints.forEach { endpoint ->
-            val project = runCatching { loadProject(endpoint, accessToken, payload) }.getOrNull()
+            val project = runCatching { provisionProject(endpoint, accessToken, metadata) }.getOrNull()
             if (!project.isNullOrBlank() && project != DEFAULT_PROJECT_ID) {
                 store.saveString(providerId, "project_id", project)
+                store.saveString(providerId, "api_host", endpoint)
                 return
             }
         }
     }
-    private fun loadProject(endpoint: String, token: String, payload: JSONObject): String? {
-        val request = Request.Builder().url(endpoint + "/v1internal:loadCodeAssist")
-            .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
-            .apply { extraHeaders().forEach { addHeader(it.name, it.value) } }
-            .post(payload.toString().toRequestBody(JSON)).build()
+
+    private fun provisionProject(endpoint: String, token: String, metadata: JSONObject): String? {
+        var loaded = loadCodeAssist(endpoint, token, JSONObject().put("metadata", metadata)) ?: return null
+        if (!loaded.has("currentTier") || loaded.isNull("currentTier")) {
+            onboardUser(endpoint, token, metadata)
+            loaded = loadCodeAssist(endpoint, token, JSONObject().put("metadata", metadata)) ?: loaded
+        }
+        extractProject(loaded)?.let { return it }
+        val known = extractProject(loaded)
+        if (!known.isNullOrBlank()) {
+            val refreshed = loadCodeAssist(
+                endpoint,
+                token,
+                JSONObject().put("cloudaicompanionProject", known).put("metadata", metadata),
+            )
+            extractProject(refreshed)?.let { return it }
+        }
+        return extractProject(loaded)
+    }
+
+    private fun onboardUser(endpoint: String, token: String, metadata: JSONObject) {
+        val body = JSONObject().put("tierId", "free-tier").put("metadata", metadata)
+        val request = cloudRequest(endpoint + "/v1internal:onboardUser", token, body)
+        val operation = httpClient.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (response.code !in 200..299) return
+            runCatching { JSONObject(text) }.getOrNull() ?: return
+        }
+        var current = operation
+        repeat(15) {
+            if (current.optBoolean("done")) return
+            val name = current.optString("name")
+            if (name.isBlank()) return
+            Thread.sleep(1000)
+            val poll = Request.Builder().url(endpoint + "/v1internal/" + name)
+                .header("Authorization", "Bearer " + token)
+                .apply { extraHeaders().forEach { addHeader(it.name, it.value) } }
+                .get().build()
+            current = httpClient.newCall(poll).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                if (response.code !in 200..299) return
+                runCatching { JSONObject(text) }.getOrNull() ?: return
+            }
+        }
+    }
+
+    private fun loadCodeAssist(endpoint: String, token: String, payload: JSONObject): JSONObject? {
+        val request = cloudRequest(endpoint + "/v1internal:loadCodeAssist", token, payload)
         httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (response.code !in 200..299) return null
-            val json = JSONObject(text)
-            json.optString("cloudaicompanionProject").takeIf { it.isNotBlank() }?.let { return it }
-            return json.optJSONObject("cloudaicompanionProject")?.optString("id")?.takeIf { it.isNotBlank() }
+            return runCatching { JSONObject(text) }.getOrNull()
         }
     }
+
+    private fun extractProject(json: JSONObject?): String? {
+        if (json == null) return null
+        json.optString("cloudaicompanionProject").takeIf { it.isNotBlank() }?.let { return it }
+        return json.optJSONObject("cloudaicompanionProject")?.optString("id")?.takeIf { it.isNotBlank() }
+            ?: json.optJSONObject("response")?.optString("cloudaicompanionProject")?.takeIf { it.isNotBlank() }
+    }
+
+    private fun cloudRequest(url: String, token: String, payload: JSONObject): Request =
+        Request.Builder().url(url)
+            .header("Authorization", "Bearer " + token)
+            .header("Content-Type", "application/json")
+            .apply { extraHeaders().forEach { addHeader(it.name, it.value) } }
+            .post(payload.toString().toRequestBody(JSON)).build()
     private fun postToken(body: FormBody): JSONObject {
         var lastError: Exception? = null
         repeat(3) { attempt ->

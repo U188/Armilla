@@ -25,7 +25,11 @@ internal object AntigravityProvider : AgentProviderClient {
 
     override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
         val config = request.config
-        val projectId = GoogleAntigravityOAuth.projectId(ProviderRepository.context(), config.providerId).orEmpty()
+        val projectId = GoogleAntigravityOAuth.ensureProjectId(
+            ProviderRepository.context(),
+            config.providerId,
+            config.apiKey,
+        ).orEmpty()
         val body = AntigravityRequestBuilder.build(config, request.messages, request.tools, projectId)
             .toString().toRequestBody(JSON_MEDIA_TYPE)
         val headers = okhttp3.Headers.Builder()

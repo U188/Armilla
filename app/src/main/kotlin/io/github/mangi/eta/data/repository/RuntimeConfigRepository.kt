@@ -185,7 +185,9 @@ internal object RuntimeConfigRepository {
     private suspend fun resolveOAuth(provider: ProviderSetting): ProviderSetting {
         val context = ProviderRepository.context()
         return if (GoogleAntigravityOAuth.usesBackend(provider)) {
-            GoogleAntigravityOAuth.withResolvedAuth(context, provider)
+            val resolved = GoogleAntigravityOAuth.withResolvedAuth(context, provider)
+            GoogleAntigravityOAuth.ensureProjectId(context, resolved.id, resolved.apiKey)
+            resolved
         } else {
             OpenAiCodexOAuth.withResolvedAuth(context, provider)
         }

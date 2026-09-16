@@ -43,7 +43,6 @@ internal object AgentRuntimePolicy {
 
     fun withoutOptionalThinking(config: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
         if (config.reasoningCapabilities?.mandatory == true) return config
-        if (!config.effectiveReasoningEffort.enablesReasoning) return config
         return constrain(
             config,
             Permissions(

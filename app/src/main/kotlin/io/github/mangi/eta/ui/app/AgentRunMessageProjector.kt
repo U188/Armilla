@@ -302,7 +302,8 @@ internal class AgentRunMessageProjector(
         return messages.map { message ->
             if (message is AgentMessageUi && message.id == assistantId) {
                 message.copy(
-                    content = replacementContent?.trimEnd() ?: message.content.trimEnd(),
+                    // A block may resume after a pause; preserve the exact join boundary.
+                    content = replacementContent ?: message.content,
                     isStreaming = false,
                     renderMarkdown = true,
                 )

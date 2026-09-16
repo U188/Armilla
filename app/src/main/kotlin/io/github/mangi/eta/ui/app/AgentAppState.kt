@@ -1947,6 +1947,7 @@ internal class AgentAppState(
         state: AgentChatHomeUiState,
         reasoningEffort: ReasoningEffort,
         skipAutoCompress: Boolean = false,
+        logicalTurnId: String = runId,
     ) {
         val runProvider = selectionProviders.firstOrNull { it.id == state.providerId && it.isEnabled }
         val runModel = runProvider?.models?.firstOrNull { it.id == state.modelId && it.isEnabled }
@@ -1959,7 +1960,7 @@ internal class AgentAppState(
         val runModelOption = AgentModelPickerProjector.project(listOf(runProvider), runProvider.id, runModel.id).selectedModel
         val runOverhead = requestOverheadTokens
         val runBilledOverhead = billedOverheadTokens
-        val taggedUserHistoryMessage = userHistoryMessage.copy(turnId = runId)
+        val taggedUserHistoryMessage = userHistoryMessage.copy(turnId = logicalTurnId)
         runConversationIds[runId] = conversationId
         runOverheadTokens[runId] = requestOverheadTokens
         val generateVideo = runModel.supportsVideoGeneration
@@ -2117,6 +2118,7 @@ internal class AgentAppState(
                 AgentRuntimeClient(appContext, AndroidAgentLogger).run(
                     request = AgentRuntimeWire.RunRequest(
                         runId = runId,
+                        turnId = logicalTurnId,
                         assistantId = runAssistant.id,
                         prompt = prompt,
                         config = config,
@@ -2920,14 +2922,16 @@ internal class AgentAppState(
         val assistant = state.messages.lastOrNull { message ->
             message is AgentMessageUi && message.content.isNotBlank()
         } as? AgentMessageUi ?: return
-        val last = state.history.lastOrNull()
+        val taggedHistory = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(state.history)
+        val last = taggedHistory.lastOrNull()
         if (last?.role == "assistant" && last.content == assistant.content) return
         updateConversation(
             conversationId,
             state.copy(
-                history = state.history + AgentModelClient.ConversationMessage(
+                history = taggedHistory + AgentModelClient.ConversationMessage(
                     role = "assistant",
                     content = assistant.content,
+                    turnId = taggedHistory.lastOrNull { it.turnId.isNotBlank() }?.turnId ?: runId,
                 ),
             ),
         )
@@ -4523,6 +4527,8 @@ internal class AgentAppState(
         val partial = state.messages.lastOrNull { message ->
             message is AgentMessageUi && message.content.isNotBlank()
         } as? AgentMessageUi ?: return
+        val continuedHistory = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(
+            AgentConversationRevisionReducer.historyWithTrailingPartial(state.history, partial))
         val prompt = RESUME_AFTER_COMPRESS_PROMPT
         val runId = "run-${UUID.randomUUID()}"
         val userMessage = UserMessageUi(
@@ -4534,7 +4540,7 @@ internal class AgentAppState(
             runId = runId,
             prompt = prompt,
             images = emptyList(),
-            history = AgentConversationRevisionReducer.historyWithTrailingPartial(state.history, partial),
+            history = continuedHistory,
             userHistoryMessage = AgentModelClient.ConversationMessage(
                 role = "user",
                 content = prompt,
@@ -4543,6 +4549,7 @@ internal class AgentAppState(
             state = state,
             reasoningEffort = state.reasoningEffort,
             skipAutoCompress = true,
+            logicalTurnId = continuedHistory.lastOrNull { it.turnId.isNotBlank() }?.turnId ?: runId,
         )
     }
 

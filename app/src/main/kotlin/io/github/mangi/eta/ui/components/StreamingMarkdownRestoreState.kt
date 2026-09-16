@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.components
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 
@@ -8,16 +9,21 @@ import androidx.compose.runtime.setValue
 internal class StreamingMarkdownRestoreState {
     var generation by mutableIntStateOf(0)
         private set
-    private var baseline: String? = null
+    private var baseline by mutableStateOf<String?>(null)
+    private var foreground by mutableStateOf(false)
+
+    fun animationsAllowed(paused: Boolean): Boolean = foreground && baseline == null && !paused
 
     fun begin(content: String) {
         generation += 1
         baseline = content
+        foreground = true
     }
 
     fun pause() {
         generation += 1
         baseline = null
+        foreground = false
     }
 
     fun completeLayout(generation: Int, renderedContent: String, currentContent: String): Boolean {

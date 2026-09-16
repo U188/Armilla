@@ -5,6 +5,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StreamingMarkdownRestoreStateTest {
+    @Test fun userResumeCannotOpenGateBeforeRestoredLayout() {
+        val state = StreamingMarkdownRestoreState()
+        assertFalse(state.animationsAllowed(false))
+        state.begin("already visible")
+        assertFalse(state.animationsAllowed(false))
+        assertFalse(state.animationsAllowed(true))
+        assertTrue(state.completeLayout(state.generation, "already visible", "already visible"))
+        assertFalse(state.animationsAllowed(true))
+        assertTrue(state.animationsAllowed(false))
+    }
+
+    @Test fun repeatedPauseResumeKeepsProgressButCannotAnimateWhileBackgrounded() {
+        val state = StreamingMarkdownRestoreState()
+        state.begin("prefix")
+        state.completeLayout(state.generation, "prefix", "prefix")
+        repeat(4) {
+            assertFalse(state.animationsAllowed(true))
+            assertTrue(state.animationsAllowed(false))
+        }
+        state.pause()
+        assertFalse(state.animationsAllowed(false))
+        state.begin("prefix plus background output")
+        assertFalse(state.animationsAllowed(false))
+        assertFalse(state.completeLayout(state.generation, "prefix", "prefix plus background output"))
+        assertTrue(state.completeLayout(state.generation, "prefix plus background output", "prefix plus background output"))
+        assertTrue(state.animationsAllowed(false))
+    }
+
     @Test
     fun restoredContentWaitsForMatchingLayoutRegardlessOfEarlierLayoutCount() {
         val state = StreamingMarkdownRestoreState()

@@ -15,6 +15,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentConversationRevisionReducerTest {
+    @Test fun stoppingDoesNotReplaceEarlierDistinctAssistantOrToolCall() {
+        val original = AgentModelClient.ConversationMessage("assistant", "earlier answer", turnId = "turn")
+        val partial = AgentMessageUi(id = "assistant-run-1-0", content = "new partial")
+        val history = listOf(AgentModelClient.ConversationMessage("user", "task", turnId = "turn"), original)
+        val updated = AgentConversationRevisionReducer.historyWithTrailingPartial(history, partial)
+        assertEquals(listOf("task", "earlier answer", "new partial"), updated.map { it.content })
+        val tool = original.copy(toolCallsJson = "[{\"id\":\"call\"}]")
+        val withTool = AgentConversationRevisionReducer.historyWithTrailingPartial(listOf(history.first(), tool),
+            partial.copy(content = "earlier answer continued"))
+        assertEquals(tool, withTool[1])
+        assertEquals(3, withTool.size)
+    }
+
+    @Test fun stoppedPartialRetainsOriginalUserTurnAcrossSupplements() {
+        val turn = "same-user-turn"
+        val history = listOf(
+            AgentModelClient.ConversationMessage("user", "task", turnId = turn),
+            AgentModelClient.ConversationMessage("user", "用户补充指令：more", turnId = turn),
+        )
+        val updated = AgentConversationRevisionReducer.historyWithTrailingPartial(history,
+            AgentMessageUi(id = "assistant-run-1-0", content = "partial"))
+        assertEquals(listOf(turn, turn, turn), updated.map { it.turnId })
+        assertEquals(0, io.github.mangi.eta.agent.model.AgentContextCompactor.recentKeepStartIndex(updated, 1))
+    }
+
     @Test
     fun boundaryMapsAssistantToItsUserTurnAndKeepsToolTranscriptPrefix() {
         val state = conversationState()

@@ -790,9 +790,8 @@ private fun AgentMessageBlock(
     val clipboardManager = LocalClipboardManager.current
     val view = LocalView.current
     var copied by remember(message.id) { mutableStateOf(false) }
-    val keepStreamingMarkdown = remember(message.id) { message.isStreaming }
+    val keepStreamingMarkdown = message.isStreaming || retainedStreamingState != null
     val displayContent = remember(message.content) { NumericCitationMarkup.strip(message.content) }
-    val liveStreaming = message.isStreaming && !isPaused
     var streamingRevealComplete by remember(message.id) {
         mutableStateOf(!keepStreamingMarkdown)
     }
@@ -805,14 +804,6 @@ private fun AgentMessageBlock(
         retainedStreamingState ?: remember(message.id) { StreamingMarkdownState() }
     } else {
         null
-    }
-    LaunchedEffect(isPaused, streamingState) {
-        val coordinator = streamingState?.revealCoordinator ?: return@LaunchedEffect
-        if (isPaused) {
-            coordinator.pauseAnimationsAndCatchUp()
-        } else {
-            coordinator.resumeAnimationsWithoutCatchingUp()
-        }
     }
     LaunchedEffect(retainedStreamingState, streamingRevealComplete, message.content) {
         retainedStreamingState?.revealedContent = message.content.takeIf { streamingRevealComplete }
@@ -836,11 +827,12 @@ private fun AgentMessageBlock(
         } else {
             HapticSelectionContainer {
                 when {
-                    streamingState != null && !streamingRevealComplete -> {
+                    streamingState != null && (message.isStreaming || isPaused || !streamingRevealComplete) -> {
                         StreamingMarkdown(
                             state = streamingState,
                             content = displayContent,
-                            isStreaming = liveStreaming,
+                            isStreaming = message.isStreaming,
+                            isPaused = isPaused,
                             onRevealCompleteChange = { streamingRevealComplete = it },
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -1029,6 +1021,7 @@ private fun StreamingMarkdown(
     state: StreamingMarkdownState,
     content: String,
     isStreaming: Boolean,
+    isPaused: Boolean = false,
     onRevealCompleteChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     tone: ChatMarkdownTone = ChatMarkdownTone.Answer,
@@ -1046,7 +1039,10 @@ private fun StreamingMarkdown(
     val currentRevealCompleteCallback by rememberUpdatedState(onRevealCompleteChange)
     val snapshot = state.snapshot
     val currentContent by rememberUpdatedState(content)
-    val currentIsStreaming by rememberUpdatedState(isStreaming)
+    // Pausing is not a terminal parser target. Lifecycle restore and user pause
+    // share a single animation gate; parent effects must not resume before layout.
+    val currentIsStreaming by rememberUpdatedState(isStreaming || isPaused)
+    val currentPaused by rememberUpdatedState(isPaused)
     val restoreGeneration = state.restoreState.generation
     val view = LocalView.current
 
@@ -1059,6 +1055,12 @@ private fun StreamingMarkdown(
         }
     }
 
+    val animationsAllowed = state.restoreState.animationsAllowed(isPaused)
+    LaunchedEffect(revealCoordinator, animationsAllowed) {
+        if (animationsAllowed) revealCoordinator.resumeAnimationsWithoutCatchingUp()
+        else revealCoordinator.pauseAnimationsAndCatchUp()
+    }
+
     LaunchedEffect(revealCoordinator, view) {
         revealCoordinator.setOnRevealAdvanced { TouchHaptics.generationTick(view) }
         try {
@@ -1068,7 +1070,7 @@ private fun StreamingMarkdown(
         }
     }
 
-    LaunchedEffect(content, isStreaming) {
+    LaunchedEffect(content, isStreaming, isPaused) {
         val previousContent = acceptedContent[0]
         if (!content.startsWith(previousContent)) {
             // 会话恢复或上游纠正内容时，让解析会话重新建立文档基线。
@@ -1078,10 +1080,10 @@ private fun StreamingMarkdown(
         parseTargets.trySend(
             StreamingMarkdownTarget(
                 content = content,
-                isStreaming = isStreaming,
+                isStreaming = isStreaming || isPaused,
             )
         )
-        if (isStreaming) {
+        if (isStreaming || isPaused) {
             currentRevealCompleteCallback(false)
         }
     }
@@ -1112,11 +1114,11 @@ private fun StreamingMarkdown(
         }
     }
 
-    LaunchedEffect(content, isStreaming, snapshot?.originalSource, snapshot?.isComplete, revealCoordinator) {
+    LaunchedEffect(content, isStreaming, isPaused, snapshot?.originalSource, snapshot?.isComplete, revealCoordinator) {
         val currentSnapshot = snapshot
         if (!isStreamingMarkdownTargetComplete(
                 content = content,
-                isStreaming = isStreaming,
+                isStreaming = isStreaming || isPaused,
                 snapshotContent = currentSnapshot?.originalSource,
                 snapshotComplete = currentSnapshot?.isComplete == true,
             )
@@ -1158,7 +1160,9 @@ private fun StreamingMarkdown(
                         currentContent = currentContent,
                     )
                 ) {
-                    revealCoordinator.resumeAnimationsAfterCatchUp()
+                    if (state.restoreState.animationsAllowed(currentPaused)) {
+                        revealCoordinator.resumeAnimationsAfterCatchUp()
+                    }
                 }
             },
             success = { state, successComponents, successModifier ->
@@ -2412,7 +2416,8 @@ private fun ThinkingRow(
                         StreamingMarkdown(
                             state = streamingState,
                             content = message.content,
-                            isStreaming = message.isStreaming && !isPaused,
+                            isStreaming = message.isStreaming,
+                            isPaused = isPaused,
                             onRevealCompleteChange = {},
                             tone = ChatMarkdownTone.Thinking,
                             modifier = contentModifier,

@@ -172,7 +172,9 @@ internal object AgentRuntimeWire {
         val historyAlreadyCompacted: Boolean = false,
         val modelSessionId: String = "",
         val assistantId: String = config.assistantId,
+        val turnId: String = "",
     ) {
+        val effectiveTurnId: String get() = turnId.ifBlank { runId }
         // 旧入口沿用会话 handoff；无持久会话的入口以首个 run 为会话起点。
         val effectiveModelSessionId: String
             get() = modelSessionId.ifBlank {
@@ -279,6 +281,7 @@ internal object AgentRuntimeWire {
         historyDescriptor: ParcelFileDescriptor,
     ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, request.runId)
+        putString("logical_turn_id", request.turnId)
         putString("assistant_id", request.assistantId)
         putString(KEY_PROMPT, request.prompt)
         putString(KEY_MODEL_SESSION_ID, request.modelSessionId)
@@ -383,6 +386,7 @@ internal object AgentRuntimeWire {
         images: List<AgentModelClient.ModelImage>,
     ): RunRequest = RunRequest(
             runId = bundle.getString(KEY_RUN_ID).orEmpty(),
+            turnId = bundle.getString("logical_turn_id").orEmpty(),
             assistantId = bundle.getString("assistant_id").orEmpty(),
             prompt = bundle.getString(KEY_PROMPT).orEmpty(),
             modelSessionId = bundle.getString(KEY_MODEL_SESSION_ID).orEmpty(),

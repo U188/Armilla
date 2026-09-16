@@ -3,7 +3,7 @@ package io.github.mangi.eta.agent.runtime
 import io.github.mangi.eta.agent.model.AgentModelClient
 import java.util.UUID
 
-/** 用完整增量 transcript 构造已完成 run 的后续用户回合。 */
+/** 补充指令接续原用户轮次；执行 run 可以更换，压缩保护的 turnId 不变。 */
 internal object AgentContinuationBuilder {
     fun build(
         request: AgentRuntimeWire.RunRequest,
@@ -15,8 +15,11 @@ internal object AgentContinuationBuilder {
         imagesJson: String = "[]",
     ): AgentRuntimeWire.RunRequest {
         val baseHistory = request.history +
-            AgentModelClient.buildUserHistoryMessage(request.prompt, request.images) +
-            response.transcript
+            AgentModelClient.buildUserHistoryMessage(request.prompt, request.images).copy(turnId = request.effectiveTurnId) +
+            response.transcript.map { message ->
+                if (message.turnId.isBlank() && !io.github.mangi.eta.agent.model.AgentContextCompactor.isCompressionSummary(message))
+                    message.copy(turnId = request.effectiveTurnId) else message
+            }
         val handoff = request.handoff?.let { original ->
             if (original.source != AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE) {
                 return@let original.copy(id = newRunId)
@@ -39,6 +42,7 @@ internal object AgentContinuationBuilder {
         }
         return request.copy(
             runId = newRunId,
+            turnId = request.effectiveTurnId,
             modelSessionId = request.effectiveModelSessionId,
             prompt = supplement,
             images = continuationImages(supplement, imagesJson, request.config.supportsVision, request.config.supportsVideo),

@@ -15,6 +15,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunMessageProjectorTest {
+    @Test fun pausedBlockRetainsWhitespaceUntilTerminalFinalization() {
+        val projector = AgentRunMessageProjector { 1_000L }
+        var messages = projector.appendTextDelta("resume", 1, 0, "first \n", emptyList())
+        messages = projector.finalizeTextBlock("resume", 1, 0, null, messages)
+        assertEquals("first \n", (messages.single() as AgentMessageUi).content)
+        messages = projector.appendTextDelta("resume", 1, 0, "second", messages)
+        assertEquals("first \nsecond", (messages.single() as AgentMessageUi).content)
+        assertTrue((messages.single() as AgentMessageUi).isStreaming)
+    }
+
     @Test
     fun retryKeepsFailedAttemptSeparateAndReplayClearsItsNotice() {
         val projector = AgentRunMessageProjector { 1_000L }

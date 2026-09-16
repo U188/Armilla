@@ -10,8 +10,9 @@ import org.json.JSONObject
 /**
  * 单次 Agent run 的纯编排循环。
  *
- * 一次 assistant 响应及其完整工具批次构成一个 turn。
- * 流式正文中途的 steering 会打断当前模型请求、保留已写出的内容，再注入补充指令开下一轮；
+ * 一次 assistant 响应及其完整工具批次构成一个请求 round，不等于压缩的用户逻辑 turn。
+ * 暂停、追加、终止保留同一 turnId；请求计数和 UI 文本块标识不参与划分用户轮次。
+ * 流式正文中途的 steering 会打断当前模型请求、保留已写出的内容，再注入补充指令发起后续请求；
  * 工具批次仍跑完，不取消正在执行的工具。循环不设置本地轮次上限，由模型自然结束、取消或错误终止。
  */
 internal class AgentLoop(
@@ -72,6 +73,9 @@ internal class AgentLoop(
     private var lastUsage: AgentTokenUsage? = null
     private var lastUsageMessageCount: Int = 0
     private var suppressThinkingForNextRequest = false
+    private val continuationBlocks = AgentContinuationBlocks()
+    private val interruptedTextPrefix = StringBuilder()
+    private var continuingInterruptedRequest = false
     private var activeTurnStart = (messages.length() - systemCount - 1).coerceAtLeast(0)
     private var compactionFailure = ""
     private var currentRoundTools = tools
@@ -91,6 +95,9 @@ internal class AgentLoop(
     fun run(): Result {
         // Only annotate messages created by this run. The current user entry is initially last.
         messages.optJSONObject(messages.length() - 1)?.put(AgentTurnIdentity.JSON_KEY, turnId)
+        activeTurnStart = (systemCount until messages.length()).firstOrNull {
+            messages.optJSONObject(it)?.optString(AgentTurnIdentity.JSON_KEY) == turnId
+        }?.minus(systemCount) ?: activeTurnStart
         var round = 1
 
         while (true) {
@@ -122,6 +129,8 @@ internal class AgentLoop(
             val roundTools = currentRoundTools
             toolCallValidator = AgentToolCallValidator(roundTools)
             val reasoningLengthBeforeRound = accumulatedReasoning.length
+            continuationBlocks.beginRequest(continuingInterruptedRequest)
+            continuingInterruptedRequest = false
             val completedRound = try {
                 modelRetry.complete(
                     initialRound = round,
@@ -141,7 +150,7 @@ internal class AgentLoop(
                         ) {
                             accumulatedReasoning.append(providerEvent.delta)
                         }
-                        providerEvent.toAgentEvent(attemptRound)?.let(onEvent)
+                        continuationBlocks.map(attemptRound, providerEvent).toAgentEvent(attemptRound)?.let(onEvent)
                     },
                     discardAttemptReasoning = { accumulatedReasoning.setLength(reasoningLengthBeforeRound) },
                 )
@@ -155,6 +164,9 @@ internal class AgentLoop(
             // Failed/overflowed requests keep their image observation until a successful request.
             discardPendingToolImageMessage()
             overflowRecoveryAttempts = 0
+            // Transport retries use a distinct display round; its fallback must not
+            // duplicate text already retained in the previous display block.
+            if (completedRound.round != round) interruptedTextPrefix.setLength(0)
             round = completedRound.round
             val providerResponse = completedRound.response
 
@@ -175,9 +187,14 @@ internal class AgentLoop(
 
             val pausedInterrupt = runController.consumePausedInterrupt()
             if (pausedInterrupt) {
+                continuingInterruptedRequest = true
+                // Even an interruption before the first text delta must not restart
+                // optional reasoning (and custom-body overrides) on resume.
+                suppressThinkingForNextRequest = true
                 // 半截正文留在当前轮次历史里，继续时模型才能接着写。
                 // 不 round++，也不执行未完成的工具调用，压缩保护边界仍是这一轮。
                 if (hasAssistantPayload) {
+                    assistantMessage.optString("content").takeIf { it != "null" }?.let(interruptedTextPrefix::append)
                     messages.put(
                         AgentConversationCodec.assistantHistoryMessage(
                             source = assistantMessage,
@@ -206,6 +223,7 @@ internal class AgentLoop(
                 )
             } else if (runController.hasPendingSteering || runController.hasPendingCompact) {
                 appendPendingSteeringMessage()
+                interruptedTextPrefix.setLength(0)
                 round += 1
                 continue
             }
@@ -219,7 +237,7 @@ internal class AgentLoop(
                 if (finishedNaturally) {
                     onEvent(AgentEvent.RunFinished(round = round, contentChars = finishedContent.length))
                     return Result(
-                        content = finishedContent,
+                        content = (interruptedTextPrefix.toString() + assistantMessage.optString("content")).trim(),
                         reasoningContent = reasoningSnapshot(),
                         sensitiveToolCallIds = sensitiveToolCallIds.toSet(),
                     )
@@ -249,6 +267,7 @@ internal class AgentLoop(
                 }
                 appendToolOutcomes(round, outcomes)
                 emitProjectedPrompt(round)
+                interruptedTextPrefix.setLength(0)
                 round += 1
                 continue
             }
@@ -256,12 +275,14 @@ internal class AgentLoop(
             // 压缩优先于自然结束：打断后仍留在同一 run，下一次请求前压缩。
             if (runController.hasPendingCompact) {
                 appendCompactContinueIfNeeded()
+                interruptedTextPrefix.setLength(0)
                 round += 1
                 continue
             }
 
             // 正文回合结束后再注入 steering：已写出的内容留在历史里，下一轮带上补充指令。
             if (appendPendingSteeringOrSeal()) {
+                interruptedTextPrefix.setLength(0)
                 round += 1
                 continue
             }
@@ -273,7 +294,7 @@ internal class AgentLoop(
 
             onEvent(AgentEvent.RunFinished(round = round, contentChars = content.length))
             return Result(
-                content = content,
+                content = (interruptedTextPrefix.toString() + assistantMessage.optString("content")).trim(),
                 reasoningContent = reasoningSnapshot(),
                 sensitiveToolCallIds = sensitiveToolCallIds.toSet(),
             )

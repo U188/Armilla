@@ -326,7 +326,8 @@ internal object AgentContextCompactor {
         message: AgentModelClient.ConversationMessage,
     ): Boolean =
         message.role.equals("user", ignoreCase = true) &&
-            message.content.trimStart().startsWith(STEERING_USER_PREFIX)
+            (message.content.trimStart().startsWith(STEERING_USER_PREFIX) ||
+                message.content.trim() == SEAMLESS_CONTINUE_PROMPT)
 
     internal fun isVisibleConversationMessage(
         message: AgentModelClient.ConversationMessage,

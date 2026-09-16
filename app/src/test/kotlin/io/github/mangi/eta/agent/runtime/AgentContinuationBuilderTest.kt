@@ -51,6 +51,8 @@ class AgentContinuationBuilderTest {
 
         assertEquals("conversation-1", continuation.effectiveModelSessionId)
         assertEquals("run-next", continuation.runId)
+        assertEquals("run-old", continuation.effectiveTurnId)
+        assertTrue(continuation.history.drop(1).all { it.turnId == "run-old" })
         assertEquals("继续检查", continuation.prompt)
         assertTrue(continuation.images.isEmpty())
         assertEquals(
@@ -83,6 +85,10 @@ class AgentContinuationBuilderTest {
             request, AgentModelClient.ModelResponse.Text("完成"), "继续", newRunId = "next-run",
         )
         assertEquals("entry-run", continuation.effectiveModelSessionId)
+        assertEquals("entry-run", continuation.effectiveTurnId)
+        val again = AgentContinuationBuilder.build(continuation,
+            AgentModelClient.ModelResponse.Text("more"), "追加", newRunId = "third-run")
+        assertEquals("entry-run", again.effectiveTurnId)
     }
 
     private fun modelConfig(): AgentModelClient.ModelConfig =

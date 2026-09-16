@@ -145,16 +145,17 @@ internal object AgentConversationRevisionReducer {
         history: List<AgentModelClient.ConversationMessage>,
         partial: AgentMessageUi,
     ): List<AgentModelClient.ConversationMessage> {
+        val migrated = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(history)
         val partialMessage = AgentModelClient.ConversationMessage(
             role = "assistant",
             content = partial.content,
+            turnId = migrated.lastOrNull { it.turnId.isNotBlank() }?.turnId.orEmpty(),
         )
-        val last = history.lastOrNull()
-        return if (last?.role == "assistant") {
-            if (last.content == partial.content) history else history.dropLast(1) + partialMessage
-        } else {
-            history + partialMessage
-        }
+        val last = migrated.lastOrNull()
+        if (last?.role == "assistant" && last.content == partial.content) return migrated
+        val extendsTrailingText = last?.role == "assistant" &&
+            last.toolCallsJson.isBlank() && last.content.isNotBlank() && partial.content.startsWith(last.content)
+        return if (extendsTrailingText) migrated.dropLast(1) + partialMessage else migrated + partialMessage
     }
 
 }

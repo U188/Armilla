@@ -214,7 +214,7 @@ internal class AgentRuntimeRunExecutor(
                 // Runtime owns all request-budget decisions; never silently trim protected history here.
                 skipHistoryTrimming = true,
                 compactionArchive = io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, request.effectiveModelSessionId),
-                turnId = request.runId,
+                turnId = request.effectiveTurnId,
                 runController = runController,
                 skillContext = skillContext,
                 memoryContext = memoryContext,

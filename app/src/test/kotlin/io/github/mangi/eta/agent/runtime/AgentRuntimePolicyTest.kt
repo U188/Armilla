@@ -15,6 +15,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRuntimePolicyTest {
+    @Test fun resumeStripsThinkingOverridesEvenWhenUiAlreadySaysOff() {
+        val source = modelConfig(terminalTools = true, browserTools = true, thinking = false).copy(
+            reasoningEffort = ReasoningEffort.OFF,
+            extraBodyJson = """{"thinking":{"type":"enabled"},"temperature":0.2}""",
+            customBody = listOf(CustomBody("reasoning_effort", JsonPrimitive("high"))),
+        )
+        val result = AgentRuntimePolicy.withoutOptionalThinking(source)
+        assertFalse(JSONObject(result.extraBodyJson).has("thinking"))
+        assertEquals(0.2, JSONObject(result.extraBodyJson).getDouble("temperature"), 0.0)
+        assertTrue(result.customBody.isEmpty())
+        assertEquals(ReasoningEffort.OFF, result.reasoningEffort)
+    }
+
     @Test
     fun unavailablePreferencesFailClosed() {
         assertEquals(

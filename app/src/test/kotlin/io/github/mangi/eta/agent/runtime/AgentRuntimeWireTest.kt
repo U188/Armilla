@@ -306,6 +306,7 @@ class AgentRuntimeWireTest {
     fun runRequestBundleRoundTripPreservesConfigHistoryAndImages() {
         val request = AgentRuntimeWire.RunRequest(
             runId = "run-1",
+            turnId = "original-user-turn",
             prompt = "继续分析",
             config = AgentModelClient.ModelConfig(
                 providerSourceType = "bailian",
@@ -367,6 +368,8 @@ class AgentRuntimeWireTest {
             prepared.close()
         }
 
+        assertEquals("original-user-turn", roundTripped.effectiveTurnId)
+        assertEquals("run-1", request.copy(turnId = "").effectiveTurnId)
         assertEquals(request, roundTripped)
         assertEquals(262_144, roundTripped.config.contextWindow)
         assertEquals(ReasoningEffort.HIGH, roundTripped.config.reasoningEffort)

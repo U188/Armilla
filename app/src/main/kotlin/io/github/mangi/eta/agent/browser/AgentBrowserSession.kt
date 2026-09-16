@@ -1394,7 +1394,7 @@ internal object AgentBrowserSession {
     private fun publishSnapshotOnMain() {
         val view = webView
         val pageAvailable = view != null && currentUrl.isNotBlank()
-        mutableSnapshots.value = BrowserSessionSnapshot(
+        val next = BrowserSessionSnapshot(
             available = pageAvailable,
             url = if (pageAvailable) currentUrl else "",
             displayUrl = if (pageAvailable) currentUrl else "",
@@ -1413,6 +1413,9 @@ internal object AgentBrowserSession {
             desktopMode = userAgentProfile.desktop,
             userAgent = userAgentProfile.wireName,
         )
+        if (mutableSnapshots.value != next) {
+            mutableSnapshots.value = next
+        }
     }
 
     private fun safeTitle(value: String): String =
@@ -1546,14 +1549,20 @@ internal object AgentBrowserSession {
 
     private class BrowserChrome : WebChromeClient() {
         override fun onReceivedTitle(view: WebView, title: String?) {
-            currentTitle = title.orEmpty()
+            val next = title.orEmpty()
+            if (next == currentTitle) return
+            currentTitle = next
             publishSnapshotOnMain()
         }
 
         override fun onProgressChanged(view: WebView, newProgress: Int) {
-            currentProgress = newProgress.coerceIn(0, 100)
-            currentLoading = newProgress < 100
-            publishSnapshotOnMain()
+            val progress = newProgress.coerceIn(0, 100)
+            val loading = progress < 100
+            val jump = kotlin.math.abs(progress - currentProgress) >= 8
+            val boundary = progress == 0 || progress == 100 || loading != currentLoading
+            currentProgress = progress
+            currentLoading = loading
+            if (jump || boundary) publishSnapshotOnMain()
         }
     }
 

@@ -289,6 +289,7 @@ internal fun ChatMessageItem(
     onRegenerateMessage: (String) -> Unit = {},
     onBranchMessage: (String) -> Unit = {},
     isPaused: Boolean = false,
+    enableLivePreview: Boolean = true,
 ) {
     when (message) {
         is UserMessageUi -> UserMessageBubble(
@@ -359,6 +360,7 @@ internal fun ChatMessageItem(
             message = message,
             onOpenBrowser = onOpenBrowser,
             showBrowserShortcut = showBrowserShortcut,
+            enableLivePreview = enableLivePreview,
             modifier = modifier,
             compact = compact,
         )
@@ -382,6 +384,9 @@ internal fun AgentWorkProcess(
     isPaused: Boolean = false,
     isTrailing: Boolean = false,
     turnStreaming: Boolean = false,
+    stepsAsLazyItems: Boolean = false,
+    expandedOverride: Boolean? = null,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
     val running = messages.any { message ->
         (message is ThinkingMessageUi && message.isStreaming) ||
@@ -399,9 +404,10 @@ internal fun AgentWorkProcess(
     var manuallyExpanded by rememberSaveable(id) { mutableStateOf(false) }
 
     LaunchedEffect(keepOpen) {
-        if (manuallyExpanded) return@LaunchedEffect
+        if (manuallyExpanded || expandedOverride != null) return@LaunchedEffect
         expanded = keepOpen
     }
+    val showingSteps = expandedOverride ?: expanded
 
     val view = LocalView.current
     SideEffect {
@@ -439,8 +445,13 @@ internal fun AgentWorkProcess(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                    manuallyExpanded = true
-                    expanded = !expanded
+                    val next = !showingSteps
+                    if (onExpandedChange != null) {
+                        onExpandedChange(next)
+                    } else {
+                        manuallyExpanded = true
+                        expanded = next
+                    }
                 }
                 .padding(horizontal = 13.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -488,10 +499,10 @@ internal fun AgentWorkProcess(
                 modifier = Modifier.weight(1f),
             )
             Icon(
-                imageVector = if (expanded) Icons.Rounded.ExpandMore
+                imageVector = if (showingSteps) Icons.Rounded.ExpandMore
                     else Icons.Rounded.ChevronRight,
                 contentDescription = stringResource(
-                    if (expanded) R.string.work_collapse else R.string.work_expand,
+                    if (showingSteps) R.string.work_collapse else R.string.work_expand,
                 ),
                 modifier = Modifier.size(14.dp),
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
@@ -499,7 +510,7 @@ internal fun AgentWorkProcess(
         }
 
         AnimatedVisibility(
-            visible = expanded,
+            visible = showingSteps && !stepsAsLazyItems,
             enter = fadeIn() + expandVertically(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -538,6 +549,31 @@ internal fun AgentWorkProcess(
             }
         }
     }
+}
+
+
+@Composable
+internal fun WorkProcessStepSlot(
+    message: AgentChatMessageUi,
+    onOpenBrowser: () -> Unit,
+    currentBrowserMessageId: String?,
+    retainedStreamingState: StreamingMarkdownState?,
+    isPaused: Boolean,
+    enableLivePreview: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    ChatMessageItem(
+        message = message,
+        onSuggestionClick = {},
+        onRunTraceClick = {},
+        onOpenBrowser = onOpenBrowser,
+        showBrowserShortcut = message.id == currentBrowserMessageId,
+        enableLivePreview = enableLivePreview,
+        retainedStreamingState = retainedStreamingState,
+        compact = true,
+        isPaused = isPaused,
+        modifier = modifier,
+    )
 }
 
 // ── 用户消息：轻盈美观气泡 ──────────────────────────────────────────────
@@ -2423,6 +2459,7 @@ private fun ToolActivityInline(
     message: ToolActivityMessageUi,
     onOpenBrowser: () -> Unit,
     showBrowserShortcut: Boolean,
+    enableLivePreview: Boolean = true,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
@@ -2636,6 +2673,7 @@ private fun ToolActivityInline(
                     browserSnapshot?.takeIf { it.available }?.let { snapshot ->
                         BrowserPagePreview(
                             snapshot = snapshot,
+                            enableLivePreview = enableLivePreview,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
@@ -2669,10 +2707,11 @@ private fun ToolActivityInline(
 private fun BrowserPagePreview(
     snapshot: BrowserSessionSnapshot,
     modifier: Modifier = Modifier,
+    enableLivePreview: Boolean = true,
 ) {
     var preview by remember(snapshot.url) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(snapshot.url, snapshot.isLoading, snapshot.isUserControlling) {
-        if (snapshot.isUserControlling) return@LaunchedEffect
+    LaunchedEffect(snapshot.url, snapshot.isLoading, snapshot.isUserControlling, enableLivePreview) {
+        if (snapshot.isUserControlling || !enableLivePreview) return@LaunchedEffect
         while (true) {
             val image = withContext(Dispatchers.IO) {
                 AgentBrowserSession.capturePreview()?.let { decodeDataUrlBitmap(it.dataUrl) }

@@ -93,6 +93,7 @@ import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
+import io.github.mangi.eta.ui.model.ToolActivityStatusUi
 import io.github.mangi.eta.ui.model.ToolSummaryMessageUi
 import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.isResumeAfterCompress
@@ -104,6 +105,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -181,7 +183,13 @@ internal fun AgentChatBody(
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottomPx > 0
-    val browserSnapshot by AgentBrowserSession.snapshots.collectAsState()
+    val browserShortcut by remember {
+        AgentBrowserSession.snapshots
+            .map { snapshot ->
+                Triple(snapshot.available, snapshot.lastAgentRunId, snapshot.lastAgentToolCallId)
+            }
+            .distinctUntilChanged()
+    }.collectAsState(initial = Triple(false, null, null))
     val visibleMessages = remember(messages, messageEdit?.targetMessageId) {
         AgentConversationRevisionReducer.visibleMessagesForEdit(
             messages = messages,
@@ -196,13 +204,10 @@ internal fun AgentChatBody(
     val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = initialBottomItemIndex)
     val currentBrowserMessageId = remember(
         visibleMessages,
-        browserSnapshot.available,
-        browserSnapshot.lastAgentRunId,
-        browserSnapshot.lastAgentToolCallId,
+        browserShortcut,
     ) {
-        val runId = browserSnapshot.lastAgentRunId
-        val toolCallId = browserSnapshot.lastAgentToolCallId
-        if (!browserSnapshot.available || runId == null || toolCallId == null) {
+        val (available, runId, toolCallId) = browserShortcut
+        if (!available || runId == null || toolCallId == null) {
             null
         } else {
             visibleMessages.lastOrNull { message ->
@@ -522,6 +527,7 @@ internal fun AgentConversationMessages(
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
     val streamingMarkdownStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
+    val workProcessExpanded = remember { mutableStateMapOf<String, Boolean>() }
     val compressingItemCount = if (isCompressingContext) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
@@ -731,48 +737,53 @@ internal fun AgentConversationMessages(
         ) {
             val trailingWorkKey =
                 (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
-            items(
-                items = timelineEntries,
-                key = { it.key },
-            ) { entry ->
-                val itemModifier = Modifier.animateItem(
+            val itemModifier = if (isStreaming) {
+                Modifier
+            } else {
+                Modifier.animateItem(
                     fadeInSpec = tween(durationMillis = 180),
                     placementSpec = null,
-                    // 历史轮次被编辑、删除或重新生成时必须立即退出；退出动画会让已从
-                    // 状态中裁掉的旧消息继续绘制，并与同位置的新流式消息短暂重叠。
                     fadeOutSpec = null,
                 )
+            }
+            timelineEntries.forEach { entry ->
                 when (entry) {
                     is AgentTimelineEntry.Message -> {
-                        val message = entry.message
-                        ChatMessageItem(
-                            message = message,
-                            retainedStreamingState = (message as? AgentMessageUi)
-                                ?.takeIf { it.isStreaming || streamingMarkdownStates.containsKey(it.id) }
-                                ?.let { agentMessage ->
-                                    streamingMarkdownStates.getOrPut(agentMessage.id) {
-                                        StreamingMarkdownState()
-                                    }
-                                },
-                            onSuggestionClick = onSuggestionClick,
-                            onRunTraceClick = onRunTraceClick,
-                            onOpenBrowser = onOpenBrowser,
-                            showBrowserShortcut = message is ToolActivityMessageUi &&
-                                message.toolName == "browser_use" &&
-                                message.id == currentBrowserMessageId,
-                            showCopyAction = message !is AgentMessageUi ||
-                                message.id in finalResultMessageIds,
-                            showMessageActions = message.id in finalResultMessageIds,
-                            messageActionsEnabled = messageActionsEnabled,
-                            branchEnabled = branchEnabled,
-                            isEditing = message.id == editTargetMessageId,
-                            onEditMessage = onEditMessage,
-                            onDeleteMessage = onDeleteMessage,
-                            onRegenerateMessage = onRegenerateMessage,
-                            onBranchMessage = onBranchMessage,
-                            isPaused = isPaused,
-                            modifier = itemModifier,
-                        )
+                        item(
+                            key = entry.key,
+                            contentType = "message",
+                        ) {
+                            val message = entry.message
+                            ChatMessageItem(
+                                message = message,
+                                retainedStreamingState = (message as? AgentMessageUi)
+                                    ?.takeIf { it.isStreaming || streamingMarkdownStates.containsKey(it.id) }
+                                    ?.let { agentMessage ->
+                                        streamingMarkdownStates.getOrPut(agentMessage.id) {
+                                            StreamingMarkdownState()
+                                        }
+                                    },
+                                onSuggestionClick = onSuggestionClick,
+                                onRunTraceClick = onRunTraceClick,
+                                onOpenBrowser = onOpenBrowser,
+                                showBrowserShortcut = message is ToolActivityMessageUi &&
+                                    message.toolName == "browser_use" &&
+                                    message.id == currentBrowserMessageId,
+                                enableLivePreview = !isStreaming,
+                                showCopyAction = message !is AgentMessageUi ||
+                                    message.id in finalResultMessageIds,
+                                showMessageActions = message.id in finalResultMessageIds,
+                                messageActionsEnabled = messageActionsEnabled,
+                                branchEnabled = branchEnabled,
+                                isEditing = message.id == editTargetMessageId,
+                                onEditMessage = onEditMessage,
+                                onDeleteMessage = onDeleteMessage,
+                                onRegenerateMessage = onRegenerateMessage,
+                                onBranchMessage = onBranchMessage,
+                                isPaused = isPaused,
+                                modifier = itemModifier,
+                            )
+                        }
                     }
 
                     is AgentTimelineEntry.WorkProcess -> {
@@ -783,17 +794,49 @@ internal fun AgentConversationMessages(
                                 }
                             }
                         }
-                        AgentWorkProcess(
-                            id = entry.key,
-                            messages = entry.messages,
-                            onOpenBrowser = onOpenBrowser,
-                            currentBrowserMessageId = currentBrowserMessageId,
-                            retainedStreamingStates = streamingMarkdownStates,
-                            isPaused = isPaused,
-                            isTrailing = entry.key == trailingWorkKey,
-                            turnStreaming = isStreaming,
-                            modifier = itemModifier,
-                        )
+                        val running = entry.messages.any { message ->
+                            (message is ThinkingMessageUi && message.isStreaming) ||
+                                (message is ToolActivityMessageUi &&
+                                    message.status == ToolActivityStatusUi.Running)
+                        }
+                        val expanded = workProcessExpanded[entry.key]
+                            ?: (running || (entry.key == trailingWorkKey && isStreaming))
+                        item(
+                            key = entry.key,
+                            contentType = "work-header",
+                        ) {
+                            AgentWorkProcess(
+                                id = entry.key,
+                                messages = entry.messages,
+                                onOpenBrowser = onOpenBrowser,
+                                currentBrowserMessageId = currentBrowserMessageId,
+                                retainedStreamingStates = streamingMarkdownStates,
+                                isPaused = isPaused,
+                                isTrailing = entry.key == trailingWorkKey,
+                                turnStreaming = isStreaming,
+                                stepsAsLazyItems = true,
+                                expandedOverride = expanded,
+                                onExpandedChange = { workProcessExpanded[entry.key] = it },
+                                modifier = itemModifier,
+                            )
+                        }
+                        if (expanded) {
+                            items(
+                                items = entry.messages,
+                                key = { it.id },
+                                contentType = { "work-step" },
+                            ) { message ->
+                                WorkProcessStepSlot(
+                                    message = message,
+                                    onOpenBrowser = onOpenBrowser,
+                                    currentBrowserMessageId = currentBrowserMessageId,
+                                    retainedStreamingState = streamingMarkdownStates[message.id],
+                                    isPaused = isPaused,
+                                    enableLivePreview = !isStreaming,
+                                    modifier = itemModifier,
+                                )
+                            }
+                        }
                     }
                 }
             }

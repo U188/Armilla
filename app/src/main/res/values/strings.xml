@@ -1437,6 +1437,8 @@
     <string name="provider_auth_api_key_summary">OpenAI official API and compatible third-party endpoints</string>
     <string name="provider_auth_oauth">OAuth</string>
     <string name="provider_auth_oauth_summary">Sign in with OpenAI Codex</string>
+    <string name="provider_auth_oauth_antigravity">Antigravity OAuth</string>
+    <string name="provider_auth_oauth_antigravity_summary">Sign in with Google Antigravity</string>
     <string name="provider_auth_method_note">OAuth opens the provider website. API Key uses a secret from your account dashboard.</string>
     <string name="provider_oauth_sign_in">Sign in with OpenAI</string>
     <string name="provider_oauth_signed_in">Signed in with OpenAI Codex</string>

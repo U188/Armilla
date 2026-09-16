@@ -1,12 +1,18 @@
 package io.github.mangi.eta.agent.model
 
-import io.github.mangi.eta.data.model.ProviderTypes
+import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.data.model.ProviderTypes
 
 internal object ProviderClientFactory {
 
-    fun getClient(config: AgentModelClient.ModelConfig): AgentProviderClient =
-        when (config.providerType) {
+    fun getClient(config: AgentModelClient.ModelConfig): AgentProviderClient {
+        if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl) ||
+            config.openAiEndpointMode == OpenAiEndpointMode.ANTIGRAVITY
+        ) {
+            return AntigravityProvider
+        }
+        return when (config.providerType) {
             ProviderTypes.OPENAI_COMPATIBLE -> when (config.openAiEndpointMode) {
                 OpenAiEndpointMode.RESPONSES -> OpenAiResponsesProvider
                 else -> OpenAiChatCompletionsProvider
@@ -14,4 +20,5 @@ internal object ProviderClientFactory {
             ProviderTypes.ANTHROPIC -> AnthropicMessagesProvider
             else -> error("不支持的 Provider 协议类型：${config.providerType}")
         }
+    }
 }

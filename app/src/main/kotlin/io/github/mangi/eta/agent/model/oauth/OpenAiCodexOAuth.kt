@@ -101,7 +101,7 @@ internal object OpenAiCodexOAuth {
         context: Context,
         provider: ProviderSetting,
     ): ProviderSetting {
-        if (!provider.usesOAuth) return provider
+        if (!usesCodexBackend(provider)) return provider
         val token = validAccessToken(context, provider.id) ?: provider.apiKey
         val extra = extraHeaders(context, provider.id, provider.baseUrl)
         val mergedHeaders = extra + provider.customHeaders.filterNot { header ->

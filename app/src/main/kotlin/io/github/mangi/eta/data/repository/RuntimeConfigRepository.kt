@@ -9,6 +9,7 @@ import io.github.mangi.eta.data.model.CustomProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.usesOAuth
@@ -181,6 +182,12 @@ internal object RuntimeConfigRepository {
         return buildRuntimeConfig(resolveOAuth(provider), model, assistant)
     }
 
-    private suspend fun resolveOAuth(provider: ProviderSetting): ProviderSetting =
-        OpenAiCodexOAuth.withResolvedAuth(ProviderRepository.context(), provider)
+    private suspend fun resolveOAuth(provider: ProviderSetting): ProviderSetting {
+        val context = ProviderRepository.context()
+        return if (GoogleAntigravityOAuth.usesBackend(provider)) {
+            GoogleAntigravityOAuth.withResolvedAuth(context, provider)
+        } else {
+            OpenAiCodexOAuth.withResolvedAuth(context, provider)
+        }
+    }
 }

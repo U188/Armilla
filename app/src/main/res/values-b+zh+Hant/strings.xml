@@ -1406,6 +1406,8 @@
     <string name="provider_auth_api_key_summary">OpenAI 官方介面和相容的第三方端點</string>
     <string name="provider_auth_oauth">OAuth</string>
     <string name="provider_auth_oauth_summary">使用 OpenAI Codex 登入</string>
+    <string name="provider_auth_oauth_antigravity">反重力 OAuth</string>
+    <string name="provider_auth_oauth_antigravity_summary">使用 Google 帳號登入反重力</string>
     <string name="provider_auth_method_note">OAuth 透過服務商網頁登入；API Key 使用帳戶面板中的金鑰。</string>
     <string name="provider_oauth_sign_in">使用 OpenAI 登入</string>
     <string name="provider_oauth_signed_in">已用 OpenAI Codex 登入</string>

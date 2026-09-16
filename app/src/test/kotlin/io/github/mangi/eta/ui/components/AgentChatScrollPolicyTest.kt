@@ -172,6 +172,17 @@ class AgentChatScrollPolicyTest {
     }
 
     @Test
+    fun landingOnBottomAfterUserScrollEnablesFollowing() {
+        assertTrue(
+            resolveKeepBottomAnchored(
+                current = false,
+                isUserDragging = false,
+                isAtBottom = true,
+            )
+        )
+    }
+
+    @Test
     fun reachingBottomEnablesFollowingAgain() {
         assertTrue(
             resolveKeepBottomAnchored(

@@ -530,63 +530,73 @@ internal fun AgentConversationMessages(
     val compressingItemCount = if (isCompressingContext) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
-    val isAtBottom by remember(scrollState) {
-        derivedStateOf {
-            val info = scrollState.layoutInfo
-            val sentinel = info.visibleItemsInfo.firstOrNull { it.key == ChatBottomSentinelKey }
-            if (sentinel == null) {
-                !scrollState.canScrollForward
-            } else {
-                val viewportEnd = info.viewportEndOffset - info.afterContentPadding
-                sentinel.offset + sentinel.size <= viewportEnd + 8
-            }
-        }
-    }
+    // 手指拖走后的惯性也算用户滚动；跟底自己的 scrollBy 不能把这个标志打开。
+    var isUserScrolling by remember { mutableStateOf(false) }
     val densityScale = LocalDensity.current.density
     val coroutineScope = rememberCoroutineScope()
+    val currentAnchor = rememberUpdatedState(keepBottomAnchored)
+    val currentStreaming = rememberUpdatedState(isStreaming)
+    val currentVisibleMessages = rememberUpdatedState(visibleMessages)
+    val currentDragging = rememberUpdatedState(isUserDragging)
 
-    LaunchedEffect(
-        isUserDragging,
-        isAtBottom,
-        keepBottomAnchored,
-    ) {
-        val next = resolveKeepBottomAnchored(
-            current = keepBottomAnchored,
-            isUserDragging = isUserDragging,
-            isAtBottom = isAtBottom,
-        )
-        if (next != keepBottomAnchored) {
-            onBottomAnchorChanged(next)
-        }
+    LaunchedEffect(scrollState) {
+        snapshotFlow { currentDragging.value to scrollState.isScrollInProgress }
+            .collect { (dragging, inProgress) ->
+                isUserScrolling = when {
+                    dragging -> true
+                    !inProgress -> false
+                    else -> isUserScrolling
+                }
+            }
     }
 
-    val tailMessage = visibleMessages.lastOrNull() as? AgentMessageUi
-    val isTailRendering = tailMessage?.let { message ->
-        streamingMarkdownStates[message.id]?.let { state ->
-            state.revealedContent != message.content
+    LaunchedEffect(scrollState) {
+        snapshotFlow {
+            resolveKeepBottomAnchored(
+                current = currentAnchor.value,
+                isUserDragging = isUserScrolling,
+                isAtBottom = scrollState.isConversationAtBottom(),
+            )
         }
-    } == true
-    var isBottomSettling by remember { mutableStateOf(isStreaming) }
+            .distinctUntilChanged()
+            .collect { next ->
+                if (next != currentAnchor.value) onBottomAnchorChanged(next)
+            }
+    }
 
-    LaunchedEffect(isStreaming, isTailRendering, keepBottomAnchored, isUserDragging) {
-        if (!keepBottomAnchored || isUserDragging) {
-            isBottomSettling = false
-        } else if (isStreaming || isTailRendering) {
-            isBottomSettling = true
-        } else if (isBottomSettling) {
-            // 显现完成后还会切换稳定排版并插入操作行，等其完成测量再收口跟底。
-            withFrameNanos { }
-            withFrameNanos { }
-            snapshotFlow { !scrollState.canScrollForward }.first { it }
-            isBottomSettling = false
+    var isBottomSettling by remember { mutableStateOf(isStreaming) }
+    LaunchedEffect(scrollState) {
+        snapshotFlow {
+            val tail = currentVisibleMessages.value.lastOrNull() as? AgentMessageUi
+            val rendering = tail?.let { message ->
+                streamingMarkdownStates[message.id]?.revealedContent != message.content
+            } == true
+            arrayOf(currentStreaming.value, currentAnchor.value, rendering, isUserScrolling)
         }
+            .distinctUntilChanged { old, new -> old.contentEquals(new) }
+            .collect { state ->
+                val streaming = state[0] as Boolean
+                val anchored = state[1] as Boolean
+                val rendering = state[2] as Boolean
+                val userScrolling = state[3] as Boolean
+                if (!anchored || userScrolling) {
+                    isBottomSettling = false
+                } else if (streaming || rendering) {
+                    isBottomSettling = true
+                } else if (isBottomSettling) {
+                    withFrameNanos { }
+                    withFrameNanos { }
+                    snapshotFlow { !scrollState.canScrollForward }.first { it }
+                    isBottomSettling = false
+                }
+            }
     }
 
     val shouldFollowBottom by rememberUpdatedState(
         resolveBottomFollowEnabled(
             isStreaming = isStreaming,
             keepBottomAnchored = keepBottomAnchored,
-            isUserDragging = isUserDragging,
+            isUserDragging = isUserScrolling,
             isBottomSettling = isBottomSettling,
         )
     )
@@ -598,14 +608,14 @@ internal fun AgentConversationMessages(
     LaunchedEffect(
         bottomItemIndex,
         keepBottomAnchored,
-        isUserDragging,
+        isUserScrolling,
         isStreaming,
         scrollToMessageId,
     ) {
         if (shouldSnapConversationToBottom(
                 isStreaming = isStreaming,
                 keepBottomAnchored = keepBottomAnchored,
-                isUserDragging = isUserDragging,
+                isUserDragging = isUserScrolling,
                 hasItems = bottomItemIndex > 0,
                 scrollToMessageId = scrollToMessageId,
             )
@@ -616,7 +626,7 @@ internal fun AgentConversationMessages(
         if (shouldRequestInitialBottom(
                 isStreaming = isStreaming,
                 keepBottomAnchored = keepBottomAnchored,
-                isUserDragging = isUserDragging,
+                isUserDragging = isUserScrolling,
             )
         ) {
             scrollState.requestScrollToItem(bottomItemIndex)
@@ -840,33 +850,19 @@ internal fun AgentConversationMessages(
             }
         }
 
-        AnimatedVisibility(
-            visible = !keepBottomAnchored && !isAtBottom,
+        ConversationBackToBottomButton(
+            keepBottomAnchored = keepBottomAnchored,
+            scrollState = scrollState,
+            onBackToBottom = {
+                onBottomAnchorChanged(true)
+                coroutineScope.launch {
+                    scrollState.animateScrollToItem(bottomItemIndex)
+                }
+            },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = bottomInset + 12.dp),
-            enter = fadeIn(tween(160)) + scaleIn(tween(180), initialScale = 0.82f),
-            exit = fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.86f),
-        ) {
-            IconButton(
-                onClick = {
-                    onBottomAnchorChanged(true)
-                    coroutineScope.launch {
-                        scrollState.animateScrollToItem(bottomItemIndex)
-                    }
-                },
-                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
-                minWidth = 40.dp,
-                minHeight = 40.dp,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.ArrowDownward,
-                    contentDescription = stringResource(R.string.ui_back_to_bottom_32282e),
-                    modifier = Modifier.size(17.dp),
-                    tint = MiuixTheme.colorScheme.onSurface,
-                )
-            }
-        }
+        )
     }
 }
 
@@ -1265,6 +1261,49 @@ private suspend fun snapListToBottom(
         }
         if (decision.requestIndex == null && decision.scrollByPx == 0) return
         withFrameNanos { }
+    }
+}
+
+private fun LazyListState.isConversationAtBottom(): Boolean {
+    val info = layoutInfo
+    val sentinel = info.visibleItemsInfo.firstOrNull { it.key == ChatBottomSentinelKey }
+    return if (sentinel == null) {
+        !canScrollForward
+    } else {
+        val viewportEnd = info.viewportEndOffset - info.afterContentPadding
+        sentinel.offset + sentinel.size <= viewportEnd + 8
+    }
+}
+
+@Composable
+private fun ConversationBackToBottomButton(
+    keepBottomAnchored: Boolean,
+    scrollState: LazyListState,
+    onBackToBottom: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isAtBottom by remember(scrollState) {
+        derivedStateOf { scrollState.isConversationAtBottom() }
+    }
+    AnimatedVisibility(
+        visible = !keepBottomAnchored && !isAtBottom,
+        modifier = modifier,
+        enter = fadeIn(tween(160)) + scaleIn(tween(180), initialScale = 0.82f),
+        exit = fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.86f),
+    ) {
+        IconButton(
+            onClick = onBackToBottom,
+            backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
+            minWidth = 40.dp,
+            minHeight = 40.dp,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.ArrowDownward,
+                contentDescription = stringResource(R.string.ui_back_to_bottom_32282e),
+                modifier = Modifier.size(17.dp),
+                tint = MiuixTheme.colorScheme.onSurface,
+            )
+        }
     }
 }
 

@@ -48,6 +48,13 @@ class AgentCompressionStrategyTest {
         assertEquals(1, AgentCompressionBoundary.continuationStart(history.dropLast(1), 1))
     }
 
+    @Test fun continuationRetentionIsBoundedForLargeContextWindows() {
+        assertEquals(2_000, AgentCompressionBoundary.continuationRetentionBudget(20_000))
+        assertEquals(4_000, AgentCompressionBoundary.continuationRetentionBudget(50_000))
+        assertEquals(32_000, AgentCompressionBoundary.continuationRetentionBudget(500_000))
+        assertEquals(1, AgentCompressionBoundary.continuationRetentionBudget(500_000, overflow = true))
+    }
+
     @Test fun continuationUsesTheSameTokenTailInIdleAndActiveRuns() {
         val history = listOf(message("user", "one long task"),
             message("assistant", calls = """[{"id":"old"}]"""),

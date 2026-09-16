@@ -162,6 +162,39 @@ class AgentRuntimePolicyTest {
     }
 
     @Test
+    fun compressionUsesOffWhenReasoningCanBeDisabled() {
+        val constrained = AgentRuntimePolicy.forCompression(
+            modelConfig(terminalTools = true, browserTools = true, thinking = true).copy(
+                reasoningEffort = ReasoningEffort.HIGH,
+                reasoningCapabilities = ModelReasoningCapabilities(
+                    supportedEfforts = listOf(ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH),
+                    canDisable = true,
+                    mandatory = false,
+                ),
+            ),
+        )
+        assertFalse(constrained.thinkingEnabled)
+        assertEquals(ReasoningEffort.OFF, constrained.reasoningEffort)
+        assertTrue(constrained.terminalTools)
+    }
+
+    @Test
+    fun compressionUsesLowestMandatoryEffortInsteadOfChatPreference() {
+        val constrained = AgentRuntimePolicy.forCompression(
+            modelConfig(terminalTools = true, browserTools = false, thinking = true).copy(
+                reasoningEffort = ReasoningEffort.MAX,
+                reasoningCapabilities = ModelReasoningCapabilities(
+                    supportedEfforts = listOf(ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH, ReasoningEffort.MAX),
+                    canDisable = false,
+                    mandatory = true,
+                ),
+            ),
+        )
+        assertTrue(constrained.thinkingEnabled)
+        assertEquals(ReasoningEffort.LOW, constrained.reasoningEffort)
+    }
+
+    @Test
     fun withoutOptionalThinkingKeepsMandatoryReasoning() {
         val source = modelConfig(terminalTools = true, browserTools = false, thinking = true).copy(
             reasoningEffort = ReasoningEffort.MEDIUM,

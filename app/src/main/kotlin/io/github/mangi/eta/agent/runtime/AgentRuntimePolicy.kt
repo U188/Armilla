@@ -48,6 +48,30 @@ internal object AgentRuntimePolicy {
         )
     }
 
+    /**
+     * 压缩专用思考档：能关就关。强制思考的模型用它允许的最低档，不沿用对话里的 high/max。
+     */
+    fun forCompression(config: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
+        val capabilities = config.reasoningCapabilities
+        val effort = if (capabilities == null) {
+            ReasoningEffort.OFF
+        } else {
+            capabilities.normalize(ReasoningEffort.OFF)
+        }
+        val disabled = constrain(
+            config.copy(reasoningEffort = effort, thinkingEnabled = effort.enablesReasoning),
+            Permissions(
+                terminalTools = true,
+                browserTools = true,
+                deviceDirectTools = true,
+                deviceSensitiveReadTools = true,
+                deviceSensitiveActionTools = true,
+                thinking = effort.enablesReasoning,
+            ),
+        )
+        return disabled.copy(reasoningEffort = effort, thinkingEnabled = effort.enablesReasoning)
+    }
+
     fun constrain(
         config: AgentModelClient.ModelConfig,
         permissions: Permissions,

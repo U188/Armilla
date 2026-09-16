@@ -954,7 +954,56 @@ class AgentModelClientLoopTest {
     }
 
     @Test
+    fun pauseKeepsPartialAssistantInSameTurnThenContinues() {
+        val controller = AgentRunController()
+        val started = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, runController ->
+                    runController.pause()
+                    assistant(content = "已经写到一半", finishReason = "stop")
+                },
+                { request, _ ->
+                    val contents = (0 until request.messages.length()).map {
+                        request.messages.getJSONObject(it).optString("content")
+                    }
+                    assertTrue(contents.any { it.contains("已经写到一半") })
+                    assertTrue(contents.any { it.contains("从上次中断的地方继续") })
+                    assistant(content = "接着写完", finishReason = "stop")
+                },
+            )
+        )
+        val worker = thread(name = "pause-continue-loop") {
+            started.countDown()
+            runCatching {
+                AgentModelClient.complete(
+                    config = modelConfig(),
+                    prompt = "写一篇长文",
+                    provider = provider,
+                    runController = controller,
+                    toolExecutor = AgentModelClient.ToolExecutor { error("不应调用工具") },
+                )
+            }.exceptionOrNull()?.let(failure::set)
+            finished.countDown()
+        }
+        try {
+            assertTrue(started.await(1, TimeUnit.SECONDS))
+            assertFalse(finished.await(300, TimeUnit.MILLISECONDS))
+            controller.resume()
+            assertTrue(finished.await(3, TimeUnit.SECONDS))
+            assertEquals(null, failure.get()?.message)
+            assertEquals(2, provider.requests.size)
+        } finally {
+            controller.cancel()
+            worker.join(1_000)
+        }
+    }
+
+    @Test
     fun projectsPromptOccupancyAfterToolResults() {
+
         val events = mutableListOf<AgentEvent>()
         val provider = ScriptedProvider(
             responses = listOf(

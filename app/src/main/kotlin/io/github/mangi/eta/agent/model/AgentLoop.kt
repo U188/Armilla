@@ -174,8 +174,17 @@ internal class AgentLoop(
 
             val pausedInterrupt = runController.consumePausedInterrupt()
             if (pausedInterrupt) {
-                // 暂停打断的是当前模型流，半截正文已在 UI 上，不能写入历史。
-                // 否则继续时会多一条助手消息，压缩也会把未完成轮次当成已提交 transcript。
+                // 半截正文留在当前轮次历史里，继续时模型才能接着写。
+                // 不 round++，也不执行未完成的工具调用，压缩保护边界仍是这一轮。
+                if (hasAssistantPayload) {
+                    messages.put(
+                        AgentConversationCodec.assistantHistoryMessage(
+                            source = assistantMessage,
+                            toolCalls = emptyList(),
+                        ).put(AgentTurnIdentity.JSON_KEY, turnId),
+                    )
+                    appendCompactContinueIfNeeded()
+                }
                 appendPendingSteeringMessage()
                 continue
             }

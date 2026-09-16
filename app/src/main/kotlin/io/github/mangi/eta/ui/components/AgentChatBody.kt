@@ -442,7 +442,7 @@ private fun AgentChatScaffold(
             AgentConversationMessages(
                 visibleMessages = visibleMessages,
                 scrollState = scrollState,
-                isStreaming = isStreaming && !isPaused,
+                isStreaming = isStreaming,
                 isPaused = isPaused,
                 isCompressingContext = isCompressingContext,
                 bottomInset = bottomPadding,
@@ -455,7 +455,7 @@ private fun AgentChatScaffold(
                 onDeleteMessage = onDeleteMessage,
                 onRegenerateMessage = onRegenerateMessage,
                 onBranchMessage = onBranchMessage,
-                messageActionsEnabled = (!isStreaming || isPaused) &&
+                messageActionsEnabled = !isStreaming && !isPaused &&
                     !isCompressingContext &&
                     messageEdit == null,
                 branchEnabled = !isCompressingContext && messageEdit == null,

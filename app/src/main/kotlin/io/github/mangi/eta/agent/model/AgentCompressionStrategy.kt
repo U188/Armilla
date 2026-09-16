@@ -13,30 +13,46 @@ internal enum class AgentCompressionStrategy(val wireValue: String) {
 internal object AgentCompressionBoundary {
     /** Every cut is between complete tool batches; malformed/orphaned results are not compactable. */
     fun balancedCuts(history: List<AgentModelClient.ConversationMessage>): List<Int> {
-        val cuts = availableCuts(history)
+        val cuts = collectCuts(history, strict = true)
         require(cuts.lastOrNull() == history.size) { "工具批次尚未完成" }
         return cuts
     }
 
     /** Complete-batch cut points even if the newest tool batch is still running. */
-    fun availableCuts(history: List<AgentModelClient.ConversationMessage>): List<Int> {
+    fun availableCuts(history: List<AgentModelClient.ConversationMessage>): List<Int> =
+        collectCuts(history, strict = false)
+
+    private fun collectCuts(
+        history: List<AgentModelClient.ConversationMessage>,
+        strict: Boolean,
+    ): List<Int> {
         val pending = mutableSetOf<String>()
         val cuts = mutableListOf(0)
         history.forEachIndexed { index, message ->
             if (message.toolCallsJson.isNotBlank()) {
                 val calls = runCatching { org.json.JSONArray(message.toolCallsJson) }.getOrNull()
-                if (calls != null) {
+                if (calls == null) {
+                    if (strict) require(false) { "工具调用 ID 缺失或重复" }
+                } else {
                     for (i in 0 until calls.length()) {
                         val id = calls.optJSONObject(i)?.optString("id").orEmpty()
-                        if (id.isNotBlank()) pending.add(id)
+                        if (strict) {
+                            require(id.isNotBlank() && pending.add(id)) { "工具调用 ID 缺失或重复" }
+                        } else if (id.isNotBlank()) {
+                            pending.add(id)
+                        }
                     }
                 }
             }
             if (message.role == "tool") {
-                val id = message.toolCallId.ifBlank {
-                    pending.lastOrNull().orEmpty()
+                val id = message.toolCallId
+                if (strict) {
+                    require(id.isNotBlank() && pending.remove(id)) { "工具结果缺少对应调用" }
+                } else if (id.isNotBlank()) {
+                    pending.remove(id)
+                } else {
+                    pending.lastOrNull()?.let(pending::remove)
                 }
-                if (id.isNotBlank()) pending.remove(id)
             }
             if (pending.isEmpty()) cuts += index + 1
         }

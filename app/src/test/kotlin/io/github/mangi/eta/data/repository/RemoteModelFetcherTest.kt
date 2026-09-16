@@ -47,6 +47,31 @@ class RemoteModelFetcherTest {
     }
 
     @Test
+    fun parsesCodexModelsCatalog() {
+        val models = RemoteModelFetcher.parseOpenAiModels(
+            """
+            {
+              "models":[
+                {
+                  "slug":"gpt-5.4",
+                  "display_name":"GPT-5.4",
+                  "context_window":400000,
+                  "supported_in_api":true
+                },
+                {
+                  "slug":"gpt-5.4-mini",
+                  "display_name":"GPT-5.4 Mini"
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        assertEquals(listOf("gpt-5.4", "gpt-5.4-mini"), models.map { it.modelId })
+        assertEquals("GPT-5.4", models.first().displayName)
+        assertEquals(400000, models.first().contextWindow)
+    }
+
+    @Test
     fun enrichesKnownModelsFromOfficialCatalog() {
         val provider = OpenAiCompatibleProviderSetting(
             id = "p1",

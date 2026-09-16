@@ -9,6 +9,7 @@ import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.usesOAuth
+import io.github.mangi.eta.data.model.withApiKey
 import java.net.ProxySelector
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -90,6 +91,28 @@ internal object OpenAiCodexOAuth {
     fun accountId(context: Context, providerId: String): String? =
         ProviderOAuthStore(context).loadString(providerId, "account_id")
 
+    suspend fun withResolvedAuth(
+        context: Context,
+        provider: ProviderSetting,
+    ): ProviderSetting {
+        if (!provider.usesOAuth) return provider
+        val token = validAccessToken(context, provider.id) ?: provider.apiKey
+        val extra = extraHeaders(context, provider.id, provider.baseUrl)
+        val mergedHeaders = extra + provider.customHeaders.filterNot { header ->
+            extra.any { it.name.equals(header.name, ignoreCase = true) }
+        }
+        if (token == provider.apiKey && extra.isEmpty()) return provider
+        val updated = provider.withApiKey(token)
+        return when (updated) {
+            is io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting ->
+                updated.copy(customHeaders = mergedHeaders)
+            is io.github.mangi.eta.data.model.CustomProviderSetting ->
+                updated.copy(customHeaders = mergedHeaders)
+            is io.github.mangi.eta.data.model.AnthropicProviderSetting ->
+                updated.copy(customHeaders = mergedHeaders)
+        }
+    }
+
     fun extraHeaders(context: Context, providerId: String, baseUrl: String): List<CustomHeader> {
         if (!isCodexEndpoint(baseUrl)) return emptyList()
         val headers = mutableListOf(
@@ -98,7 +121,7 @@ internal object OpenAiCodexOAuth {
             CustomHeader("Version", CLIENT_VERSION),
         )
         accountId(context, providerId)?.takeIf { it.isNotBlank() }?.let {
-            headers += CustomHeader("Chatgpt-Account-Id", it)
+            headers += CustomHeader("ChatGPT-Account-ID", it)
         }
         return headers
     }

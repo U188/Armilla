@@ -8,6 +8,7 @@ internal object ResponsesRequestBuilder {
         config: AgentModelClient.ModelConfig,
         messages: JSONArray,
         tools: JSONArray,
+        sessionId: String = "",
     ): JSONObject {
         val input = buildInput(messages)
         val responseTools = buildTools(tools, config.hostedWebSearchEnabled)
@@ -34,6 +35,16 @@ internal object ResponsesRequestBuilder {
         request.remove("reasoning")
         ProviderReasoning.applyResponsesRequest(request, config)
         config.summaryOutputLimit?.let { request.put("max_output_tokens", it) }
+        if (oauth.OpenAiCodexOAuth.isCodexEndpoint(config.baseUrl)) {
+            request.put("include", JSONArray().put("reasoning.encrypted_content"))
+            request.remove("max_output_tokens")
+            if (sessionId.isNotBlank()) {
+                request.put("prompt_cache_key", sessionId)
+            }
+            if (responseTools.length() > 0) {
+                request.put("parallel_tool_calls", true)
+            }
+        }
         return request
     }
 

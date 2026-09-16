@@ -71,6 +71,7 @@ import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.model.ProviderSourceTypes
 import io.github.mangi.eta.data.provider.ReasoningCapabilityResolver
 import io.github.mangi.eta.data.repository.ModelRepository
+import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.repository.RemoteModelFetcher
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.components.MiuixDialogActions
@@ -249,7 +250,8 @@ internal fun ProviderModelsTab(
                                 isFetching = true
                                 message = null
                                 try {
-                                    val models = RemoteModelFetcher.fetch(provider).getOrElse { throwable ->
+                                    val requestProvider = OpenAiCodexOAuth.withResolvedAuth(context, provider)
+                                    val models = RemoteModelFetcher.fetch(requestProvider).getOrElse { throwable ->
                                         message = context.getString(
                                             R.string.provider_error,
                                             throwable.message ?: throwable.javaClass.simpleName,

@@ -94,6 +94,28 @@ class OpenAiResponsesProviderTest {
     }
 
     @Test
+    fun codexRequestIncludesEncryptedReasoningAndDropsMaxTokens() {
+        val request = OpenAiResponsesProvider.buildRequestJson(
+            config = config("https://chatgpt.com/backend-api/codex").copy(
+                summaryOutputLimit = 128000,
+                reasoningCapabilities = ModelReasoningCapabilities(
+                    supportedEfforts = listOf(ReasoningEffort.MEDIUM),
+                    canDisable = false,
+                ),
+                reasoningEffort = ReasoningEffort.MEDIUM,
+            ),
+            messages = JSONArray().put(JSONObject().put("role", "user").put("content", "你好")),
+            tools = JSONArray(),
+            sessionId = "session-1",
+        )
+        assertEquals("reasoning.encrypted_content", request.getJSONArray("include").getString(0))
+        assertFalse(request.has("max_output_tokens"))
+        assertEquals("session-1", request.getString("prompt_cache_key"))
+        assertFalse(request.has("parallel_tool_calls"))
+        assertFalse(request.getBoolean("store"))
+    }
+
+    @Test
     fun requestUsesMergedInstructionsAndTypedDurableHistoryMessages() {
         val messages = JSONArray()
             .put(JSONObject().put("role", "system").put("content", "基础约束"))

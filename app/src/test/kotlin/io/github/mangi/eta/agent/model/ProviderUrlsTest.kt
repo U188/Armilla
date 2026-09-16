@@ -26,5 +26,9 @@ class ProviderUrlsTest {
             "https://api.anthropic.com/v1/models",
             ProviderUrls.anthropicModelsUrl("https://api.anthropic.com")
         )
+        assertEquals(
+            "https://chatgpt.com/backend-api/codex/models?client_version=0.144.1&limit=100",
+            ProviderUrls.openAiModelsUrl("https://chatgpt.com/backend-api/codex")
+        )
     }
 }

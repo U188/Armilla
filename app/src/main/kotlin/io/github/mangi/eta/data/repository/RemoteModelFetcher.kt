@@ -40,10 +40,9 @@ internal object RemoteModelFetcher {
         }
 
     internal fun parseOpenAiModels(body: String): List<Model> {
-        val data = json.parseToJsonElement(body)
-            .jsonObjectOrNull()
-            ?.get("data")
-            ?.jsonArrayOrNull()
+        val root = json.parseToJsonElement(body).jsonObjectOrNull() ?: return emptyList()
+        val data = root["data"]?.jsonArrayOrNull()
+            ?: root["models"]?.jsonArrayOrNull()
             ?: return emptyList()
         return data.mapNotNull { element ->
             element.jsonObjectOrNull()?.toModel(defaultOwnedBy = null)
@@ -151,7 +150,7 @@ internal object RemoteModelFetcher {
     )
 
     private fun JsonObject.toModel(defaultOwnedBy: String?): Model? {
-        val modelId = string("id")?.trim().orEmpty()
+        val modelId = string("id", "slug")?.trim().orEmpty()
         if (modelId.isBlank()) return null
         val architecture = this["architecture"]?.jsonObjectOrNull()
         val supportedParameters = stringList("supported_parameters", "supportedParameters").orEmpty()

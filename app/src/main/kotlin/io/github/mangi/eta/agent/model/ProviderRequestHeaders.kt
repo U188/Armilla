@@ -14,9 +14,12 @@ internal object ProviderRequestHeaders {
     ) {
         val host = baseUrl.toHttpUrlOrNull()?.host
         if (host == "chatgpt.com") {
-            builder.set("User-Agent", "codex_cli_rs/0.144.1 (Android; arm64)")
+            builder.set("User-Agent", "codex_cli_rs/${oauth.OpenAiCodexOAuth.CLIENT_VERSION} (Android; arm64)")
             builder.set("Originator", "codex_cli_rs")
-            builder.set("Version", "0.144.1")
+            builder.set("Version", oauth.OpenAiCodexOAuth.CLIENT_VERSION)
+            if (sessionId.isNotBlank()) {
+                builder.set("session-id", sessionId)
+            }
         } else {
             builder.set("User-Agent", "Eta")
         }

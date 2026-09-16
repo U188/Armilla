@@ -10,8 +10,14 @@ internal object ProviderUrls {
     fun openAiResponsesUrl(baseUrl: String): String =
         appendPath(baseUrl, "responses")
 
-    fun openAiModelsUrl(baseUrl: String): String =
-        appendPath(baseUrl, "models")
+    fun openAiModelsUrl(baseUrl: String): String {
+        val url = appendPath(baseUrl, "models")
+        return if (oauth.OpenAiCodexOAuth.isCodexEndpoint(baseUrl)) {
+            "$url?client_version=${oauth.OpenAiCodexOAuth.CLIENT_VERSION}&limit=100"
+        } else {
+            url
+        }
+    }
 
     fun openAiImagesGenerationsUrl(baseUrl: String): String =
         appendPath(baseUrl, "images/generations")

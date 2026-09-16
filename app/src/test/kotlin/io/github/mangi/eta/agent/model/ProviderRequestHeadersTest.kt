@@ -59,6 +59,13 @@ class ProviderRequestHeadersTest {
         }
     }
 
+    @Test
+    fun chatgptCodexSendsSessionId() {
+        val result = headers("https://chatgpt.com/backend-api/codex", "conversation-1")
+        assertEquals("conversation-1", result["session-id"])
+        assertEquals("codex_cli_rs", result["Originator"])
+    }
+
     private fun headers(url: String, session: String): Headers = Headers.Builder().also {
         ProviderRequestHeaders.mergeInto(it, url, emptyList(), session)
     }.build()

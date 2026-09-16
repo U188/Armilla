@@ -181,27 +181,6 @@ internal object RuntimeConfigRepository {
         return buildRuntimeConfig(resolveOAuth(provider), model, assistant)
     }
 
-    private suspend fun resolveOAuth(provider: ProviderSetting): ProviderSetting {
-        if (!provider.usesOAuth) return provider
-        val context = ProviderRepository.context()
-        val token = OpenAiCodexOAuth.validAccessToken(context, provider.id) ?: provider.apiKey
-        val extra = OpenAiCodexOAuth.extraHeaders(context, provider.id, provider.baseUrl)
-        val mergedHeaders = extra + provider.customHeaders.filterNot { header ->
-            extra.any { it.name.equals(header.name, ignoreCase = true) }
-        }
-        return if (token == provider.apiKey && extra.isEmpty()) {
-            provider
-        } else {
-            provider.withApiKey(token).let { updated ->
-                when (updated) {
-                    is io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting ->
-                        updated.copy(customHeaders = mergedHeaders)
-                    is io.github.mangi.eta.data.model.CustomProviderSetting ->
-                        updated.copy(customHeaders = mergedHeaders)
-                    is io.github.mangi.eta.data.model.AnthropicProviderSetting ->
-                        updated.copy(customHeaders = mergedHeaders)
-                }
-            }
-        }
-    }
+    private suspend fun resolveOAuth(provider: ProviderSetting): ProviderSetting =
+        OpenAiCodexOAuth.withResolvedAuth(ProviderRepository.context(), provider)
 }

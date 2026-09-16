@@ -106,9 +106,74 @@ internal object AntigravityRequestBuilder {
                 JSONObject()
                     .put("name", function.optString("name"))
                     .put("description", function.optString("description"))
-                    .put("parameters", function.optJSONObject("parameters") ?: JSONObject().put("type", "object")),
+                    .put("parameters", sanitizeSchema(function.optJSONObject("parameters") ?: JSONObject().put("type", "object"))),
             )
         }
         return result
     }
+
+    internal fun sanitizeSchema(raw: Any?): Any = when (raw) {
+        is JSONObject -> sanitizeObject(raw)
+        is JSONArray -> JSONArray().also { array ->
+            for (index in 0 until raw.length()) array.put(sanitizeSchema(raw.opt(index)))
+        }
+        else -> raw ?: JSONObject.NULL
+    }
+
+    private fun sanitizeObject(source: JSONObject): JSONObject {
+        val result = JSONObject()
+        source.keys().forEach { key ->
+            if (key in DROPPED_SCHEMA_KEYS) return@forEach
+            result.put(key, sanitizeSchema(source.opt(key)))
+        }
+        if (!result.has("type") && (result.has("properties") || result.has("required"))) {
+            result.put("type", "object")
+        }
+        return result
+    }
+
+    private val DROPPED_SCHEMA_KEYS = setOf(
+        "uniqueItems",
+        "additionalProperties",
+        "additional_properties",
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "pattern",
+        "default",
+        "examples",
+        "example",
+        "const",
+        "$" + "schema",
+        "$" + "id",
+        "$" + "ref",
+        "$" + "defs",
+        "definitions",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "dependentRequired",
+        "dependentSchemas",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "prefixItems",
+        "contains",
+        "propertyNames",
+        "contentEncoding",
+        "contentMediaType",
+        "title",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+    )
 }

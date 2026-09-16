@@ -39,4 +39,27 @@ class AntigravityRequestBuilderTest {
             .getJSONArray("functionDeclarations").getJSONObject(0).getString("name"))
         assertTrue(inner.getJSONObject("systemInstruction").getJSONArray("parts").length() >= 1)
     }
+
+    @Test
+    fun stripsUnsupportedSchemaKeywords() {
+        val schema = JSONObject()
+            .put("type", "object")
+            .put(
+                "properties",
+                JSONObject().put(
+                    "days",
+                    JSONObject()
+                        .put("type", "array")
+                        .put("uniqueItems", true)
+                        .put("minItems", 1)
+                        .put("items", JSONObject().put("type", "string").put("enum", JSONArray().put("mon"))),
+                ),
+            )
+        val sanitized = AntigravityRequestBuilder.sanitizeSchema(schema) as JSONObject
+        val days = sanitized.getJSONObject("properties").getJSONObject("days")
+        assertEquals("array", days.getString("type"))
+        assertTrue(days.has("items"))
+        assertTrue(!days.has("uniqueItems"))
+        assertTrue(!days.has("minItems"))
+    }
 }

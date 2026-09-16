@@ -131,7 +131,7 @@ internal object GoogleAntigravityOAuth {
                 val item = modelsObject.optJSONObject(key)
                 val modelId = item?.optString("model")?.ifBlank { null } ?: item?.optString("name")?.ifBlank { null } ?: key
                 val display = item?.optString("displayName")?.ifBlank { null } ?: modelId
-                collected += catalogModel(modelId, display, order++)
+                addCatalogModel(collected, modelId, display, order++)
             }
         }
         val modelsArray = root.optJSONArray("models") ?: root.optJSONArray("availableModels")
@@ -140,10 +140,25 @@ internal object GoogleAntigravityOAuth {
                 val item = modelsArray.optJSONObject(index) ?: continue
                 val modelId = item.optString("model").ifBlank { item.optString("name") }.ifBlank { item.optString("id") }
                 if (modelId.isBlank()) continue
-                collected += catalogModel(modelId, item.optString("displayName").ifBlank { modelId }, collected.size)
+                addCatalogModel(collected, modelId, item.optString("displayName").ifBlank { modelId }, collected.size)
             }
         }
         return collected.distinctBy { it.modelId.lowercase() }
+    }
+    private fun addCatalogModel(collected: MutableList<Model>, modelId: String, displayName: String, order: Int) {
+        if (!isUsableModel(modelId, displayName)) return
+        collected += catalogModel(modelId, displayName, order)
+    }
+    internal fun isUsableModel(modelId: String, displayName: String = modelId): Boolean {
+        val id = modelId.trim()
+        val name = displayName.trim()
+        if (id.isBlank()) return false
+        val haystack = (id + " " + name).lowercase()
+        if ("placeholder" in haystack) return false
+        if (id.startsWith("MODEL_", true)) return false
+        if ("image" in haystack && "flash-image" in haystack.replace(" ", "-")) return false
+        if (haystack.contains("flash image")) return false
+        return true
     }
     private fun catalogModel(modelId: String, displayName: String, order: Int) = Model(
         id = UUID.randomUUID().toString(), modelId = modelId, displayName = displayName,

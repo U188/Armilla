@@ -24,6 +24,20 @@ class GoogleAntigravityOAuthTest {
     }
 
     @Test
+    fun filtersPlaceholderAndImageModels() {
+        val models = GoogleAntigravityOAuth.parseModels(
+            """{"models":{
+              "gemini-3-flash":{"displayName":"Gemini 3 Flash","model":"gemini-3-flash"},
+              "MODEL_PLACEHOLDER_1":{"displayName":"MODEL_PLACEHOLDER_1","model":"MODEL_PLACEHOLDER_1"},
+              "gemini-3.1-flash-image":{"displayName":"Gemini 3.1 Flash Image","model":"gemini-3.1-flash-image"}
+            }}"""
+        )
+        assertEquals(listOf("gemini-3-flash"), models.map { it.modelId })
+        assertFalse(GoogleAntigravityOAuth.isUsableModel("MODEL_PLACEHOLDER_foo"))
+        assertTrue(GoogleAntigravityOAuth.isUsableModel("gemini-3-pro-high", "Gemini 3 Pro High"))
+    }
+
+    @Test
     fun defaultModelsCoverCurrentLineup() {
         val ids = GoogleAntigravityOAuth.defaultModels().map { it.modelId }
         assertTrue(ids.contains("gemini-3-flash"))

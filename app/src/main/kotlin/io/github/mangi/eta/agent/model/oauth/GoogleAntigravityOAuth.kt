@@ -91,7 +91,7 @@ internal object GoogleAntigravityOAuth {
     fun extraHeaders(): List<CustomHeader> = listOf(
         CustomHeader("User-Agent", "antigravity/" + CLIENT_VERSION + " darwin/arm64"),
         CustomHeader("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1"),
-        CustomHeader("Client-Metadata", """{"ideType":"ANTIGRAVITY","platform":"ANDROID","pluginType":"GEMINI"}"""),
+        CustomHeader("Client-Metadata", """{"ideType":"ANTIGRAVITY","platform":"MACOS","pluginType":"GEMINI"}"""),
     )
     suspend fun withResolvedAuth(context: Context, provider: ProviderSetting): ProviderSetting {
         if (!usesBackend(provider)) return provider
@@ -250,7 +250,7 @@ internal object GoogleAntigravityOAuth {
     }
     private fun discoverProjectId(store: ProviderOAuthStore, providerId: String, accessToken: String) {
         if (accessToken.isBlank()) return
-        val metadata = JSONObject().put("ideType", "ANTIGRAVITY")
+        val metadata = JSONObject().put("ideType", "ANTIGRAVITY").put("platform", "MACOS").put("pluginType", "GEMINI")
         endpoints.forEach { endpoint ->
             val project = runCatching { provisionProject(endpoint, accessToken, metadata) }.getOrNull()
             if (!project.isNullOrBlank() && project != DEFAULT_PROJECT_ID) {

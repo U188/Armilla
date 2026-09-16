@@ -734,19 +734,19 @@ private fun ModelListItem(
                 enabled = enabled,
             )
         } else {
-            IconButton(onClick = onEdit, enabled = enabled) {
-                Icon(
-                    imageVector = Icons.Rounded.Tune,
-                    contentDescription = stringResource(R.string.ui_edit_model_parameters_ba4864),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                )
-            }
             if (isSelected) {
                 Icon(
                     imageVector = Icons.Rounded.Check,
                     contentDescription = context.getString(R.string.page_current_model_a0af8f),
                     tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp),
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+            }
+            IconButton(onClick = onEdit, enabled = enabled) {
+                Icon(
+                    imageVector = Icons.Rounded.Tune,
+                    contentDescription = stringResource(R.string.ui_edit_model_parameters_ba4864),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
                 )
             }
         }

@@ -45,14 +45,17 @@ internal object AgentContextCompactor {
     /** DeepSeek harness 按 token 留尾巴；单次摘要输入也按真实窗口收紧，避免 1M 覆盖把 128k 模型打爆。 */
     internal const val SUMMARIZER_INPUT_CAP = 128_000
     internal const val SUMMARY_REQUEST_TIMEOUT_MS = 120_000L
-    internal const val SUMMARY_GENERATION_FLOOR = 8_192
+    internal const val SUMMARY_GENERATION_FLOOR = 1_024
     internal const val SUMMARY_GENERATION_CAP = 16_384
 
-    // The checkpoint target is a text-length goal, not the provider's hard
-    // generation ceiling. Leave room for formatting and mandatory reasoning.
+    // The selected value controls the summary text itself. Keep only a small
+    // formatting margin; do not force a multi-thousand-token floor for a 2k target.
     internal fun summaryGenerationLimit(targetTokens: Int, window: Int): Int =
-        minOf(maxOf(SUMMARY_GENERATION_FLOOR.toLong(), targetTokens.toLong() * 2 + 4096)
-            .coerceAtMost(SUMMARY_GENERATION_CAP.toLong()).toInt(), maxOf(1024, window / 4))
+        minOf(
+            maxOf(SUMMARY_GENERATION_FLOOR, targetTokens + maxOf(256, targetTokens / 8))
+                .coerceAtMost(SUMMARY_GENERATION_CAP),
+            maxOf(1024, window / 4),
+        )
 
     internal fun summaryRetryLimit(current: Int, window: Int, inputTokens: Int): Int? {
         val available = AgentCompressionBoundary.inputLimit(window, 0).toLong() - inputTokens
@@ -213,11 +216,11 @@ internal object AgentContextCompactor {
             offset += chunk.size
             compressChunk(chunk, perChunk, controller, chunkReplay)
         }
-        require(summaries.sumOf { AgentContextBudget.countTokens(it) } <= resolvedConfig.targetTokens * 2) { "摘要总量超过目标预算" }
+        require(summaries.sumOf { AgentContextBudget.countTokens(it) } <= summaryTotalCap(resolvedConfig.targetTokens, summaries.size)) { "摘要总量超过目标预算" }
         val consolidated = if (summaries.size <= 1) summaries else listOf(compressChunk(
             summaries.map { AgentModelClient.ConversationMessage("user", it) }, resolvedConfig, controller, null,
         ))
-        require(consolidated.sumOf { AgentContextBudget.countTokens(it) } <= resolvedConfig.targetTokens * 2) { "合并摘要超过目标预算" }
+        require(consolidated.sumOf { AgentContextBudget.countTokens(it) } <= summaryTotalCap(resolvedConfig.targetTokens, consolidated.size)) { "合并摘要超过目标预算" }
 
         val summaryMessages = consolidated.map { summary ->
             AgentModelClient.ConversationMessage(
@@ -378,6 +381,11 @@ internal object AgentContextCompactor {
         } else {
             "$SUMMARY_PREFIX_ZH\n$trimmed"
         }
+    }
+
+    private fun summaryTotalCap(targetTokens: Int, messageCount: Int): Int {
+        val target = targetTokens.coerceAtLeast(1)
+        return (target + maxOf(256, target / 8)).coerceAtMost(target * 2)
     }
 
     private fun splitMessages(

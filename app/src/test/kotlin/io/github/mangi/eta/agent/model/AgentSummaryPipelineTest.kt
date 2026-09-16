@@ -21,6 +21,13 @@ class AgentSummaryPipelineTest {
     }
     private fun response(text: String, finish: String = "stop") = JSONObject().put("role", "assistant").put("content", text).put("finish_reason", finish)
 
+    @Test
+    fun selectedSummaryBudgetControlsGenerationWithoutEightKFloor() {
+        assertEquals(2250, AgentContextCompactor.summaryGenerationLimit(2000, 128_000))
+        assertEquals(562, AgentContextCompactor.summaryGenerationLimit(500, 128_000))
+        assertEquals(4500, AgentContextCompactor.summaryGenerationLimit(4000, 128_000))
+    }
+
     @Test fun autoTargetResolvesBeforePromptAndValidationUsingMainWindow() {
         val source = listOf(AgentModelClient.ConversationMessage("user", "x".repeat(160_000)),
             AgentModelClient.ConversationMessage("user", "protected"))

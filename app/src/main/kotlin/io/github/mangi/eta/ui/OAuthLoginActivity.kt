@@ -51,7 +51,9 @@ class OAuthLoginActivity : Activity() {
             setOnClickListener { fail(IllegalStateException(getString(R.string.provider_oauth_cancelled))) }
         }
         val title = TextView(this).apply {
-            text = getString(R.string.provider_oauth_login_title)
+            text = intent.getStringExtra(EXTRA_TITLE)
+                ?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.provider_oauth_login_title)
             textSize = 18f
             setTextColor(Color.BLACK)
             gravity = android.view.Gravity.CENTER_VERTICAL
@@ -153,13 +155,19 @@ class OAuthLoginActivity : Activity() {
         @Volatile private var pending: CompletableDeferred<Pair<String, String?>>? = null
         @Volatile private var current: WeakReference<OAuthLoginActivity>? = null
 
-        fun start(context: Context, url: String, deferred: CompletableDeferred<Pair<String, String?>>) {
+        fun start(
+            context: Context,
+            url: String,
+            deferred: CompletableDeferred<Pair<String, String?>>,
+            title: String? = null,
+        ) {
             pending?.let { old ->
                 if (old.isActive) old.completeExceptionally(IllegalStateException("已取消登录"))
             }
             pending = deferred
             val intent = Intent(context, OAuthLoginActivity::class.java).apply {
                 putExtra(EXTRA_URL, url)
+                if (!title.isNullOrBlank()) putExtra(EXTRA_TITLE, title)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)

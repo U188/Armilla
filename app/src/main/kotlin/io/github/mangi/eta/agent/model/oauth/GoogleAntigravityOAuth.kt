@@ -220,7 +220,14 @@ internal object GoogleAntigravityOAuth {
         val server = OAuthCallbackServer(CALLBACK_PORT) { code, state -> result.complete(code to state) }
         server.onFailure = { error -> if (result.isActive) result.completeExceptionally(error) }
         runCatching { server.start() }
-        withContext(Dispatchers.Main.immediate) { OAuthLoginActivity.start(context, authUrl, result) }
+        withContext(Dispatchers.Main.immediate) {
+            OAuthLoginActivity.start(
+                context,
+                authUrl,
+                result,
+                title = context.getString(io.github.mangi.eta.R.string.provider_oauth_antigravity_login_title),
+            )
+        }
         try { return result.await() } finally { server.stop(); OAuthLoginActivity.finishIfOpen() }
     }
     private fun exchangeCode(store: ProviderOAuthStore, providerId: String, code: String): String {

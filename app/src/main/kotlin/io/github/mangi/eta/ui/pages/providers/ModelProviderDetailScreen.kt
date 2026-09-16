@@ -658,10 +658,17 @@ private suspend fun testConnection(
         } else {
             OpenAiCodexOAuth.validAccessToken(context, provider.id)
         } ?: provider.apiKey
+        val antigravity = GoogleAntigravityOAuth.usesBackend(provider)
         return if (token.isBlank()) {
-            context.getString(R.string.provider_oauth_need_sign_in)
+            context.getString(
+                if (antigravity) R.string.provider_oauth_antigravity_need_sign_in
+                else R.string.provider_oauth_need_sign_in,
+            )
         } else {
-            context.getString(R.string.provider_oauth_signed_in)
+            context.getString(
+                if (antigravity) R.string.provider_oauth_antigravity_signed_in
+                else R.string.provider_oauth_signed_in,
+            )
         }
     }
     return RemoteModelFetcher.fetch(provider)
@@ -688,11 +695,19 @@ private fun ProviderOAuthLoginRow(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val id = providerId
+    val antigravity = ProviderAuthMode.isAntigravity(authMode) ||
+        GoogleAntigravityOAuth.isAntigravityEndpoint(baseUrl)
     TextButton(
         text = if (signedIn) {
-            context.getString(R.string.provider_oauth_signed_in)
+            context.getString(
+                if (antigravity) R.string.provider_oauth_antigravity_signed_in
+                else R.string.provider_oauth_signed_in,
+            )
         } else {
-            context.getString(R.string.provider_oauth_sign_in)
+            context.getString(
+                if (antigravity) R.string.provider_oauth_antigravity_sign_in
+                else R.string.provider_oauth_sign_in,
+            )
         },
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
@@ -702,10 +717,7 @@ private fun ProviderOAuthLoginRow(
             onStatus(null)
             scope.launch {
                 try {
-                    val token = if (
-                        ProviderAuthMode.isAntigravity(authMode) ||
-                            GoogleAntigravityOAuth.isAntigravityEndpoint(baseUrl)
-                    ) {
+                    val token = if (antigravity) {
                         GoogleAntigravityOAuth.login(context, id)
                     } else {
                         OpenAiCodexOAuth.login(context, id)
@@ -729,9 +741,15 @@ private fun ProviderOAuthLoginRow(
     )
     Text(
         text = if (signedIn) {
-            context.getString(R.string.provider_oauth_signed_in_note)
+            context.getString(
+                if (antigravity) R.string.provider_oauth_antigravity_signed_in_note
+                else R.string.provider_oauth_signed_in_note,
+            )
         } else {
-            context.getString(R.string.provider_oauth_sign_in_note)
+            context.getString(
+                if (antigravity) R.string.provider_oauth_antigravity_sign_in_note
+                else R.string.provider_oauth_sign_in_note,
+            )
         },
         style = MiuixTheme.textStyles.footnote2,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

@@ -62,19 +62,21 @@ internal object GoogleAntigravityOAuth {
         if (!returnedState.isNullOrBlank() && returnedState != state) throw IllegalStateException("OAuth state 不匹配")
         exchangeCode(store, providerId, code)
     }
-    suspend fun validAccessToken(context: Context, providerId: String): String? = withContext(Dispatchers.IO) {
-        val store = ProviderOAuthStore(context)
-        val stored = store.loadTokens(providerId) ?: return@withContext null
-        val token = stored.optString("access_token").ifBlank { return@withContext null }
-        val expireAt = stored.optLong("expire_at", 0L)
-        val now = System.currentTimeMillis()
-        if (expireAt > 0 && expireAt - now < 5 * 60_000L) {
-            val refreshed = refresh(store, providerId, stored)
-            if (refreshed != null) return@withContext refreshed
-            if (now >= expireAt) { store.clear(providerId); return@withContext null }
+    suspend fun validAccessToken(context: Context, providerId: String, forceRefresh: Boolean = false): String? =
+        withContext(Dispatchers.IO) {
+            val store = ProviderOAuthStore(context)
+            val stored = store.loadTokens(providerId) ?: return@withContext null
+            val token = stored.optString("access_token").ifBlank { return@withContext null }
+            val expireAt = stored.optLong("expire_at", 0L)
+            val now = System.currentTimeMillis()
+            val stale = forceRefresh || expireAt <= 0L || expireAt - now < 5 * 60_000L
+            if (stale) {
+                val refreshed = refresh(store, providerId, stored)
+                if (refreshed != null) return@withContext refreshed
+                if (forceRefresh || now >= expireAt) return@withContext null
+            }
+            token
         }
-        token
-    }
     fun projectId(context: Context, providerId: String): String? =
         ProviderOAuthStore(context).loadString(providerId, "project_id")
             ?.takeIf { it.isNotBlank() && it != DEFAULT_PROJECT_ID }
@@ -93,7 +95,7 @@ internal object GoogleAntigravityOAuth {
     )
     suspend fun withResolvedAuth(context: Context, provider: ProviderSetting): ProviderSetting {
         if (!usesBackend(provider)) return provider
-        val token = validAccessToken(context, provider.id) ?: provider.apiKey
+        val token = validAccessToken(context, provider.id) ?: return provider
         val extra = extraHeaders()
         val merged = extra + provider.customHeaders.filterNot { h -> extra.any { it.name.equals(h.name, true) } }
         val updated = provider.withApiKey(token)
@@ -105,11 +107,13 @@ internal object GoogleAntigravityOAuth {
     }
     fun defaultEndpointMode(): String = OpenAiEndpointMode.ANTIGRAVITY
     fun defaultModels(): List<Model> = listOf(
+        Triple("gemini-3.1-flash", "Gemini 3.1 Flash", 1_000_000),
         Triple("gemini-3-flash", "Gemini 3 Flash", 1_000_000),
-        Triple("gemini-3-pro-low", "Gemini 3 Pro Low", 1_000_000),
-        Triple("gemini-3-pro-high", "Gemini 3 Pro High", 1_000_000),
+        Triple("gemini-3.1-pro", "Gemini 3.1 Pro", 1_000_000),
         Triple("claude-sonnet-4-6", "Claude Sonnet 4.6", 200_000),
+        Triple("claude-opus-4-6", "Claude Opus 4.6", 200_000),
         Triple("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking", 200_000),
+        Triple("gpt-oss-120b-medium", "GPT-OSS 120B", 128_000),
     ).mapIndexed { index, (id, name, window) ->
         Model(id = UUID.randomUUID().toString(), modelId = id, displayName = name,
             ownedBy = if (id.startsWith("claude")) "anthropic" else "google", sortOrder = index,
@@ -117,7 +121,9 @@ internal object GoogleAntigravityOAuth {
             toolCall = true, reasoning = true, structuredOutput = true, source = ModelSource.CATALOG)
     }
     fun fetchModels(context: Context, provider: ProviderSetting): List<Model> {
-        val token = provider.apiKey
+        val token = kotlinx.coroutines.runBlocking {
+            validAccessToken(context, provider.id)
+        } ?: provider.apiKey
         if (token.isBlank()) return defaultModels()
         val project = projectId(context, provider.id).orEmpty()
         val body = JSONObject().also { if (project.isNotBlank()) it.put("project", project) }
@@ -158,6 +164,23 @@ internal object GoogleAntigravityOAuth {
         if (!isUsableModel(modelId, displayName)) return
         collected += catalogModel(modelId, displayName, order)
     }
+    internal fun prettyModelName(modelId: String, displayName: String): String {
+        val name = displayName.trim()
+        if (name.isNotBlank() && !name.equals(modelId, true) && !name.startsWith("MODEL_", true)) {
+            return name
+        }
+        return when (modelId.lowercase()) {
+            "gemini-3-flash" -> "Gemini 3 Flash"
+            "gemini-3.1-flash" -> "Gemini 3.1 Flash"
+            "gemini-3.1-pro", "gemini-3-pro", "gemini-3-pro-high" -> "Gemini 3.1 Pro"
+            "gemini-3-pro-low" -> "Gemini 3 Pro Low"
+            "claude-sonnet-4-6" -> "Claude Sonnet 4.6"
+            "claude-opus-4-6" -> "Claude Opus 4.6"
+            "claude-opus-4-6-thinking" -> "Claude Opus 4.6 Thinking"
+            "gpt-oss-120b-medium", "gpt-oss-120b" -> "GPT-OSS 120B"
+            else -> name.ifBlank { modelId }
+        }
+    }
     internal fun isUsableModel(modelId: String, displayName: String = modelId): Boolean {
         val id = modelId.trim()
         val name = displayName.trim()
@@ -170,7 +193,8 @@ internal object GoogleAntigravityOAuth {
         return true
     }
     private fun catalogModel(modelId: String, displayName: String, order: Int) = Model(
-        id = UUID.randomUUID().toString(), modelId = modelId, displayName = displayName,
+        id = UUID.randomUUID().toString(), modelId = modelId,
+        displayName = prettyModelName(modelId, displayName),
         ownedBy = if (modelId.startsWith("claude", true)) "anthropic" else "google",
         sortOrder = order, contextWindow = 1_000_000,
         inputModalities = listOf(Model.TEXT_MODALITY, Model.IMAGE_MODALITY),

@@ -384,9 +384,6 @@ internal fun AgentWorkProcess(
     isPaused: Boolean = false,
     isTrailing: Boolean = false,
     turnStreaming: Boolean = false,
-    stepsAsLazyItems: Boolean = false,
-    expandedOverride: Boolean? = null,
-    onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
     val running = messages.any { message ->
         (message is ThinkingMessageUi && message.isStreaming) ||
@@ -404,10 +401,9 @@ internal fun AgentWorkProcess(
     var manuallyExpanded by rememberSaveable(id) { mutableStateOf(false) }
 
     LaunchedEffect(keepOpen) {
-        if (manuallyExpanded || expandedOverride != null) return@LaunchedEffect
+        if (manuallyExpanded) return@LaunchedEffect
         expanded = keepOpen
     }
-    val showingSteps = expandedOverride ?: expanded
 
     val view = LocalView.current
     SideEffect {
@@ -445,13 +441,8 @@ internal fun AgentWorkProcess(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                    val next = !showingSteps
-                    if (onExpandedChange != null) {
-                        onExpandedChange(next)
-                    } else {
-                        manuallyExpanded = true
-                        expanded = next
-                    }
+                    manuallyExpanded = true
+                    expanded = !expanded
                 }
                 .padding(horizontal = 13.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -499,10 +490,10 @@ internal fun AgentWorkProcess(
                 modifier = Modifier.weight(1f),
             )
             Icon(
-                imageVector = if (showingSteps) Icons.Rounded.ExpandMore
+                imageVector = if (expanded) Icons.Rounded.ExpandMore
                     else Icons.Rounded.ChevronRight,
                 contentDescription = stringResource(
-                    if (showingSteps) R.string.work_collapse else R.string.work_expand,
+                    if (expanded) R.string.work_collapse else R.string.work_expand,
                 ),
                 modifier = Modifier.size(14.dp),
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
@@ -510,7 +501,7 @@ internal fun AgentWorkProcess(
         }
 
         AnimatedVisibility(
-            visible = showingSteps && !stepsAsLazyItems,
+            visible = expanded,
             enter = fadeIn() + expandVertically(
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -551,30 +542,6 @@ internal fun AgentWorkProcess(
     }
 }
 
-
-@Composable
-internal fun WorkProcessStepSlot(
-    message: AgentChatMessageUi,
-    onOpenBrowser: () -> Unit,
-    currentBrowserMessageId: String?,
-    retainedStreamingState: StreamingMarkdownState?,
-    isPaused: Boolean,
-    enableLivePreview: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    ChatMessageItem(
-        message = message,
-        onSuggestionClick = {},
-        onRunTraceClick = {},
-        onOpenBrowser = onOpenBrowser,
-        showBrowserShortcut = message.id == currentBrowserMessageId,
-        enableLivePreview = enableLivePreview,
-        retainedStreamingState = retainedStreamingState,
-        compact = true,
-        isPaused = isPaused,
-        modifier = modifier,
-    )
-}
 
 // ── 用户消息：轻盈美观气泡 ──────────────────────────────────────────────
 

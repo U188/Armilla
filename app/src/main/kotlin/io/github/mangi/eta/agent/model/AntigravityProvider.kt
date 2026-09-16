@@ -32,22 +32,43 @@ internal object AntigravityProvider : AgentProviderClient {
         ).orEmpty()
         val body = AntigravityRequestBuilder.build(config, request.messages, request.tools, projectId)
             .toString().toRequestBody(JSON_MEDIA_TYPE)
-        val headers = okhttp3.Headers.Builder()
-            .add("Content-Type", "application/json")
-            .add("Accept", "text/event-stream")
-            .apply { if (config.apiKey.isNotBlank()) add("Authorization", "Bearer " + config.apiKey) }
-            .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders, request.sessionId) }
-            .build()
         val url = GoogleAntigravityOAuth.BASE_URL.trimEnd('/') + "/v1internal:streamGenerateContent?alt=sse"
-        val httpRequest = Request.Builder().url(if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl)) {
-            config.baseUrl.trimEnd('/') + "/v1internal:streamGenerateContent?alt=sse"
-        } else url).headers(headers).post(body).build()
+        fun buildRequest(token: String): Request {
+            val resolvedHeaders = okhttp3.Headers.Builder()
+                .add("Content-Type", "application/json")
+                .add("Accept", "text/event-stream")
+                .apply { if (token.isNotBlank()) add("Authorization", "Bearer " + token) }
+                .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders, request.sessionId) }
+                .build()
+            val requestUrl = if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl)) {
+                config.baseUrl.trimEnd('/') + "/v1internal:streamGenerateContent?alt=sse"
+            } else url
+            return Request.Builder().url(requestUrl).headers(resolvedHeaders).post(body).build()
+        }
         try {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
-            val assistant = readStreaming(httpRequest, runController, onEvent)
-            onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
-            return ProviderResponse(assistant)
+            return try {
+                val assistant = readStreaming(buildRequest(config.apiKey), runController, onEvent)
+                onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
+                ProviderResponse(assistant)
+            } catch (failure: AgentModelFailure) {
+                if (failure.code != "HTTP_401") throw failure
+                val refreshed = kotlinx.coroutines.runBlocking {
+                    GoogleAntigravityOAuth.validAccessToken(
+                        ProviderRepository.context(),
+                        config.providerId,
+                        forceRefresh = true,
+                    )
+                } ?: throw AgentModelFailure(
+                    code = "HTTP_401",
+                    retryable = false,
+                    message = "反重力登录已过期，请到提供商页重新登录 Google。",
+                )
+                val assistant = readStreaming(buildRequest(refreshed), runController, onEvent)
+                onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
+                ProviderResponse(assistant)
+            }
         } catch (throwable: Throwable) {
             runCatching { runController.throwIfCancelled() }.getOrElse { throw it }
             openGoogleValidation(throwable)

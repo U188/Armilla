@@ -150,8 +150,8 @@ class AgentChatScrollPolicyTest {
     }
 
     @Test
-    fun contentGrowthDoesNotDisableBottomFollowing() {
-        assertTrue(
+    fun leavingBottomDisablesFollowingEvenWithoutDrag() {
+        assertFalse(
             resolveKeepBottomAnchored(
                 current = true,
                 isUserDragging = false,

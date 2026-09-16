@@ -41,8 +41,9 @@ class GoogleAntigravityOAuthTest {
     @Test
     fun defaultModelsCoverCurrentLineup() {
         val ids = GoogleAntigravityOAuth.defaultModels().map { it.modelId }
-        assertTrue(ids.contains("gemini-3-flash"))
+        assertTrue(ids.contains("gemini-3.1-flash") || ids.contains("gemini-3-flash"))
         assertTrue(ids.contains("claude-sonnet-4-6"))
+        assertTrue(ids.contains("gemini-3.1-pro") || ids.contains("gemini-3-pro-high"))
         assertTrue(GoogleAntigravityOAuth.defaultModels().all { it.toolCall == true })
     }
 }

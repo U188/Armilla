@@ -52,7 +52,12 @@ internal class AgentModelFailure(
                         if (detail != null) "模型请求参数无效（HTTP 400）：$detail"
                         else "模型请求参数无效（HTTP 400），请检查模型配置。"
                     }
-                    401 -> "模型接口认证失败（HTTP 401），请检查 API Key。"
+                    401 -> {
+                        val detail = providerMessage.takeIf { it.isNotBlank() }
+                        if (detail != null && detail.contains("verify", true))
+                            "Google 要求验证这个账号（HTTP 401）：$detail"
+                        else "模型接口认证失败（HTTP 401）。OAuth 请重新登录，API Key 请检查密钥。"
+                    }
                     403 -> {
                         val detail = providerMessage.takeIf { it.isNotBlank() }
                             ?: body.replace('\n', ' ').replace('\r', ' ').trim().take(400)

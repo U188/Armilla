@@ -527,12 +527,20 @@ internal fun AgentConversationMessages(
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
     val streamingMarkdownStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
-    val workProcessExpanded = remember { mutableStateMapOf<String, Boolean>() }
     val compressingItemCount = if (isCompressingContext) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
     val isAtBottom by remember(scrollState) {
-        derivedStateOf { !scrollState.canScrollForward }
+        derivedStateOf {
+            val info = scrollState.layoutInfo
+            val sentinel = info.visibleItemsInfo.firstOrNull { it.key == ChatBottomSentinelKey }
+            if (sentinel == null) {
+                !scrollState.canScrollForward
+            } else {
+                val viewportEnd = info.viewportEndOffset - info.afterContentPadding
+                sentinel.offset + sentinel.size <= viewportEnd + 8
+            }
+        }
     }
     val densityScale = LocalDensity.current.density
     val coroutineScope = rememberCoroutineScope()
@@ -789,16 +797,9 @@ internal fun AgentConversationMessages(
                                 }
                             }
                         }
-                        val running = entry.messages.any { message ->
-                            (message is ThinkingMessageUi && message.isStreaming) ||
-                                (message is ToolActivityMessageUi &&
-                                    message.status == ToolActivityStatusUi.Running)
-                        }
-                        val expanded = workProcessExpanded[entry.key]
-                            ?: (running || (entry.key == trailingWorkKey && isStreaming))
                         item(
                             key = entry.key,
-                            contentType = "work-header",
+                            contentType = "work-process",
                         ) {
                             AgentWorkProcess(
                                 id = entry.key,
@@ -809,36 +810,12 @@ internal fun AgentConversationMessages(
                                 isPaused = isPaused,
                                 isTrailing = entry.key == trailingWorkKey,
                                 turnStreaming = isStreaming,
-                                stepsAsLazyItems = true,
-                                expandedOverride = expanded,
-                                onExpandedChange = { workProcessExpanded[entry.key] = it },
                                 modifier = if (isStreaming) Modifier else Modifier.animateItem(
                                     fadeInSpec = tween(durationMillis = 180),
                                     placementSpec = null,
                                     fadeOutSpec = null,
                                 ),
                             )
-                        }
-                        if (expanded) {
-                            items(
-                                items = entry.messages,
-                                key = { it.id },
-                                contentType = { "work-step" },
-                            ) { message ->
-                                WorkProcessStepSlot(
-                                    message = message,
-                                    onOpenBrowser = onOpenBrowser,
-                                    currentBrowserMessageId = currentBrowserMessageId,
-                                    retainedStreamingState = streamingMarkdownStates[message.id],
-                                    isPaused = isPaused,
-                                    enableLivePreview = !isStreaming,
-                                    modifier = if (isStreaming) Modifier else Modifier.animateItem(
-                                        fadeInSpec = tween(durationMillis = 180),
-                                        placementSpec = null,
-                                        fadeOutSpec = null,
-                                    ),
-                                )
-                            }
                         }
                     }
                 }
@@ -1226,8 +1203,8 @@ internal fun resolveKeepBottomAnchored(
     isAtBottom: Boolean,
 ): Boolean = when {
     isUserDragging -> isAtBottom
-    isAtBottom -> true
-    else -> current
+    !isAtBottom -> false
+    else -> true
 }
 
 internal fun resolveBottomFollowEnabled(

@@ -113,6 +113,25 @@ class OpenAiResponsesProviderTest {
         assertEquals("session-1", request.getString("prompt_cache_key"))
         assertFalse(request.has("parallel_tool_calls"))
         assertFalse(request.getBoolean("store"))
+        assertEquals("medium", request.getJSONObject("reasoning").getString("effort"))
+        assertEquals("auto", request.getJSONObject("reasoning").getString("summary"))
+    }
+
+    @Test
+    fun codexRequestDoesNotSendNoneEffort() {
+        val request = OpenAiResponsesProvider.buildRequestJson(
+            config = config("https://chatgpt.com/backend-api/codex").copy(
+                reasoningCapabilities = ModelReasoningCapabilities(
+                    supportedEfforts = listOf(ReasoningEffort.MEDIUM),
+                    canDisable = true,
+                ),
+                reasoningEffort = ReasoningEffort.OFF,
+            ),
+            messages = JSONArray().put(JSONObject().put("role", "user").put("content", "你好")),
+            tools = JSONArray(),
+        )
+        assertEquals("medium", request.getJSONObject("reasoning").getString("effort"))
+        assertEquals("auto", request.getJSONObject("reasoning").getString("summary"))
     }
 
     @Test

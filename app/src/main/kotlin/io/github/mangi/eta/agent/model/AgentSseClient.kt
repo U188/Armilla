@@ -117,6 +117,23 @@ internal object AgentSseClient {
                             )
                         }
                         t != null &&
+                            t.message.orEmpty().startsWith("Invalid content-type") &&
+                            response != null -> {
+                            val body = runCatching { response.body?.string() }.getOrNull().orEmpty()
+                            failure.compareAndSet(
+                                null,
+                                if (!response.isSuccessful) {
+                                    AgentModelFailure.http(response.code, body)
+                                } else {
+                                    AgentModelFailure(
+                                        "HTTP_${response.code}",
+                                        false,
+                                        "模型接口返回了无法解析的响应（HTTP ${response.code}）${body.take(300).let { if (it.isBlank()) "" else "：$it" }}",
+                                    )
+                                },
+                            )
+                        }
+                        t != null &&
                             !shouldIgnoreFailure() &&
                             !isBenignClose(t) ->
                             failure.compareAndSet(null, t)

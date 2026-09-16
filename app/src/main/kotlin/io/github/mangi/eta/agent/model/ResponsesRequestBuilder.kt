@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
+import io.github.mangi.eta.data.model.ReasoningEffort
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -39,6 +40,18 @@ internal object ResponsesRequestBuilder {
         if (OpenAiCodexOAuth.isCodexEndpoint(config.baseUrl)) {
             request.put("include", JSONArray().put("reasoning.encrypted_content"))
             request.remove("max_output_tokens")
+            val effort = when (config.effectiveReasoningEffort) {
+                ReasoningEffort.OFF, ReasoningEffort.DEFAULT -> "medium"
+                ReasoningEffort.MINIMAL -> "low"
+                ReasoningEffort.MAX -> "high"
+                else -> config.effectiveReasoningEffort.wireValue
+            }
+            request.put(
+                "reasoning",
+                JSONObject()
+                    .put("effort", effort)
+                    .put("summary", "auto"),
+            )
             if (sessionId.isNotBlank()) {
                 request.put("prompt_cache_key", sessionId)
             }

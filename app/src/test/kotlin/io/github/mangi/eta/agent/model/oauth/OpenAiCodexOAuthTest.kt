@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.model.oauth
 
 import io.github.mangi.eta.data.model.ProviderAuthMode
+import java.util.Base64
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -65,4 +67,29 @@ class OpenAiCodexOAuthTest {
     fun callbackSurfacesOauthError() {
         OAuthCallback.parseUrlOrThrow("http://localhost:1455/auth/callback?error=access_denied")
     }
+
+
+    @Test
+    fun parseIdTokenReadsNestedChatgptAccountId() {
+        val payload = JSONObject()
+            .put(
+                "https://api.openai.com/auth",
+                JSONObject().put("chatgpt_account_id", "acct-nested"),
+            )
+            .toString()
+        val token = "aaa.${b64(payload)}.sig"
+        assertEquals("acct-nested", OpenAiCodexOAuth.parseIdToken(token))
+    }
+
+    @Test
+    fun extractAccountIdPrefersTokenBodyThenJwt() {
+        val payload = JSONObject().put("chatgpt_account_id", "acct-jwt").toString()
+        val json = JSONObject()
+            .put("account_id", "acct-body")
+            .put("id_token", "aaa.${b64(payload)}.sig")
+        assertEquals("acct-body", OpenAiCodexOAuth.extractAccountId(json))
+    }
+
+    private fun b64(value: String): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray())
 }

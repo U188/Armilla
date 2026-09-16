@@ -88,8 +88,14 @@ internal object OpenAiCodexOAuth {
             token
         }
 
-    fun accountId(context: Context, providerId: String): String? =
-        ProviderOAuthStore(context).loadString(providerId, "account_id")
+    fun accountId(context: Context, providerId: String): String? {
+        val store = ProviderOAuthStore(context)
+        store.loadString(providerId, "account_id")?.takeIf { it.isNotBlank() }?.let { return it }
+        val tokens = store.loadTokens(providerId) ?: return null
+        val extracted = extractAccountId(tokens) ?: return null
+        store.saveString(providerId, "account_id", extracted)
+        return extracted
+    }
 
     suspend fun withResolvedAuth(
         context: Context,
@@ -225,10 +231,7 @@ internal object OpenAiCodexOAuth {
             json.put("expire_at", System.currentTimeMillis() + expiresIn * 1000)
         }
         store.saveTokens(providerId, json)
-        val idToken = json.optString("id_token")
-        if (idToken.isNotBlank()) {
-            parseIdToken(idToken)?.let { store.saveString(providerId, "account_id", it) }
-        }
+        extractAccountId(json)?.let { store.saveString(providerId, "account_id", it) }
     }
 
     private fun postToken(body: FormBody): JSONObject {
@@ -255,13 +258,23 @@ internal object OpenAiCodexOAuth {
         throw lastError ?: IllegalStateException("Token 交换失败")
     }
 
-    private fun parseIdToken(token: String): String? {
+    internal fun extractAccountId(json: JSONObject): String? {
+        json.optString("account_id").takeIf { it.isNotBlank() }?.let { return it }
+        val idToken = json.optString("id_token")
+        if (idToken.isBlank()) return null
+        return parseIdToken(idToken)
+    }
+
+    internal fun parseIdToken(token: String): String? {
         val parts = token.split(".")
         if (parts.size < 2) return null
         val payload = runCatching {
-            String(java.util.Base64.getUrlDecoder().decode(parts[1]))
+            val padded = parts[1] + "=".repeat((4 - parts[1].length % 4) % 4)
+            String(java.util.Base64.getUrlDecoder().decode(padded))
         }.getOrNull() ?: return null
-        val json = runCatching { JSONObject(payload) }.getOrNull() ?: return null
-        return json.optString("chatgpt_account_id").ifBlank { null }
+        val claims = runCatching { JSONObject(payload) }.getOrNull() ?: return null
+        claims.optString("chatgpt_account_id").takeIf { it.isNotBlank() }?.let { return it }
+        val auth = claims.optJSONObject("https://api.openai.com/auth") ?: return null
+        return auth.optString("chatgpt_account_id").takeIf { it.isNotBlank() }
     }
 }

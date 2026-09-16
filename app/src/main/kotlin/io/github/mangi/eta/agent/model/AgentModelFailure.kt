@@ -46,6 +46,8 @@ internal class AgentModelFailure(
                 else when (status) {
                     400 -> {
                         val detail = providerMessage.takeIf { it.isNotBlank() }
+                            ?: body.replace('\n', ' ').replace('\r', ' ').trim().take(400)
+                                .takeIf { it.isNotBlank() }
                         if (detail != null) "模型请求参数无效（HTTP 400）：$detail"
                         else "模型请求参数无效（HTTP 400），请检查模型配置。"
                     }

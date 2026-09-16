@@ -50,6 +50,7 @@ internal object AntigravityProvider : AgentProviderClient {
             return ProviderResponse(assistant)
         } catch (throwable: Throwable) {
             runCatching { runController.throwIfCancelled() }.getOrElse { throw it }
+            openGoogleValidation(throwable)
             throw throwable
         }
     }
@@ -133,4 +134,15 @@ internal object AntigravityProvider : AgentProviderClient {
     }
 
     private data class StreamingTool(val id: String, val name: String, val args: String, val index: Int)
+
+    private fun openGoogleValidation(error: Throwable) {
+        val body = error.message.orEmpty()
+        val url = AgentModelFailure.extractGoogleValidationUrl(null, body) ?: return
+        runCatching {
+            ProviderRepository.context().startActivity(
+                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
 }

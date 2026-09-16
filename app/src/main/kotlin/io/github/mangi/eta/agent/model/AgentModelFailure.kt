@@ -39,6 +39,7 @@ internal class AgentModelFailure(
                 ?.trim()
                 .orEmpty()
                 .take(400)
+            val validationUrl = extractGoogleValidationUrl(error, body)
             return AgentModelFailure(
                 code = "HTTP_$status",
                 retryable = status in transientStatus && !permanent,
@@ -56,12 +57,13 @@ internal class AgentModelFailure(
                         val detail = providerMessage.takeIf { it.isNotBlank() }
                             ?: body.replace('\n', ' ').replace('\r', ' ').trim().take(400)
                                 .takeIf { it.isNotBlank() }
-                        val verify = detail != null && (
-                            detail.contains("verify your account", ignoreCase = true) ||
-                                detail.contains("validation", ignoreCase = true)
+                        val verify = validationUrl != null || (
+                            detail != null && detail.contains("verify your account", ignoreCase = true)
                         )
                         when {
-                            verify -> "Google 要求先验证这个账号（HTTP 403）。打开 https://antigravity.google 用同一账号完成验证，再回提供商里重新登录。"
+                            validationUrl != null ->
+                                "Google 要求验证这个账号（HTTP 403）。请用无痕浏览器打开：$validationUrl 登录被标记的账号完成验证，然后再发消息。官网首页通常不会弹验证。"
+                            verify -> "Google 要求先验证这个账号（HTTP 403）。请用无痕浏览器打开接口返回的 validation_url，不要只登录 antigravity.google 首页。"
                             detail != null -> "模型接口拒绝访问（HTTP 403）：$detail"
                             else -> "模型接口拒绝访问（HTTP 403），请检查账户与模型权限。"
                         }
@@ -103,6 +105,26 @@ internal class AgentModelFailure(
                 "MODEL_CONNECTION_FAILED", true, "模型连接中断或暂时无法建立，请检查网络与服务商状态。", failure,
             )
             else -> null
+        }
+
+        internal fun extractGoogleValidationUrl(error: JSONObject?, body: String): String? {
+            val details = error?.optJSONArray("details")
+            if (details != null) {
+                for (index in 0 until details.length()) {
+                    val item = details.optJSONObject(index) ?: continue
+                    val url = item.optJSONObject("metadata")?.optString("validation_url")
+                        ?.takeIf { it.isNotBlank() }
+                    if (url != null && (
+                            item.optString("reason").equals("VALIDATION_REQUIRED", true) ||
+                                url.startsWith("https://accounts.google.com/")
+                            )
+                    ) {
+                        return url
+                    }
+                }
+            }
+            val match = Regex("""https://accounts\.google\.com/signin/continue[^"\\\s]+""").find(body)
+            return match?.value
         }
 
         private fun isContextOverflow(error: JSONObject?): Boolean {

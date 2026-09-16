@@ -52,7 +52,13 @@ internal class AgentModelFailure(
                         else "模型请求参数无效（HTTP 400），请检查模型配置。"
                     }
                     401 -> "模型接口认证失败（HTTP 401），请检查 API Key。"
-                    403 -> "模型接口拒绝访问（HTTP 403），请检查账户与模型权限。"
+                    403 -> {
+                        val detail = providerMessage.takeIf { it.isNotBlank() }
+                            ?: body.replace('\n', ' ').replace('\r', ' ').trim().take(400)
+                                .takeIf { it.isNotBlank() }
+                        if (detail != null) "模型接口拒绝访问（HTTP 403）：$detail"
+                        else "模型接口拒绝访问（HTTP 403），请检查账户与模型权限。"
+                    }
                     404 -> "模型接口或模型不存在（HTTP 404），请检查接口地址与模型名称。"
                     429 -> "模型接口暂时限流（HTTP 429）。"
                     else -> "模型接口返回 HTTP $status"

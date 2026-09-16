@@ -28,7 +28,7 @@ import org.json.JSONObject
 
 internal object GoogleAntigravityOAuth {
     const val DEFAULT_NAME = "反重力"
-    const val BASE_URL = "https://daily-cloudcode-pa.googleapis.com"
+    const val BASE_URL = "https://cloudcode-pa.googleapis.com"
     const val CLIENT_VERSION = "1.18.3"
     private const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -40,8 +40,8 @@ internal object GoogleAntigravityOAuth {
     private const val DEFAULT_PROJECT_ID = "rising-fact-p41fc"
     private val JSON = "application/json".toMediaType()
     private val endpoints = listOf(
-        "https://daily-cloudcode-pa.googleapis.com",
         "https://cloudcode-pa.googleapis.com",
+        "https://daily-cloudcode-pa.googleapis.com",
         "https://daily-cloudcode-pa.sandbox.googleapis.com",
     )
     private val httpClient: OkHttpClient by lazy {
@@ -220,9 +220,11 @@ internal object GoogleAntigravityOAuth {
         val payload = JSONObject().put("metadata", JSONObject().put("ideType", "ANTIGRAVITY").put("platform", "ANDROID").put("pluginType", "GEMINI"))
         endpoints.forEach { endpoint ->
             val project = runCatching { loadProject(endpoint, accessToken, payload) }.getOrNull()
-            if (!project.isNullOrBlank()) { store.saveString(providerId, "project_id", project); return }
+            if (!project.isNullOrBlank() && project != DEFAULT_PROJECT_ID) {
+                store.saveString(providerId, "project_id", project)
+                return
+            }
         }
-        store.saveString(providerId, "project_id", DEFAULT_PROJECT_ID)
     }
     private fun loadProject(endpoint: String, token: String, payload: JSONObject): String? {
         val request = Request.Builder().url(endpoint + "/v1internal:loadCodeAssist")

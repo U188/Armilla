@@ -4571,7 +4571,7 @@ internal class AgentAppState(
 }
 
 private val RESUME_AFTER_COMPRESS_PROMPT =
-    AgentContextCompactor.steeringUserContent("请从上次中断的地方继续，不要重复已经写过的内容，也不要从头开始。")
+    AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT
 
 private data class PendingManualCompress(
     val conversationId: String?,

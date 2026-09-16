@@ -950,7 +950,7 @@ class AgentModelClientLoopTest {
         val continueContents = (0 until provider.requests[1].length()).map {
             provider.requests[1].getJSONObject(it).optString("content")
         }
-        assertTrue(continueContents.any { it.contains("从上次中断的地方继续") })
+        assertTrue(continueContents.any { it.contains(AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT) })
     }
 
     @Test
@@ -974,7 +974,7 @@ class AgentModelClientLoopTest {
                         request.messages.getJSONObject(it).optString("content")
                     }
                     assertTrue(contents.any { it.contains("已经写到一半") })
-                    assertTrue(contents.any { it.contains("从上次中断的地方继续") })
+                    assertTrue(contents.any { it.contains(AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT) })
                     assistant(content = "接着写完", finishReason = "stop")
                 },
             )

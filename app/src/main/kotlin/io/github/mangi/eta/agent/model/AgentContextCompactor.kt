@@ -17,6 +17,9 @@ internal object AgentContextCompactor {
     fun steeringUserContent(supplement: String): String =
         "$STEERING_USER_PREFIX$supplement\n\n$STEERING_USER_SUFFIX"
 
+    const val SEAMLESS_CONTINUE_PROMPT =
+        "从助手上一条消息被打断的位置直接续写。输出必须接到最后一个字后面，不要另起元叙述，不要说接着往下、继续完成、从上次中断处继续之类的话，也不要重复已经写过的句子。"
+
     data class ReplayContext(
         val systemMessages: org.json.JSONArray,
         val historyMessages: org.json.JSONArray,

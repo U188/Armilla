@@ -522,9 +522,7 @@ internal class AgentLoop(
         if (!last.optString("role").equals("assistant", ignoreCase = true)) return
         messages.put(
             AgentConversationCodec.userTextMessage(
-                AgentContextCompactor.steeringUserContent(
-                    "请从上次中断的地方继续，不要重复已经写过的内容，也不要从头开始。",
-                ),
+                AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT,
             ).put(AgentTurnIdentity.JSON_KEY, turnId),
         )
         suppressThinkingForNextRequest = true

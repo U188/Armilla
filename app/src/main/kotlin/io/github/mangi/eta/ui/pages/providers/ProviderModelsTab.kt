@@ -12,6 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -64,6 +68,7 @@ import io.github.mangi.eta.data.model.VisionChatModels
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.ReasoningEffort
+import io.github.mangi.eta.data.provider.ProviderSourceTypes
 import io.github.mangi.eta.data.provider.ReasoningCapabilityResolver
 import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.RemoteModelFetcher
@@ -672,7 +677,7 @@ private fun ModelSelectionBar(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ModelListItem(
     model: Model,
@@ -715,9 +720,12 @@ private fun ModelListItem(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 2.dp),
             )
-            Row(
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(top = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
             ) {
                 capabilityTags(model).forEach { tag ->
                     TagChip(text = tag)
@@ -734,20 +742,32 @@ private fun ModelListItem(
                 enabled = enabled,
             )
         } else {
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = context.getString(R.string.page_current_model_a0af8f),
-                    tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.padding(end = 4.dp),
-                )
-            }
-            IconButton(onClick = onEdit, enabled = enabled) {
-                Icon(
-                    imageVector = Icons.Rounded.Tune,
-                    contentDescription = stringResource(R.string.ui_edit_model_parameters_ba4864),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.wrapContentWidth(),
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = context.getString(R.string.page_current_model_a0af8f),
+                        tint = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .padding(end = 2.dp)
+                            .size(20.dp),
+                    )
+                }
+                IconButton(
+                    onClick = onEdit,
+                    enabled = enabled,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Tune,
+                        contentDescription = stringResource(R.string.ui_edit_model_parameters_ba4864),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
         }
     }
@@ -995,6 +1015,15 @@ private fun ModelEditDialog(
 }
 
 @Composable
+private fun showsReasoningTag(model: Model): Boolean {
+    if (model.reasoningOverride == false) return false
+    if (model.supportsReasoning) return true
+    return ReasoningCapabilityResolver.resolve(
+        sourceType = ProviderSourceTypes.CUSTOM,
+        model = model,
+    ) != null
+}
+
 private fun capabilityTags(model: Model): List<String> {
     val context = LocalContext.current
     return buildList {
@@ -1006,6 +1035,6 @@ private fun capabilityTags(model: Model): List<String> {
             )
         } ?: context.getString(R.string.page_context_unknown_b6ae7b)
     )
-    if (model.supportsReasoning) add(context.getString(R.string.page_support_thinking_5b9e4c))
+    if (showsReasoningTag(model)) add(context.getString(R.string.page_support_thinking_5b9e4c))
     }
 }

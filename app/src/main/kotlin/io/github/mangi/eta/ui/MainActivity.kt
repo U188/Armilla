@@ -126,8 +126,7 @@ class MainActivity : ComponentActivity() {
         return if (android.os.Build.VERSION.SDK_INT >= 33) {
             getParcelableArrayListExtra(name, T::class.java)
         } else {
-            @Suppress("DEPRECATION")
-            @Suppress("UNCHECKED_CAST")
+            @Suppress("DEPRECATION", "UNCHECKED_CAST")
             getParcelableArrayListExtra(name) as? ArrayList<T>
         }
     }

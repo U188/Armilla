@@ -103,8 +103,8 @@ class MainActivity : ComponentActivity() {
     private fun inboundUris(intent: Intent?): List<android.net.Uri> {
         if (intent == null) return emptyList()
         val fromStream = when (intent.action) {
-            Intent.ACTION_SEND -> listOfNotNull(intent.parcelableExtraCompat<android.net.Uri>(Intent.EXTRA_STREAM))
-            Intent.ACTION_SEND_MULTIPLE -> intent.parcelableArrayListExtraCompat<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
+            Intent.ACTION_SEND -> listOfNotNull(intent.shareUriExtra())
+            Intent.ACTION_SEND_MULTIPLE -> intent.shareUriListExtra()
             else -> emptyList()
         }
         val fromData = intent.data?.takeIf {
@@ -113,22 +113,23 @@ class MainActivity : ComponentActivity() {
         return (fromStream + listOfNotNull(fromData)).distinct()
     }
 
-    private inline fun <reified T : android.os.Parcelable> Intent.parcelableExtraCompat(name: String): T? {
+    private fun Intent.shareUriExtra(): android.net.Uri? {
         return if (android.os.Build.VERSION.SDK_INT >= 33) {
-            getParcelableExtra(name, T::class.java)
+            getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
         } else {
             @Suppress("DEPRECATION")
-            getParcelableExtra(name) as? T
+            getParcelableExtra(Intent.EXTRA_STREAM) as? android.net.Uri
         }
     }
 
     @Suppress("DEPRECATION", "UNCHECKED_CAST")
-    private inline fun <reified T : android.os.Parcelable> Intent.parcelableArrayListExtraCompat(name: String): ArrayList<T>? {
-        return if (android.os.Build.VERSION.SDK_INT >= 33) {
-            getParcelableArrayListExtra(name, T::class.java)
+    private fun Intent.shareUriListExtra(): List<android.net.Uri> {
+        val values = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getParcelableArrayListExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
         } else {
-            getParcelableArrayListExtra(name) as ArrayList<T>?
+            getParcelableArrayListExtra(Intent.EXTRA_STREAM) as ArrayList<android.net.Uri>?
         }
+        return values.orEmpty()
     }
 
     private fun updateAssistantHandoff(intent: Intent?) {

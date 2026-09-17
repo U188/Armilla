@@ -130,6 +130,8 @@ internal class AgentLoop(
             val roundTools = currentRoundTools
             toolCallValidator = AgentToolCallValidator(roundTools)
             val reasoningLengthBeforeRound = accumulatedReasoning.length
+            val continuationText = AgentContinuationTextEvents(
+                if (continuingInterruptedRequest) interruptedTextPrefix.toString() else "")
             continuationReasoning.beginRequest(continuingInterruptedRequest)
             continuationBlocks.beginRequest(continuingInterruptedRequest)
             continuingInterruptedRequest = false
@@ -153,7 +155,9 @@ internal class AgentLoop(
                             ) {
                                 accumulatedReasoning.append(visibleEvent.delta)
                             }
-                            continuationBlocks.map(attemptRound, visibleEvent).toAgentEvent(attemptRound)?.let(onEvent)
+                            continuationText.map(visibleEvent).forEach { textEvent ->
+                                continuationBlocks.map(attemptRound, textEvent).toAgentEvent(attemptRound)?.let(onEvent)
+                            }
                         }
                     },
                     discardAttemptReasoning = { accumulatedReasoning.setLength(reasoningLengthBeforeRound) },
@@ -175,7 +179,14 @@ internal class AgentLoop(
             val providerResponse = completedRound.response
 
             runController.throwIfCancelled()
+            continuationText.finish().forEach { textEvent ->
+                continuationBlocks.map(round, textEvent).toAgentEvent(round)?.let(onEvent)
+            }
             val assistantMessage = providerResponse.assistantMessage
+            val originalContent = assistantMessage.opt("content")
+            if (originalContent is String && originalContent != "null") {
+                assistantMessage.put("content", continuationText.normalize(originalContent))
+            }
             val toolCalls = AgentConversationCodec.parseToolCalls(assistantMessage)
             val assistantReasoning = continuationReasoning.visibleCompletedReasoning(
                 assistantMessage.optString("reasoning_content"))

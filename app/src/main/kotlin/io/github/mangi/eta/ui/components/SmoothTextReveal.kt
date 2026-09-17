@@ -47,6 +47,15 @@ internal class SmoothTextRevealCoordinator {
     private val drainedState = MutableStateFlow(true)
     private val startedState = MutableStateFlow<Set<RevealBlockKey>>(emptySet())
     private var animationsPaused = false
+    private var restoredSourceLength = 0
+
+    /** Layout nodes may attach after the parent's restore callback; those old blocks
+     * must also start complete rather than replaying from zero. */
+    fun restoreHistoryThrough(sourceLength: Int) {
+        restoredSourceLength = sourceLength.coerceAtLeast(0)
+        pauseAnimationsAndCatchUp()
+    }
+
     private var onRevealAdvanced: ((Float) -> Unit)? = null
 
     fun setOnRevealAdvanced(listener: ((Float) -> Unit)?) {
@@ -189,6 +198,7 @@ internal class SmoothTextRevealCoordinator {
         text: String,
         layoutResult: TextLayoutResult,
     ) {
+        val firstLayoutOfRestoredBlock = record.layoutResult == null && record.key.sourceOffset < restoredSourceLength
         if (text != record.text) {
             // 流式文本只追加不修改，但行内语法闭合（**粗体**、`code`、链接折叠等）会让
             // 渲染文本丢掉标记字符而变短或错位。此时进度只能保持单调前进：一旦回退，
@@ -205,7 +215,7 @@ internal class SmoothTextRevealCoordinator {
         if (record.layoutResult !== layoutResult) {
             record.layoutResult = layoutResult
         }
-        if (animationsPaused || record.node == null) completeRecord(record)
+        if (animationsPaused || record.node == null || firstLayoutOfRestoredBlock) completeRecord(record)
         updateDrainedState()
         record.node?.onRevealDataChanged()
     }

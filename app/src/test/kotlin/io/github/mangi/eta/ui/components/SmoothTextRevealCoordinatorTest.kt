@@ -110,6 +110,22 @@ class SmoothTextRevealCoordinatorTest {
         assertTrue(coordinator.drained.value)
     }
 
+    @Test fun restoredLateLayoutDoesNotReplayButSubsequentNetworkTextStillAnimates() {
+        val coordinator = SmoothTextRevealCoordinator()
+        coordinator.restoreHistoryThrough(100)
+        // Parent restore finishes before this old Markdown node attaches.
+        coordinator.resumeAnimationsAfterCatchUp()
+        val key = RevealBlockKey(20)
+        val node = attach(coordinator, key, "已有文字")
+        assertEquals(4f, coordinator.drawSnapshot(key)!!.progress, 0f)
+        coordinator.updateLayout(key, node, "已有文字和新增文字", layout("已有文字和新增文字"))
+        assertEquals(4f, coordinator.drawSnapshot(key)!!.progress, 0f)
+        assertFalse(coordinator.drained.value)
+        val newKey = RevealBlockKey(110)
+        attach(coordinator, newKey, "新段落")
+        assertEquals(0f, coordinator.drawSnapshot(newKey)!!.progress, 0f)
+    }
+
     private fun attach(
         coordinator: SmoothTextRevealCoordinator,
         key: RevealBlockKey,

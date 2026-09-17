@@ -1,5 +1,8 @@
 package io.github.mangi.eta.ui.app
 
+import androidx.compose.runtime.CompositionLocalProvider
+import io.github.mangi.eta.ui.components.StreamingMarkdownCache
+import io.github.mangi.eta.ui.components.LocalStreamingMarkdownStates
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -131,6 +134,7 @@ fun AgentAppRoot(
     val navigator = remember(backStack) { AgentNavigator(backStack) }
     val appViewModel = viewModel<AgentAppViewModel>()
     val agentState = appViewModel.state
+    val streamingMarkdownCache = remember { StreamingMarkdownCache() }
     val requestExecutionNotifications = rememberExecutionNotificationRequest()
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -422,7 +426,11 @@ fun AgentAppRoot(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                content()
+                CompositionLocalProvider(LocalStreamingMarkdownStates provides streamingMarkdownCache.forConversation(
+                    agentState.conversationPaneState.selectedConversationId ?: "new-conversation"
+                )) {
+                    content()
+                }
             }
         }
     }

@@ -157,6 +157,52 @@ class AgentPauseContinuationTest {
         }
     }
 
+    @Test fun repeatedResumeOpeningIsRemovedFromStreamFinalHistoryAndReplayWithoutNewTurn() {
+        for (streaming in listOf(true, false)) {
+            var calls = 0
+            val controller = AgentRunController()
+            val events = mutableListOf<AgentEvent>()
+            val history = JSONArray().put(AgentConversationCodec.userTextMessage("task"))
+            val parts = listOf("他打开邮箱。", "他打开邮箱。点开附件。", "点开附件。内容出现了。")
+            val provider = object : AgentProviderClient {
+                override val id = "resume-overlap"
+                override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+                override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                    val text = parts[calls++]
+                    onEvent(ProviderEvent.RequestStarted)
+                    if (streaming) {
+                        onEvent(ProviderEvent.BlockStart(AssistantBlockKind.TEXT, 0))
+                        text.forEach { onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 0, it.toString())) }
+                        onEvent(ProviderEvent.BlockEnd(AssistantBlockKind.TEXT, 0, content = text, replaceContent = true))
+                    }
+                    if (calls < parts.size) {
+                        val binding = runController.register(interruptible = true) {}
+                        runController.pause()
+                        runController.resume()
+                        binding.close()
+                    }
+                    return ProviderResponse(JSONObject().put("role", "assistant").put("content", text).put("finish_reason", "stop"))
+                }
+            }
+            val result = AgentLoop(config(), history, JSONArray(), provider,
+                AgentModelClient.ToolExecutor { error("no tools") }, controller, AgentTraceFormatter(),
+                onEvent = events::add, turnId = "same-turn").run()
+            val expected = "他打开邮箱。点开附件。内容出现了。"
+            assertEquals(expected, result.content)
+            val assistantHistory = (0 until history.length()).map { history.getJSONObject(it) }.filter { it.optString("role") == "assistant" }
+            assertEquals(expected, assistantHistory.joinToString("") { it.getString("content") })
+            assertTrue(assistantHistory.all { it.getString(AgentTurnIdentity.JSON_KEY) == "same-turn" })
+            assertEquals(listOf(1, 1, 1), events.filterIsInstance<AgentEvent.RoundStarted>().map { it.round })
+            if (streaming) {
+                assertEquals(expected, project(events).filterIsInstance<AgentMessageUi>().joinToString("") { it.content })
+                assertEquals(expected, events.filterIsInstance<AgentEvent.AssistantBlockDelta>()
+                    .filter { it.kind == AgentEvent.AssistantBlockKind.TEXT }.joinToString("") { it.delta })
+                val replay = project(events)
+                assertEquals(project(events), replay)
+            }
+        }
+    }
+
     @Test fun legacyResumeAndSteeringRecordsDoNotCreateNewCompressionTurns() {
         val history = AgentTurnIdentity.migrate(listOf(
             AgentModelClient.ConversationMessage("user", "task", turnId = "original"),

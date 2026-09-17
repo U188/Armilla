@@ -526,7 +526,12 @@ internal fun AgentConversationMessages(
     }
     // 流式消息的渲染会话按 id 提升到列表层持有：item 滚出视口被 LazyColumn 销毁后，
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
-    val streamingMarkdownStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
+    val fallbackStreamingStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
+    val streamingMarkdownStates = LocalStreamingMarkdownStates.current ?: fallbackStreamingStates
+    LaunchedEffect(visibleMessages, streamingMarkdownStates) {
+        val activeIds = visibleMessages.mapTo(mutableSetOf()) { it.id }
+        streamingMarkdownStates.keys.retainAll(activeIds)
+    }
     val compressingItemCount = if (isCompressingContext) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()

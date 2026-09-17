@@ -1047,7 +1047,7 @@ private fun StreamingMarkdown(
     val view = LocalView.current
 
     LifecycleResumeEffect(state) {
-        revealCoordinator.pauseAnimationsAndCatchUp()
+        revealCoordinator.restoreHistoryThrough(currentContent.length)
         state.restoreState.begin(currentContent)
         onPauseOrDispose {
             state.restoreState.pause()

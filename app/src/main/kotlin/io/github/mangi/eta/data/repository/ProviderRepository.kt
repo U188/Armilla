@@ -31,9 +31,10 @@ internal object ProviderRepository {
     private lateinit var applicationContext: Context
 
     fun init(context: Context) {
-        if (!::applicationContext.isInitialized) {
-            applicationContext = context.applicationContext
-        }
+        // Rebind on initialization: Robolectric recreates Application between tests.
+        // Keeping the first Application would send OAuth cleanup to stale preferences
+        // while the database singleton already belongs to the current application.
+        applicationContext = context.applicationContext
     }
 
     fun providersFlow(): Flow<List<ProviderSetting>> =

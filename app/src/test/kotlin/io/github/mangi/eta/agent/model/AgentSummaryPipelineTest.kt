@@ -63,7 +63,8 @@ class AgentSummaryPipelineTest {
             }
         }
         val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(2000, 1, config(), streaming))
-        assertEquals(validSummary(), result.first().content)
+        // Stored checkpoints use the canonical marker, not the provider's English marker.
+        assertEquals(AgentContextCompactor.coerceSummary(validSummary()), result.first().content)
         assertEquals(history().last(), result.last())
         assertFalse(result.first().content.contains("private reasoning"))
     }

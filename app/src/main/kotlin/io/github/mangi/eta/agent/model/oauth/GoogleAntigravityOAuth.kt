@@ -146,7 +146,9 @@ internal object GoogleAntigravityOAuth {
             while (keys.hasNext()) {
                 val key = keys.next()
                 val item = modelsObject.optJSONObject(key)
-                val modelId = item?.optString("model")?.ifBlank { null } ?: item?.optString("name")?.ifBlank { null } ?: key
+                // The object key is the callable ID. `model` may be Google's internal
+                // MODEL_PLACEHOLDER_* enum, not an endpoint model name (same as CPA).
+                val modelId = key.trim()
                 val display = item?.optString("displayName")?.ifBlank { null } ?: modelId
                 addCatalogModel(collected, modelId, display, order++)
             }
@@ -174,7 +176,11 @@ internal object GoogleAntigravityOAuth {
         return when (modelId.lowercase()) {
             "gemini-3-flash" -> "Gemini 3 Flash"
             "gemini-3.1-flash" -> "Gemini 3.1 Flash"
-            "gemini-3.1-pro", "gemini-3-pro", "gemini-3-pro-high" -> "Gemini 3.1 Pro"
+            "gemini-3.1-pro" -> "Gemini 3.1 Pro"
+            "gemini-3.1-pro-high" -> "Gemini 3.1 Pro (High)"
+            "gemini-3.1-pro-low" -> "Gemini 3.1 Pro (Low)"
+            "gemini-3-pro" -> "Gemini 3 Pro"
+            "gemini-3-pro-high" -> "Gemini 3 Pro (High)"
             "gemini-3-pro-low" -> "Gemini 3 Pro Low"
             "claude-sonnet-4-6" -> "Claude Sonnet 4.6"
             "claude-opus-4-6" -> "Claude Opus 4.6"

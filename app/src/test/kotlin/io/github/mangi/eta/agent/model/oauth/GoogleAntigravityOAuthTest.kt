@@ -27,6 +27,27 @@ class GoogleAntigravityOAuthTest {
     }
 
     @Test
+    fun objectCatalogUsesCallableKeysInsteadOfInternalModelEnums() {
+        val models = GoogleAntigravityOAuth.parseModels(
+            """{"models":{
+              "gemini-3-flash":{"displayName":"Gemini 3 Flash","model":"MODEL_PLACEHOLDER_M18"},
+              "gemini-3.1-pro-high":{"displayName":"Gemini 3.1 Pro (High)","model":"MODEL_PLACEHOLDER_M37"},
+              "claude-sonnet-4-6":{"displayName":"Claude Sonnet 4.6 (Thinking)","model":"MODEL_PLACEHOLDER_M35"},
+              "gpt-oss-120b-medium":{"model":"MODEL_OPENAI_GPT_OSS_120B_MEDIUM"}
+            }}"""
+        )
+        assertEquals(setOf("gemini-3-flash", "gemini-3.1-pro-high", "claude-sonnet-4-6", "gpt-oss-120b-medium"),
+            models.map { it.modelId }.toSet())
+        assertTrue(models.none { it.modelId.startsWith("MODEL_") })
+    }
+
+    @Test
+    fun legacyProNameDoesNotPretendToBeNewerModel() {
+        assertEquals("Gemini 3 Pro (High)", GoogleAntigravityOAuth.prettyModelName("gemini-3-pro-high", ""))
+        assertEquals("Gemini 3.1 Pro (High)", GoogleAntigravityOAuth.prettyModelName("gemini-3.1-pro-high", ""))
+    }
+
+    @Test
     fun filtersPlaceholderAndImageModels() {
         val models = GoogleAntigravityOAuth.parseModels(
             """{"models":{

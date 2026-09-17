@@ -66,7 +66,7 @@ internal fun TopBarOverflowMenu(
         modelId: String?,
         strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
-    ) -> Unit = { _, _, _, _, done -> done(false) },
+    ) -> Unit = { _, _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
     onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
     tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),

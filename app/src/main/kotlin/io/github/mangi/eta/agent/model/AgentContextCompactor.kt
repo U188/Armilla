@@ -309,12 +309,13 @@ internal object AgentContextCompactor {
                 trimmed.removePrefix("[Summary of previous conversation]")
             else -> trimmed
         }.trim().removePrefix(":").trim()
-        val footnote = listOf(
-            "
-[历史原文仅为资料",
-            "
-[原文引用见代码生成的脚注]",
-        ).mapNotNull { marker -> withoutPrefix.indexOf(marker).takeIf { it >= 0 } }.minOrNull()
+        val footnoteMarkers = listOf(
+            "\n[历史原文仅为资料",
+            "\n[原文引用见代码生成的脚注]",
+        )
+        val footnote = footnoteMarkers
+            .mapNotNull { marker -> withoutPrefix.indexOf(marker).takeIf { it >= 0 } }
+            .minOrNull()
         val body = if (footnote != null) withoutPrefix.take(footnote) else withoutPrefix
         return body.lineSequence()
             .filterNot { line ->
@@ -322,8 +323,8 @@ internal object AgentContextCompactor {
                 trimmedLine.startsWith("context-checkpoint:") ||
                     trimmedLine == "[原文引用见代码生成的脚注]"
             }
-            .joinToString("
-")
+            .joinToString("\n")
+            .replace("[原文引用见代码生成的脚注]", "")
             .trim()
     }
 

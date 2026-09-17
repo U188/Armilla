@@ -62,4 +62,23 @@ class AgentChatImageCacheTest {
         assertEquals(payload.toList(), File(staged.absolutePath).readBytes().toList())
         assertTrue(staged.displayName.contains("chat-video-1.mp4") || staged.displayName.endsWith("mp4"))
     }
+    @Test
+    fun workdirAttachmentAliasResolvesNewestChatImage() {
+        val context = RuntimeEnvironment.getApplication()
+        val cache = AgentChatImageCache(context)
+        val older = cache.stage("conv-a", byteArrayOf(1, 2, 3, 4), "chat-image-1.jpg")!!
+        File(older.absolutePath).setLastModified(1_000L)
+        val newer = cache.stage("conv-b", byteArrayOf(5, 6, 7, 8), "chat-image-1.jpg")!!
+        File(newer.absolutePath).setLastModified(2_000L)
+
+        val resolved = cache.resolveReadableFile("/home/workdir/attachments/image.jpg")
+        assertEquals(newer.absolutePath, resolved!!.absolutePath)
+        assertEquals(
+            newer.absolutePath,
+            cache.resolveReadableFile("/home/workdir/attachments/chat-image-1.jpg")!!.absolutePath,
+        )
+        assertEquals(newer.absolutePath, cache.resolveReadableFile(newer.absolutePath)!!.absolutePath)
+        assertEquals(null, cache.resolveReadableFile("/home/workdir/attachments/missing.png"))
+        assertEquals(null, cache.resolveReadableFile("/etc/passwd"))
+    }
 }

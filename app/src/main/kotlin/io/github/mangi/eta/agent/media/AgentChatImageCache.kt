@@ -98,6 +98,41 @@ internal class AgentChatImageCache(context: Context) {
         if (root.isDirectory && root.list().isNullOrEmpty()) root.delete()
     }
 
+    /**
+     * 模型侧常见的 /home/workdir/attachments/image.jpg 并不是 Android 路径。
+     * 只在缓存目录内按附件名查找，不跟随任意外部路径。
+     */
+    fun resolveReadableFile(raw: String): File? {
+        val path = raw.trim().removePrefix("file://")
+        if (path.isEmpty() || path.startsWith("content://") || path.contains('\u0000')) return null
+        val direct = File(path)
+        if (direct.isFile && direct.canRead()) return direct
+        if (!isAttachmentAlias(path)) return null
+        if (!root.isDirectory) return null
+        val requested = AgentFileReferenceGateway.safeImportName(direct.name)
+        if (requested.isBlank() || requested.contains("..")) return null
+        return root.listFiles().orEmpty()
+            .asSequence()
+            .filter { it.isDirectory }
+            .flatMap { it.listFiles()?.asSequence() ?: emptySequence() }
+            .filter { it.isFile && it.canRead() && matchesAttachmentName(it.name, requested) }
+            .maxByOrNull { it.lastModified() }
+    }
+
+    private fun isAttachmentAlias(path: String): Boolean {
+        val normalized = path.replace('\\', '/').trim()
+        return normalized.startsWith("/home/workdir/attachments/") ||
+            normalized == "/home/workdir/attachments" ||
+            normalized.startsWith("/workspace/attachments/")
+    }
+
+    private fun matchesAttachmentName(fileName: String, requested: String): Boolean {
+        if (fileName == requested) return true
+        if (fileName.endsWith("-$requested")) return true
+        val genericImage = requested.matches(Regex("(?i)image\\.(jpg|jpeg|png|webp|gif)"))
+        return genericImage && fileName.contains("chat-image-1")
+    }
+
     companion object {
         const val CACHE_DIRECTORY = "eta-chat-images"
 

@@ -5,6 +5,7 @@ import android.net.Uri
 import io.github.mangi.eta.agent.device.BoundedRootCommandExecutor
 import io.github.mangi.eta.agent.device.BoundedFileCopy
 import io.github.mangi.eta.agent.device.RootAccess
+import io.github.mangi.eta.agent.media.AgentChatImageCache
 import io.github.mangi.eta.agent.media.AgentImageCodec
 import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.agent.media.MAX_AGENT_IMAGE_BYTES
@@ -22,9 +23,12 @@ internal class AgentImageTools(
     private val root: BoundedRootCommandExecutor,
     private val rootAvailable: () -> Boolean = { RootAccess.isGranted },
     private val resolveGuestPath: (String) -> String = { LinuxGuestPathResolver.resolveForApp(context, it) },
+    private val chatImages: AgentChatImageCache = AgentChatImageCache(context),
 ) {
     fun readImage(args: JSONObject): AgentModelClient.ToolResult {
-        val source = resolveGuestPath(args.getString("path").removePrefix("file://"))
+        val requested = args.getString("path").removePrefix("file://")
+        val mapped = resolveGuestPath(requested)
+        val source = resolveExistingImagePath(mapped, requested)
         val sourceKind = when {
             source.startsWith("content://") -> ImageSourceKind.ContentUri
             source.startsWith("/") && !source.contains('\u0000') -> ImageSourceKind.File
@@ -89,6 +93,21 @@ internal class AgentImageTools(
         } finally {
             temporaryFile.delete()
         }
+    }
+
+    private fun resolveExistingImagePath(mapped: String, requested: String): String {
+        if (isReadableLocalFile(mapped)) return mapped
+        chatImages.resolveReadableFile(mapped)?.let { return it.absolutePath }
+        if (requested != mapped) {
+            chatImages.resolveReadableFile(requested)?.let { return it.absolutePath }
+        }
+        return mapped
+    }
+
+    private fun isReadableLocalFile(path: String): Boolean {
+        if (!path.startsWith("/") || path.contains('\u0000')) return false
+        val file = File(path)
+        return file.isFile && file.canRead()
     }
 
     private fun looksLikeVideo(source: String, sourceKind: ImageSourceKind): Boolean {

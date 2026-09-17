@@ -6,8 +6,12 @@ package io.github.mangi.eta.agent.model
 internal class AgentContinuationText(prefix: String) {
     private val tail = prefix.takeLast(2048)
     private val candidates = tail.indices.map { tail.substring(it) }.filter { candidate ->
-        candidate.count { !it.isWhitespace() } >= 4 &&
-            (candidate.last() in ".!?。！？；;\n" || candidate.length >= 12)
+        val visible = candidate.count { !it.isWhitespace() }
+        visible >= 2 && (
+            (visible >= 4 && candidate.last() in ".!?。！？；;、，,\n") ||
+                visible >= 6 ||
+                candidate.length >= 8
+        )
     }
     private var opening = StringBuilder()
     private var decided = candidates.isEmpty()

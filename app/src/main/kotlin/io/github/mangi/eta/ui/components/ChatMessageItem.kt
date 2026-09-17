@@ -1060,9 +1060,13 @@ private fun StreamingMarkdown(
     }
 
     val animationsAllowed = state.restoreState.animationsAllowed(isPaused)
-    LaunchedEffect(revealCoordinator, animationsAllowed) {
-        if (animationsAllowed) revealCoordinator.resumeAnimationsWithoutCatchingUp()
-        else revealCoordinator.pauseAnimationsAndCatchUp()
+    LaunchedEffect(revealCoordinator, animationsAllowed, currentContent) {
+        if (animationsAllowed) {
+            revealCoordinator.resumeAnimationsWithoutCatchingUp()
+        } else {
+            if (currentPaused) revealCoordinator.restoreHistoryThrough(currentContent.length)
+            else revealCoordinator.pauseAnimationsAndCatchUp()
+        }
     }
 
     LaunchedEffect(revealCoordinator, view) {

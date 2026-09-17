@@ -23,7 +23,15 @@ class AgentContinuationTextTest {
         assertEquals("他打开窗户。", filter.append("窗户。"))
         assertEquals("", filter.finish())
         val short = AgentContinuationText("好。")
-        assertEquals("好。没问题。", short.append("好。没问题。"))
+        assertEquals("好。没问题。", short.append("好。没问题。") + short.finish())
+    }
+
+    @Test fun twoCharacterChineseSeamIsRemoved() {
+        val filter = AgentContinuationText("隔着车窗朝我摆手。")
+        val resumed = "隔着车窗朝我摆手。那是我第一次觉得自己离故乡那么远。"
+        val visible = resumed.map { filter.append(it.toString()) }.joinToString("") + filter.finish()
+        assertEquals("那是我第一次觉得自己离故乡那么远。", visible)
+        assertEquals("那是我第一次觉得自己离故乡那么远。", filter.normalize(resumed))
     }
 
     @Test fun pausedBeforeOverlapDecisionNeverLosesIncompleteNewText() {

@@ -545,10 +545,21 @@ internal object AgentContextCompactor {
                     try {
                         runCatching { AndroidAgentLogger.info(
                             "摘要请求：输入估算=$inputTokens，生成上限=$outputLimit，思考档=${ladder[index]}，输出重试=$outputRetries") }
+                        val startedAt = System.nanoTime()
+                        val firstTextAt = java.util.concurrent.atomic.AtomicLong(0L)
                         val response = (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
                             ProviderRequest(model, outbound, tools, sessionId), timed,
-                        )
+                        ) { event ->
+                            if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TEXT && event.delta.isNotEmpty()) {
+                                firstTextAt.compareAndSet(0L, System.nanoTime())
+                            }
+                        }
                         checkCancellation()
+                        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+                        val firstTextMs = firstTextAt.get().takeIf { it != 0L }?.let { (it - startedAt) / 1_000_000 }
+                        runCatching { AndroidAgentLogger.info(
+                            "摘要响应：耗时=${elapsedMs}ms，首段正文=${firstTextMs?.let { "${it}ms" } ?: "未提供流式正文事件"}，" +
+                                "正文估算=${AgentContextBudget.countTokens(response.assistantMessage.optString("content"))}，结束=${response.stopReason}") }
                         // Never retry tool-calling or hosted-action responses. These
                         // one-shot summary requests execute no tools locally.
                         require((response.assistantMessage.optJSONArray("tool_calls")?.length() ?: 0) == 0) {
@@ -746,16 +757,29 @@ internal object AgentContextCompactor {
         appendLine("</length_rewrite_requirements>")
     }
 
+    internal fun buildSummaryLengthInstruction(targetTokens: Int): String {
+        val target = targetTokens.coerceAtLeast(1)
+        val cjkChars = target.toLong() * 2 / 3
+        return "Write at most $target locally estimated tokens in TOTAL. " +
+            "For predominantly Chinese text, use no more than $cjkChars characters in TOTAL as a conservative writing budget, including headings and marker. " +
+            "Select fewer facts rather than exceeding the budget; keep active constraints and essential recovery references. " +
+            "Finish complete sentences; do not pad to fill the budget."
+    }
+
     private fun buildCompressPrompt(content: String, targetTokens: Int): String {
         val headings = SUMMARY_SECTIONS.joinToString("\n") { heading -> "## $heading" }
         return buildString {
             appendLine("Summarize the historical conversation below into a task checkpoint, using its language.")
             appendLine("Target approximately $targetTokens tokens in TOTAL. Start with $SUMMARY_PREFIX.")
             appendLine("Budget includes headings and marker. Local estimate: CJK character=1.5 tokens; other character=0.25 tokens.")
+            appendLine(buildSummaryLengthInstruction(targetTokens))
             appendLine("Use EXACTLY these Markdown section headings, in this order. Under each heading use concise bullets")
             appendLine("in the conversation's language. Write (none) when empty; never omit a heading:")
             appendLine(headings)
-            appendLine("Keep exact paths, commands, tool names, arguments, important outputs and error strings where needed.")
+            appendLine("Keep exact paths, commands, arguments and errors only when necessary for the next action or an unresolved blocker.")
+            appendLine("Prioritize the current goal, binding constraints, decisive verified facts, unresolved blockers and next action.")
+            appendLine("Delete repeated explanations, superseded attempts and resolved diagnostics; collapse completed work into short outcome bullets.")
+            appendLine("Do not reproduce exhaustive file lists, raw tool outputs or a chronological account of every step.")
             appendLine("Distinguish verified results from plans, assumptions, and failed attempts. Never claim an action succeeded without evidence.")
             appendLine("Merge previous checkpoints with newer facts; drop superseded facts instead of copying stale summaries.")
             appendLine("Preserve checkpoint IDs and references. Attachment paths do not prove that their contents were read.")
@@ -764,7 +788,12 @@ internal object AgentContextCompactor {
             appendLine()
             appendLine("<conversation>")
             appendLine(content)
-            append("</conversation>")
+            appendLine("</conversation>")
+            // Repeat the output contract AFTER a large history, including replay's
+            // final user message, without changing the cacheable history prefix.
+            appendLine("Output contract for this request (not historical data):")
+            appendLine(buildSummaryLengthInstruction(targetTokens))
+            append("Use all eight required headings; prefer one short bullet per section. Return only the compact checkpoint, not a detailed report.")
         }
     }
 

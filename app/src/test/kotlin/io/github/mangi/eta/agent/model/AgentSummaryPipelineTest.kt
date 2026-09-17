@@ -29,6 +29,45 @@ class AgentSummaryPipelineTest {
         assertTrue(AgentContextCompactor.summaryTotalCap(128) <= 128 * 2)
     }
 
+    @Test fun firstPassGetsConcreteLengthAndSelectionRulesWithoutExtraRequest() {
+        for (target in listOf(500, 2000, 4000, 8000)) {
+            var calls = 0
+            val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(target, 1, config(), provider {
+                calls++
+                val prompt = it.messages.getJSONObject(it.messages.length() - 1).getString("content")
+                val contract = AgentContextCompactor.buildSummaryLengthInstruction(target)
+                assertTrue(prompt.substringBefore("<conversation>").contains(contract))
+                assertTrue(prompt.substringAfterLast("</conversation>").contains(contract))
+                assertTrue(prompt.contains("no more than ${target * 2 / 3} characters"))
+                assertTrue(prompt.contains("Delete repeated explanations"))
+                assertTrue(prompt.contains("not a detailed report"))
+                assertFalse(prompt.contains("FAILED length validation"))
+                assertEquals(AgentContextCompactor.summaryGenerationLimit(target, 128_000), it.config.summaryOutputLimit)
+                response(validSummary())
+            }))
+            assertEquals(1, calls)
+            assertEquals(history().last(), result.last())
+        }
+    }
+
+    @Test fun streamingTimingObservationDoesNotChangeSummaryOrExposeReasoning() {
+        val streaming = object : AgentProviderClient {
+            override val id = "summary-streaming-timing"
+            override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+            override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                onEvent(ProviderEvent.RequestStarted)
+                onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.THINKING, 0, "private reasoning"))
+                onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 1, ""))
+                onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 1, validSummary()))
+                return ProviderResponse(response(validSummary()))
+            }
+        }
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(2000, 1, config(), streaming))
+        assertEquals(validSummary(), result.first().content)
+        assertEquals(history().last(), result.last())
+        assertFalse(result.first().content.contains("private reasoning"))
+    }
+
     @Test fun oversizedCompleteSummaryIsRewrittenOnceBeforeCommit() {
         var calls = 0
         val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
@@ -383,6 +422,9 @@ class AgentSummaryPipelineTest {
             assertEquals(system.toString(), it.messages.getJSONObject(0).toString())
             assertEquals(source[0].content, it.messages.getJSONObject(1).getString("content"))
             assertEquals(tools.toString(), it.tools.toString())
+            val instruction = it.messages.getJSONObject(it.messages.length() - 1).getString("content")
+            assertTrue(instruction.substringAfterLast("</conversation>").contains(
+                AgentContextCompactor.buildSummaryLengthInstruction(500)))
             response(validSummary())
         }), replay = replay)
         assertEquals(1, calls)

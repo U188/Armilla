@@ -21,11 +21,79 @@ class AgentSummaryPipelineTest {
     }
     private fun response(text: String, finish: String = "stop") = JSONObject().put("role", "assistant").put("content", text).put("finish_reason", finish)
 
-    @Test
-    fun selectedSummaryBudgetControlsGenerationWithoutEightKFloor() {
-        assertEquals(2250, AgentContextCompactor.summaryGenerationLimit(2000, 128_000))
-        assertEquals(562, AgentContextCompactor.summaryGenerationLimit(500, 128_000))
-        assertEquals(4500, AgentContextCompactor.summaryGenerationLimit(4000, 128_000))
+    @Test fun selectedTextBudgetIsSeparateFromTransportGenerationRoom() {
+        assertEquals(2256, AgentContextCompactor.summaryTotalCap(2000))
+        assertEquals(756, AgentContextCompactor.summaryTotalCap(500))
+        assertEquals(4500, AgentContextCompactor.summaryTotalCap(4000))
+        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(2000, 128_000))
+        assertTrue(AgentContextCompactor.summaryTotalCap(128) <= 128 * 2)
+    }
+
+    @Test fun oversizedCompleteSummaryIsRewrittenOnceBeforeCommit() {
+        var calls = 0
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+            calls++
+            if (calls == 1) response(validSummary() + "\n- " + "x".repeat(5000))
+            else {
+                assertTrue(it.messages.toString().contains("Target approximately 375 tokens"))
+                response(validSummary())
+            }
+        }))
+        assertEquals(2, calls)
+        assertTrue(AgentContextBudget.countTokens(result.first().content) <= AgentContextCompactor.summaryTotalCap(500))
+        assertEquals(history().last(), result.last())
+    }
+
+    @Test fun oversizedRewriteFailsWithoutMutatingHistoryOrLooping() {
+        var calls = 0
+        val source = history()
+        val original = source.toList()
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
+                calls++
+                response(validSummary() + "\n- " + "x".repeat(5000))
+            }))
+        }
+        assertEquals(2, calls)
+        assertTrue(failure.message.orEmpty().contains("实际估算="))
+        assertEquals(original, source)
+    }
+
+    @Test fun oversizedIntermediateChunksCanStillConsolidateWithinFinalBudget() {
+        var calls = 0
+        val source = listOf(
+            AgentModelClient.ConversationMessage("user", "x".repeat(160_000)),
+            AgentModelClient.ConversationMessage("assistant", "y".repeat(160_000)),
+            AgentModelClient.ConversationMessage("user", "protected"),
+        )
+        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(
+            500, 1, config().copy(contextWindow = 64_000), provider {
+                calls++
+                if (calls <= 2) response(validSummary() + "\n- " + "z".repeat(2000))
+                else response(validSummary())
+            },
+        ))
+        assertEquals(3, calls)
+        assertEquals(source.last(), result.last())
+        assertTrue(AgentContextBudget.countTokens(result.first().content) <= AgentContextCompactor.summaryTotalCap(500))
+    }
+
+    @Test fun cancelledLengthRewriteLeavesHistoryUnchanged() {
+        val parent = AgentRunController()
+        var calls = 0
+        val source = history()
+        val original = source.toList()
+        assertThrows(AgentRunCancelledException::class.java) {
+            AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
+                if (++calls == 1) response(validSummary() + "\n- " + "x".repeat(5000))
+                else {
+                    parent.cancel()
+                    response(validSummary())
+                }
+            }), controller = parent)
+        }
+        assertEquals(2, calls)
+        assertEquals(original, source)
     }
 
     @Test fun autoTargetResolvesBeforePromptAndValidationUsingMainWindow() {

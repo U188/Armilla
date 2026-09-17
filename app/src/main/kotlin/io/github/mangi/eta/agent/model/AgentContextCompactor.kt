@@ -45,17 +45,14 @@ internal object AgentContextCompactor {
     /** DeepSeek harness 按 token 留尾巴；单次摘要输入也按真实窗口收紧，避免 1M 覆盖把 128k 模型打爆。 */
     internal const val SUMMARIZER_INPUT_CAP = 128_000
     internal const val SUMMARY_REQUEST_TIMEOUT_MS = 120_000L
-    internal const val SUMMARY_GENERATION_FLOOR = 1_024
+    internal const val SUMMARY_GENERATION_FLOOR = 8_192
     internal const val SUMMARY_GENERATION_CAP = 16_384
 
-    // The selected value controls the summary text itself. Keep only a small
-    // formatting margin; do not force a multi-thousand-token floor for a 2k target.
+    // Transport generation room includes mandatory reasoning and is NOT the
+    // accepted summary length. Enforce the text budget after complete output.
     internal fun summaryGenerationLimit(targetTokens: Int, window: Int): Int =
-        minOf(
-            maxOf(SUMMARY_GENERATION_FLOOR, targetTokens + maxOf(256, targetTokens / 8))
-                .coerceAtMost(SUMMARY_GENERATION_CAP),
-            maxOf(1024, window / 4),
-        )
+        minOf(maxOf(SUMMARY_GENERATION_FLOOR.toLong(), targetTokens.toLong() * 2 + 4096)
+            .coerceAtMost(SUMMARY_GENERATION_CAP.toLong()).toInt(), maxOf(1024, window / 4))
 
     internal fun summaryRetryLimit(current: Int, window: Int, inputTokens: Int): Int? {
         val available = AgentCompressionBoundary.inputLimit(window, 0).toLong() - inputTokens
@@ -216,11 +213,29 @@ internal object AgentContextCompactor {
             offset += chunk.size
             compressChunk(chunk, perChunk, controller, chunkReplay)
         }
-        require(summaries.sumOf { AgentContextBudget.countTokens(it) } <= summaryTotalCap(resolvedConfig.targetTokens, summaries.size)) { "摘要总量超过目标预算" }
-        val consolidated = if (summaries.size <= 1) summaries else listOf(compressChunk(
+        // Intermediate chunks are not committed. Do not reject their aggregate
+        // before the consolidation request has a chance to fit the total budget.
+        val candidate = if (summaries.size <= 1) summaries.single() else compressChunk(
             summaries.map { AgentModelClient.ConversationMessage("user", it) }, resolvedConfig, controller, null,
-        ))
-        require(consolidated.sumOf { AgentContextBudget.countTokens(it) } <= summaryTotalCap(resolvedConfig.targetTokens, consolidated.size)) { "合并摘要超过目标预算" }
+        )
+        val cap = summaryTotalCap(resolvedTarget)
+        var summary = normalizeSummary(candidate)
+        var measured = AgentContextBudget.countTokens(summary)
+        if (measured > cap) {
+            runCatching { AndroidAgentLogger.info(
+                "摘要长度重试：目标=$resolvedTarget，验收上限=$cap，实际估算=$measured，重试=1") }
+            // One bounded rewrite, never substring/truncate an accepted checkpoint.
+            val rewriteTarget = minOf(resolvedTarget, maxOf(128, resolvedTarget * 3 / 4))
+            summary = normalizeSummary(compressChunk(
+                listOf(AgentModelClient.ConversationMessage("user", summary)),
+                resolvedConfig.copy(targetTokens = rewriteTarget), controller, null,
+            ))
+            measured = AgentContextBudget.countTokens(summary)
+        }
+        require(measured <= cap) {
+            "合并摘要超过目标预算：目标=$resolvedTarget，验收上限=$cap，实际估算=$measured；原历史保持不变"
+        }
+        val consolidated = listOf(summary)
 
         val summaryMessages = consolidated.map { summary ->
             AgentModelClient.ConversationMessage(
@@ -383,7 +398,7 @@ internal object AgentContextCompactor {
         }
     }
 
-    private fun summaryTotalCap(targetTokens: Int, messageCount: Int): Int {
+    internal fun summaryTotalCap(targetTokens: Int): Int {
         val target = targetTokens.coerceAtLeast(1)
         return (target + maxOf(256, target / 8)).coerceAtMost(target * 2)
     }

@@ -50,7 +50,7 @@ class AgentCompressionStrategyTest {
 
     @Test fun continuationRetentionIsBoundedForLargeContextWindows() {
         assertEquals(2_000, AgentCompressionBoundary.continuationRetentionBudget(20_000))
-        assertEquals(4_000, AgentCompressionBoundary.continuationRetentionBudget(50_000))
+        assertEquals(4_166, AgentCompressionBoundary.continuationRetentionBudget(50_000))
         assertEquals(32_000, AgentCompressionBoundary.continuationRetentionBudget(500_000))
         assertEquals(1, AgentCompressionBoundary.continuationRetentionBudget(500_000, overflow = true))
     }

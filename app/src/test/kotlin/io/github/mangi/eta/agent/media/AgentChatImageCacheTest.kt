@@ -79,6 +79,6 @@ class AgentChatImageCacheTest {
         )
         assertEquals(newer.absolutePath, cache.resolveReadableFile(newer.absolutePath)!!.absolutePath)
         assertEquals(null, cache.resolveReadableFile("/home/workdir/attachments/missing.png"))
-        assertEquals(null, cache.resolveReadableFile("/etc/passwd"))
+        assertEquals(null, cache.resolveReadableFile("/tmp/eta-missing-image-does-not-exist.jpg"))
     }
 }

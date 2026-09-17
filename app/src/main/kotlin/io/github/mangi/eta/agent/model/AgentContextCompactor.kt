@@ -154,7 +154,8 @@ internal object AgentContextCompactor {
         }
 
         val chunks = splitMessages(messagesToCompress, config, replay)
-        runCatching { AndroidAgentLogger.info("开始摘要：${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条") }
+        val diagnosticGroup = java.util.UUID.randomUUID().toString()
+        runCatching { AndroidAgentLogger.info("开始摘要：group=$diagnosticGroup，${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条") }
         var offset = 0
         val summaries = chunks.mapIndexed { index, chunk ->
             controller.throwIfCancelled()
@@ -163,12 +164,13 @@ internal object AgentContextCompactor {
                 for (i in offset until offset + chunk.size) array.put(replay.historyMessages.getJSONObject(i))
             })
             offset += chunk.size
-            compressChunk(chunk, config, controller, chunkReplay)
+            compressChunk(chunk, config, controller, chunkReplay, diagnosticGroup, "chunk_${index + 1}_of_${chunks.size}")
         }
         // Intermediate chunks are not committed. Do not reject their aggregate
         // before the consolidation request has a chance to fit the total budget.
         val candidate = if (summaries.size <= 1) summaries.single() else compressChunk(
             summaries.map { AgentModelClient.ConversationMessage("user", it) }, config, controller, null,
+            diagnosticGroup, "merge",
         )
         val summary = normalizeSummary(candidate)
         val consolidated = listOf(summary)
@@ -389,6 +391,8 @@ internal object AgentContextCompactor {
         config: Config,
         controller: io.github.mangi.eta.agent.runtime.AgentRunController,
         replay: ReplayContext?,
+        diagnosticGroup: String,
+        diagnosticPhase: String,
     ): String {
         val prompt = buildCompressPrompt(messages.joinToString("\n\n") { messageToSummaryText(it) })
         val original = config.compressModelConfig ?: error("未配置压缩模型")
@@ -423,11 +427,13 @@ internal object AgentContextCompactor {
             sessionId = replay?.sessionId ?: java.util.UUID.randomUUID().toString(),
             controller = controller,
             summaryProvider = config.summaryProvider,
+            diagnosticGroup = diagnosticGroup,
+            diagnosticPhase = diagnosticPhase,
         )
         val text = response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")
         coerceSummary(text)?.let { return it }
-        val repaired = repairSummaryWithModel(text, resolved, controller, config.summaryProvider)
+        val repaired = repairSummaryWithModel(text, resolved, controller, config.summaryProvider, diagnosticGroup, "$diagnosticPhase/repair")
         return coerceSummary(repaired)
             ?: error("摘要结构不完整或顺序无效，原历史保持不变")
     }
@@ -439,6 +445,8 @@ internal object AgentContextCompactor {
         sessionId: String,
         controller: io.github.mangi.eta.agent.runtime.AgentRunController,
         summaryProvider: AgentProviderClient?,
+        diagnosticGroup: String,
+        diagnosticPhase: String,
     ): Pair<AgentModelClient.ModelConfig, ProviderResponse> {
         val ladder = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.compressionEffortLadder(base)
         val remembered = CompressionReasoningStore.effortFor(base)
@@ -449,6 +457,11 @@ internal object AgentContextCompactor {
         require(inputTokens <= Int.MAX_VALUE) { "摘要请求超过输入预算，未修改历史" }
         var outputLimit = requireNotNull(base.summaryOutputLimit)
         var outputRetries = 0
+        val requestId = java.util.UUID.randomUUID().toString()
+        val diagnosticKey = "group=$diagnosticGroup, request=$requestId, phase=$diagnosticPhase"
+        var attempt = 0
+        val activeDiagnostic = java.util.concurrent.atomic.AtomicReference<Pair<Int, SummaryRequestDiagnostics>?>(null)
+        val deadlineExpired = java.util.concurrent.atomic.AtomicBoolean(false)
         val timed = io.github.mangi.eta.agent.runtime.AgentRunController()
         val parentBinding = controller.register { timed.cancel() }
         val requestThread = Thread.currentThread()
@@ -458,10 +471,21 @@ internal object AgentContextCompactor {
         val watchdog = Thread({
             try {
                 while (!Thread.currentThread().isInterrupted) {
-                    if (requestThread.isInterrupted || System.nanoTime() >= deadline) {
+                    if (requestThread.isInterrupted || controller.isCancelled || System.nanoTime() >= deadline) {
+                        deadlineExpired.set(!requestThread.isInterrupted && !controller.isCancelled && System.nanoTime() >= deadline)
+                        // Capture before cancelling HTTP so diagnostics survive a provider that
+                        // is slow to unwind. This watchdog already enforces the existing deadline.
+                        runCatching { activeDiagnostic.get()?.let { (number, trace) ->
+                            AndroidAgentLogger.warn("摘要终止请求：$diagnosticKey, attempt=$number, " +
+                                "reason=${if (deadlineExpired.get()) "total_deadline" else "cancelled"}, ${trace.snapshot()}")
+                        } }
                         timed.cancel()
                         break
                     }
+                    runCatching { activeDiagnostic.get()?.let { (number, trace) ->
+                        if (trace.progressDue()) AndroidAgentLogger.info(
+                            "摘要进度：$diagnosticKey, attempt=$number, ${trace.snapshot()}")
+                    } }
                     Thread.sleep(100)
                 }
             } catch (_: InterruptedException) {
@@ -471,7 +495,7 @@ internal object AgentContextCompactor {
             controller.throwIfCancelled()
             if (requestThread.isInterrupted) throw InterruptedException("摘要已取消")
             if (timed.isCancelled) {
-                throw IllegalStateException("摘要超时（${SUMMARY_REQUEST_TIMEOUT_MS / 1000} 秒内未返回），原历史保持不变")
+                throw IllegalStateException("摘要超时（${SUMMARY_REQUEST_TIMEOUT_MS / 1000} 秒总时限内未完成），原历史保持不变")
             }
         }
         try {
@@ -485,23 +509,27 @@ internal object AgentContextCompactor {
                     }
                     val model = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.forCompression(base, ladder[index])
                         .copy(summaryOutputLimit = outputLimit)
+                    attempt++
+                    val attemptNumber = attempt
+                    val trace = SummaryRequestDiagnostics()
+                    activeDiagnostic.set(attemptNumber to trace)
                     try {
                         runCatching { AndroidAgentLogger.info(
-                            "摘要请求：输入估算=$inputTokens，生成上限=$outputLimit，思考档=${ladder[index]}，输出重试=$outputRetries") }
-                        val startedAt = System.nanoTime()
-                        val firstTextAt = java.util.concurrent.atomic.AtomicLong(0L)
-                        val response = (summaryProvider ?: ProviderClientFactory.getClient(model)).complete(
+                            "摘要请求：$diagnosticKey, attempt=$attemptNumber, remaining_ms=${((deadline - System.nanoTime()) / 1_000_000).coerceAtLeast(0)}, 输入估算=$inputTokens，生成上限=$outputLimit，思考档=${ladder[index]}，输出重试=$outputRetries") }
+                        val provider = summaryProvider ?: ProviderClientFactory.getClient(model)
+                        runCatching { AndroidAgentLogger.info(
+                            "摘要接口：$diagnosticKey, attempt=$attemptNumber, endpoint=${provider.capabilities.endpoint}, streaming_text=${provider.capabilities.streamingText}") }
+                        val response = provider.complete(
                             ProviderRequest(model, outbound, tools, sessionId), timed,
                         ) { event ->
-                            if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TEXT && event.delta.isNotEmpty()) {
-                                firstTextAt.compareAndSet(0L, System.nanoTime())
-                            }
+                            val milestone = trace.record(event)
+                            if (milestone != null) runCatching { AndroidAgentLogger.info(
+                                "摘要里程碑：$diagnosticKey, attempt=$attemptNumber, milestone=$milestone, ${trace.snapshot()}") }
                         }
+                        trace.returned()
                         checkCancellation()
-                        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
-                        val firstTextMs = firstTextAt.get().takeIf { it != 0L }?.let { (it - startedAt) / 1_000_000 }
                         runCatching { AndroidAgentLogger.info(
-                            "摘要响应：耗时=${elapsedMs}ms，首段正文=${firstTextMs?.let { "${it}ms" } ?: "未提供流式正文事件"}，" +
+                            "摘要响应：$diagnosticKey, attempt=$attemptNumber, ${trace.snapshot()}, " +
                                 "正文估算=${AgentContextBudget.countTokens(response.assistantMessage.optString("content"))}，结束=${response.stopReason}") }
                         // Never retry tool-calling or hosted-action responses. These
                         // one-shot summary requests execute no tools locally.
@@ -513,7 +541,7 @@ internal object AgentContextCompactor {
                                 summaryRetryLimit(outputLimit, window, inputTokens.toInt()) else null
                             if (next != null) {
                                 runCatching { AndroidAgentLogger.warn(
-                                    "摘要达到输出上限 $outputLimit，丢弃半截结果，以 $next 重试一次") }
+                                    "摘要输出重试：$diagnosticKey, attempt=$attemptNumber, 达到输出上限 $outputLimit，丢弃半截结果，以 $next 重试一次") }
                                 outputLimit = next
                                 outputRetries++
                                 continue
@@ -526,10 +554,28 @@ internal object AgentContextCompactor {
                         CompressionReasoningStore.remember(base, ladder[index])
                         return model to response
                     } catch (failure: Exception) {
+                        // Log BEFORE checkCancellation replaces the provider exception.
+                        val reason = when {
+                            controller.isCancelled || requestThread.isInterrupted -> "cancelled"
+                            deadlineExpired.get() -> "total_deadline"
+                            failure is io.github.mangi.eta.agent.runtime.AgentRunCancelledException -> "cancelled"
+                            failure is java.io.InterruptedIOException -> "transport_timeout_or_interrupted_io"
+                            else -> "provider_or_validation_failure"
+                        }
+                        // Do not log arbitrary exception messages (may contain bodies/URLs/keys).
+                        val code = (failure as? AgentModelFailure)?.code?.takeIf {
+                            it.matches(Regex("[A-Z][A-Z0-9_]{0,63}"))
+                        } ?: "unknown"
+                        runCatching { AndroidAgentLogger.warn(
+                            "摘要失败诊断：$diagnosticKey, attempt=$attemptNumber, reason=$reason, code=$code, ${trace.snapshot()}") }
                         checkCancellation()
                         lastError = failure
                         if (!isUnsupportedCompressionReasoning(failure) || index == ladder.lastIndex) throw failure
+                        runCatching { AndroidAgentLogger.info(
+                            "摘要思考档回退：$diagnosticKey, attempt=$attemptNumber, next=${ladder[index + 1]}") }
                         break
+                    } finally {
+                        activeDiagnostic.set(null)
                     }
                 }
             }
@@ -670,6 +716,8 @@ internal object AgentContextCompactor {
         model: AgentModelClient.ModelConfig,
         controller: io.github.mangi.eta.agent.runtime.AgentRunController,
         summaryProvider: AgentProviderClient?,
+        diagnosticGroup: String,
+        diagnosticPhase: String,
     ): String {
         controller.throwIfCancelled()
         val headings = SUMMARY_SECTIONS.joinToString("\n") { heading -> "## $heading" }
@@ -688,7 +736,7 @@ internal object AgentContextCompactor {
             .put(org.json.JSONObject().put("role", "user").put("content", prompt))
         val (_, response) = completeCompression(
             model, input, org.json.JSONArray(), java.util.UUID.randomUUID().toString(),
-            controller, summaryProvider,
+            controller, summaryProvider, diagnosticGroup, diagnosticPhase,
         )
         return response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")

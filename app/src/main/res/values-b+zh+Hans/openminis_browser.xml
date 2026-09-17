@@ -54,4 +54,5 @@
     <string name="om_external_link_blocked">已拦截跳转到外部应用的链接（%1$s）</string>
     <string name="om_external_link_no_app">没有可以打开此链接的应用。</string>
     <string name="om_standard_sheet_close">关闭</string>
-    </resources>
+        <string name="browser_initialization_failed">浏览器初始化失败，请关闭后重试。</string>
+</resources>

@@ -144,7 +144,7 @@ internal fun CompressionEndpointPreference(
             stringResource(R.string.ui_compress_endpoint_description),
             modifier = Modifier.fillMaxWidth().padding(start = horizontal, end = horizontal, bottom = 12.dp),
             style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Justify,
+            textAlign = TextAlign.Start,
         )
     }
 }

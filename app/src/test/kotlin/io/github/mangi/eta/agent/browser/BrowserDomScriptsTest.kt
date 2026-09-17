@@ -42,4 +42,13 @@ class BrowserDomScriptsTest {
         assertTrue(script.contains("MAX_DEPTH = 3"))
         assertTrue(script.contains("MAX_NODES = 80"))
     }
+    @Test
+    fun `textarea input uses native setter and form submission`() {
+        val script = BrowserDomScripts.type("textarea[name=\"q\"]", null, null, "example", true)
+        assertTrue(script.contains("window.HTMLTextAreaElement.prototype"))
+        assertTrue(script.contains("setter.set.call(target, value)"))
+        assertTrue(script.contains("form.requestSubmit()"))
+        assertTrue(script.contains("new InputEvent('input'"))
+    }
+
 }

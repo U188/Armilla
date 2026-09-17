@@ -91,7 +91,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun BrowserSheet(
     tabPool: BrowserTabPool,
-    embedded: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     val tabs by tabPool.tabs.collectAsState()
@@ -140,7 +139,7 @@ fun BrowserSheet(
     }
 
     StandardChatSheet(
-        embedded = embedded,        title = pageTitle.ifEmpty { stringResource(R.string.om_browser_title) },
+        title = pageTitle.ifEmpty { stringResource(R.string.om_browser_title) },
         onDismiss = onDismiss,
         leadingAction = {
             // UA-profile icon doubles as the entry point to settings, matching

@@ -20,9 +20,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
@@ -226,10 +228,14 @@ private fun AgentTopBar(
     tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),
     selectedProviderId: String? = null,
 ) {
+    val view = LocalView.current
     val isHome = route is AppRoute.Home
     val navigationIcon: @Composable () -> Unit = {
         if (isHome) {
-            IconButton(onClick = onOpenConversationPane) {
+            IconButton(onClick = {
+                TouchHaptics.click(view)
+                onOpenConversationPane()
+            }) {
                 Icon(
                     imageVector = Icons.Rounded.Menu,
                     contentDescription = stringResource(R.string.action_conversation_history),

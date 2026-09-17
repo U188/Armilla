@@ -1,6 +1,6 @@
 // Adapted from OpenMinis/OpenMinis @ 4ef29002e88db1e20e462ec2ff46916e8a7dcb45.
 // SPDX-License-Identifier: GPL-3.0-only
-// Local/private integration; see third_party/openminis-browser/NOTICE.md.
+// See third_party/openminis-browser/NOTICE.md.
 package io.github.mangi.eta.agent.browser.ported.ui.chat
 
 import androidx.compose.foundation.background
@@ -33,7 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
-import androidx.compose.material3.MaterialTheme
+import io.github.mangi.eta.agent.browser.ported.ui.theme.ChatColors
 
 /**
  * Standardized half-screen modal sheet used by every popup launched from the
@@ -58,21 +58,8 @@ fun StandardChatSheet(
     onDismiss: () -> Unit,
     leadingAction: (@Composable () -> Unit)? = null,
     heightFraction: Float = 0.9f,
-    embedded: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    if (embedded) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                leadingAction?.invoke()
-                Text(title, modifier = Modifier.weight(1f), maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            }
-            HorizontalDivider()
-            Box(Modifier.weight(1f)) { content() }
-        }
-        return
-    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val configuration = LocalConfiguration.current
     val sheetHeight = (configuration.screenHeightDp * heightFraction.coerceIn(0.1f, 1f)).dp
@@ -80,7 +67,7 @@ fun StandardChatSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = ChatColors.background,
         dragHandle = { CompactDragHandle() },
     ) {
         Column(
@@ -93,7 +80,7 @@ fun StandardChatSheet(
                 onDismiss = onDismiss,
                 leadingAction = leadingAction,
             )
-            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(thickness = 0.5.dp, color = ChatColors.separator)
             Box(modifier = Modifier.fillMaxSize()) {
                 content()
             }
@@ -119,7 +106,7 @@ private fun CompactDragHandle() {
                 .width(32.dp)
                 .height(4.dp)
                 .background(
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    color = ChatColors.secondaryText.copy(alpha = 0.4f),
                     shape = RoundedCornerShape(2.dp),
                 ),
         )
@@ -148,19 +135,21 @@ fun StandardChatSheetHeader(
         } else {
             Spacer(modifier = Modifier.size(48.dp))
         }
-        Spacer(modifier = Modifier.weight(1f))
         Text(
             text = title,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = ChatColors.primaryText,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
-        Spacer(modifier = Modifier.weight(1f))
         IconButton(onClick = onDismiss) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = stringResource(R.string.om_standard_sheet_close),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = ChatColors.secondaryText,
             )
         }
     }

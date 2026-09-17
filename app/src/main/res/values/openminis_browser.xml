@@ -58,4 +58,5 @@
     <string name="om_external_link_blocked">Blocked link to external app (%1$s)</string>
     <string name="om_external_link_no_app">No app available to open this link.</string>
     <string name="om_standard_sheet_close">Close</string>
-    </resources>
+        <string name="browser_initialization_failed">Browser initialization failed. Close and reopen to retry.</string>
+</resources>

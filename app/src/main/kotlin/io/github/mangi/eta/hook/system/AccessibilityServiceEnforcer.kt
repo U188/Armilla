@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Bundle
@@ -742,13 +743,7 @@ internal class AccessibilityServiceEnforcer(
             logFailure("无法校验 Eta 无障碍服务组件", failure)
             return false
         }
-        val applicationInfo = serviceInfo.applicationInfo
-        val validComponent =
-            serviceInfo.enabled &&
-                applicationInfo.enabled &&
-                serviceInfo.exported &&
-                serviceInfo.permission == Manifest.permission.BIND_ACCESSIBILITY_SERVICE
-        return validComponent
+        return isAccessibilityProtectionServiceValid(serviceInfo, SERVICE_COMPONENT)
     }
 
     private fun isControlCallerTrusted(
@@ -954,6 +949,22 @@ internal class AccessibilityRestoreBackoff(
         }
     }
 }
+
+/**
+ * The fixed component is bound by system_server, not by an ordinary external app.
+ * Its manifest intentionally uses exported=false. Requiring exported=true here
+ * rejected our own service even when the control caller and permission were valid.
+ * Keep exact component identity, enabled state and the system binding permission.
+ */
+internal fun isAccessibilityProtectionServiceValid(
+    serviceInfo: ServiceInfo,
+    expected: ComponentName,
+): Boolean =
+    serviceInfo.packageName == expected.packageName &&
+        serviceInfo.name == expected.className &&
+        serviceInfo.enabled &&
+        serviceInfo.applicationInfo?.enabled == true &&
+        serviceInfo.permission == Manifest.permission.BIND_ACCESSIBILITY_SERVICE
 
 internal fun isAccessibilityControlRequestValid(
     ordered: Boolean,

@@ -373,8 +373,8 @@ class BrowserUseManager(
                 _isLoading.value = false
                 _currentURL.value = url ?: ""
                 _pageTitle.value = view.title ?: ""
-                _canGoBack.value = view.canGoBack()
-                _canGoForward.value = view.canGoForward()
+                _canGoBack.value = view.canGoBackOrForward(-1)
+                _canGoForward.value = view.canGoBackOrForward(1)
                 navigationDeferred?.complete(Unit)
                 navigationDeferred = null
                 // Record in browser history
@@ -643,8 +643,8 @@ class BrowserUseManager(
     suspend fun execute(input: BrowserActionInput): BrowserActionResult {
         val prevUrl = withContext(Dispatchers.Main) { webView.url }
         var result: BrowserActionResult = when (input.action) {
-            BrowserAction.GO_BACK -> { goBack(); delay(300); BrowserActionResult(navigationMetadata()) }
-            BrowserAction.GO_FORWARD -> { goForward(); delay(300); BrowserActionResult(navigationMetadata()) }
+            BrowserAction.GO_BACK -> return navigateHistory(-1, input.timeoutMs)
+            BrowserAction.GO_FORWARD -> return navigateHistory(1, input.timeoutMs)
             BrowserAction.RELOAD -> { reloadAndWait(); BrowserActionResult(navigationMetadata()) }
             BrowserAction.WAIT_FOR_SELECTOR -> return waitForSelector(input)
             BrowserAction.NAVIGATE -> navigate(input.url)
@@ -1059,7 +1059,9 @@ class BrowserUseManager(
     // -- Get Page Info --
 
     private suspend fun getPageInfo(): BrowserActionResult {
-        return evaluateAndReturn(BrowserUseJS.getPageInfo())
+        val result = evaluateAndReturn(BrowserUseJS.getPageInfo())
+        val history = withContext(Dispatchers.Main) { historyMetadata() }
+        return result.copy(text = result.text + "\n" + history)
     }
 
     // -- Execute JS --
@@ -1332,8 +1334,56 @@ class BrowserUseManager(
 
     // -- User Navigation --
 
-    fun goBack() { if (webView.canGoBack()) webView.goBack() }
-    fun goForward() { if (webView.canGoForward()) webView.goForward() }
+    // WebView.goBack/goForward may skip entries produced without user activation.
+    // Automation clicks use JS, so expose a deterministic one-entry traversal instead.
+    fun goBack() { moveHistory(-1) }
+    fun goForward() { moveHistory(1) }
+
+    private fun moveHistory(delta: Int): Boolean {
+        if (!webView.canGoBackOrForward(delta)) return false
+        navigationError = null
+        _isLoading.value = true
+        webView.goBackOrForward(delta)
+        return true
+    }
+
+    private suspend fun navigateHistory(delta: Int, timeoutMs: Int?): BrowserActionResult =
+        withContext(Dispatchers.Main) {
+            val before = webView.copyBackForwardList()
+            val target = BrowserHistoryStep.targetIndex(before.currentIndex, before.size, delta)
+                ?: return@withContext BrowserActionResult.error(
+                    "No history entry in requested direction; " + historyMetadata())
+            if (!moveHistory(delta)) return@withContext BrowserActionResult.error(
+                "History changed before traversal; " + historyMetadata())
+
+            // A fixed sleep can report the old page, especially on slow network loads.
+            // Check the native index AND completion; the same URL can occur twice.
+            val settled = withTimeoutOrNull(
+                (timeoutMs?.toLong() ?: NAVIGATION_TIMEOUT_MS).coerceIn(500L, 60000L)
+            ) {
+                while (true) {
+                    if (navigationError != null) break
+                    val current = webView.copyBackForwardList()
+                    if (current.currentIndex == target && !_isLoading.value) break
+                    delay(50)
+                }
+                true
+            } ?: false
+            when {
+                !settled -> BrowserActionResult.error(
+                    "History navigation timed out; outcome not confirmed; " + historyMetadata())
+                navigationError != null -> BrowserActionResult.error(
+                    navigationError.orEmpty() + "; " + historyMetadata())
+                else -> BrowserActionResult(navigationMetadata() + "\n" + historyMetadata())
+            }
+        }
+
+    private fun historyMetadata(): String {
+        val history = webView.copyBackForwardList()
+        return "history_index=${history.currentIndex}, history_size=${history.size}, " +
+            "can_go_back=${webView.canGoBackOrForward(-1)}, " +
+            "can_go_forward=${webView.canGoBackOrForward(1)}"
+    }
     fun reload() { webView.reload() }
     fun stopLoading() {
         webView.stopLoading()
@@ -1935,6 +1985,11 @@ class BrowserUseManager(
         val text = buildString {
             appendLine("scroll_and_collect: $iterations scrolls, selector='$selector'")
             appendLine("  matched: ${filtered.size} / ${collected.size} total")
+            if (collected.isEmpty()) {
+                appendLine("  No non-empty items collected. Inspect the current DOM with find_elements/get_backbone; do not assume a site's old selector still applies.")
+            } else if (filtered.isEmpty()) {
+                appendLine("  Items were collected, but none matched the keyword filter.")
+            }
             for ((i, item) in filtered.withIndex()) {
                 val preview = if (item.length > 160) item.take(157) + "…" else item
                 appendLine("  [${i + 1}] $preview")

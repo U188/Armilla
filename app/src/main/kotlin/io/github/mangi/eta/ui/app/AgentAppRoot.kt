@@ -174,6 +174,7 @@ fun AgentAppRoot(
 
 
     var conversationPaneOpen by remember { mutableStateOf(false) }
+    var browserSheetVisible by rememberSaveable { mutableStateOf(false) }
     var conversationRenameTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var conversationDeleteTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     var conversationMoveTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
@@ -275,7 +276,14 @@ fun AgentAppRoot(
     }
 
     fun pushRoute(route: AppRoute) {
-        navigator.push(route)
+        if (route == AppRoute.Browser) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+            conversationPaneOpen = false
+            browserSheetVisible = true
+        } else {
+            navigator.push(route)
+        }
     }
 
     fun pushFromDrawer(route: AppRoute) {
@@ -303,7 +311,7 @@ fun AgentAppRoot(
     }
 
     // NavDisplay 只在还能出栈时拦截返回；根页面必须自己接住，否则系统会直接 finish Activity。
-    val interceptExitBack = backStack.size <= 1 && !conversationPaneOpen
+    val interceptExitBack = backStack.size <= 1 && !conversationPaneOpen && !browserSheetVisible
     val exitBackState = rememberNavigationEventState(NavigationEventInfo.None)
     NavigationBackHandler(
         state = exitBackState,
@@ -560,8 +568,10 @@ fun AgentAppRoot(
                 }
             }
             entry<AppRoute.Browser>(swipeDismiss = swipeDismiss) {
-                RoutedShell(route = AppRoute.Browser) {
-                    AgentBrowserScreen()
+                // Migrate a restored legacy route to a modal over the preceding screen.
+                LaunchedEffect(Unit) {
+                    navigator.pop()
+                    browserSheetVisible = true
                 }
             }
             entry<AppRoute.Terminal>(swipeDismiss = swipeDismiss) {
@@ -879,6 +889,10 @@ fun AgentAppRoot(
                     onBack = ::popRoute
                 )
             }
+    }
+
+    if (browserSheetVisible) {
+        AgentBrowserScreen(onDismiss = { browserSheetVisible = false })
     }
 
     conversationRenameTarget?.let { conversation ->

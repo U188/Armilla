@@ -3386,8 +3386,6 @@ internal class AgentAppState(
                                 event.index,
                                 event.delta,
                                 messages,
-                                visible = !conversationStateForRun(runId).isPaused ||
-                                !isContinuationReasoningBlock(runId, event.round, event.index),
                             )
 
                         AgentEvent.AssistantBlockKind.TOOL_CALL -> messages
@@ -3498,8 +3496,6 @@ internal class AgentAppState(
                             round = event.round,
                             content = event.reasoningContent,
                             messages = messages,
-                            visible = !conversationStateForRun(runId).isPaused ||
-                                !isContinuationReasoningBlock(runId, event.round, null),
                         )
                     }
                 }
@@ -3711,23 +3707,6 @@ internal class AgentAppState(
             onConversationRunSettled(conversationId)
         }
     }
-
-    private fun isContinuationReasoningBlock(runId: String, round: Int, index: Int?): Boolean {
-        val state = conversationStateForRun(runId)
-        if (!state.isPaused && !state.isStreaming) return false
-        // Suppress only the first reasoning block of the resumed request. Once
-        // its first block has been observed, later reasoning remains visible.
-        val firstContinuationRound = state.messages
-            .filterIsInstance<ThinkingMessageUi>()
-            .mapNotNull { thinkingMessageRound(it.id, runId) }
-            .maxOrNull()?.plus(1) ?: round
-        return round == firstContinuationRound && (index == null || index == 0)
-    }
-
-    private fun thinkingMessageRound(id: String, runId: String): Int? =
-        id.removePrefix("$runId-thinking-")
-            .substringBefore('-')
-            .toIntOrNull()
 
     private fun updateRunTrace(
         runId: String,

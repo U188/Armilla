@@ -74,6 +74,7 @@ internal class AgentLoop(
     private var lastUsageMessageCount: Int = 0
     private var suppressThinkingForNextRequest = false
     private val continuationBlocks = AgentContinuationBlocks()
+    private val continuationReasoning = AgentContinuationReasoning()
     private val interruptedTextPrefix = StringBuilder()
     private var continuingInterruptedRequest = false
     private var activeTurnStart = (messages.length() - systemCount - 1).coerceAtLeast(0)
@@ -129,6 +130,7 @@ internal class AgentLoop(
             val roundTools = currentRoundTools
             toolCallValidator = AgentToolCallValidator(roundTools)
             val reasoningLengthBeforeRound = accumulatedReasoning.length
+            continuationReasoning.beginRequest(continuingInterruptedRequest)
             continuationBlocks.beginRequest(continuingInterruptedRequest)
             continuingInterruptedRequest = false
             val completedRound = try {
@@ -145,12 +147,14 @@ internal class AgentLoop(
                             lastUsage = providerEvent.usage
                             lastUsageMessageCount = messages.length()
                         }
-                        if (providerEvent is ProviderEvent.BlockDelta &&
-                            providerEvent.kind == AssistantBlockKind.THINKING
-                        ) {
-                            accumulatedReasoning.append(providerEvent.delta)
+                        continuationReasoning.visibleEvent(providerEvent)?.let { visibleEvent ->
+                            if (visibleEvent is ProviderEvent.BlockDelta &&
+                                visibleEvent.kind == AssistantBlockKind.THINKING
+                            ) {
+                                accumulatedReasoning.append(visibleEvent.delta)
+                            }
+                            continuationBlocks.map(attemptRound, visibleEvent).toAgentEvent(attemptRound)?.let(onEvent)
                         }
-                        continuationBlocks.map(attemptRound, providerEvent).toAgentEvent(attemptRound)?.let(onEvent)
                     },
                     discardAttemptReasoning = { accumulatedReasoning.setLength(reasoningLengthBeforeRound) },
                 )
@@ -173,7 +177,8 @@ internal class AgentLoop(
             runController.throwIfCancelled()
             val assistantMessage = providerResponse.assistantMessage
             val toolCalls = AgentConversationCodec.parseToolCalls(assistantMessage)
-            val assistantReasoning = assistantMessage.optString("reasoning_content")
+            val assistantReasoning = continuationReasoning.visibleCompletedReasoning(
+                assistantMessage.optString("reasoning_content"))
             val content = assistantMessage.optString("content").trim()
             val hasAssistantPayload = (content.isNotBlank() && content != "null") ||
                 assistantReasoning.isNotBlank() ||
@@ -188,9 +193,8 @@ internal class AgentLoop(
             val pausedInterrupt = runController.consumePausedInterrupt()
             if (pausedInterrupt) {
                 continuingInterruptedRequest = true
-                // Even an interruption before the first text delta must not restart
-                // optional reasoning (and custom-body overrides) on resume.
-                suppressThinkingForNextRequest = true
+                // Resume keeps the user's reasoning configuration. Only the first
+                // reasoning block's UI projection is hidden, not the model's thinking.
                 // 半截正文留在当前轮次历史里，继续时模型才能接着写。
                 // 不 round++，也不执行未完成的工具调用，压缩保护边界仍是这一轮。
                 if (hasAssistantPayload) {

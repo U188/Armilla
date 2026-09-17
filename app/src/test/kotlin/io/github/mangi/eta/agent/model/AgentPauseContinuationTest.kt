@@ -6,6 +6,7 @@ import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentRunMessageProjector
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
+import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -24,9 +25,15 @@ class AgentPauseContinuationTest {
             messages = when (event) {
                 is AgentEvent.AssistantBlockStart -> projector.startAssistantBlock("run", event, messages)
                 is AgentEvent.AssistantBlockDelta -> if (event.kind == AgentEvent.AssistantBlockKind.TEXT)
-                    projector.appendTextDelta("run", event.round, event.index, event.delta, messages) else messages
+                    projector.appendTextDelta("run", event.round, event.index, event.delta, messages)
+                    else if (event.kind == AgentEvent.AssistantBlockKind.THINKING)
+                        projector.appendReasoningDelta("run", event.round, event.index, event.delta, messages) else messages
                 is AgentEvent.AssistantBlockEnd -> if (event.kind == AgentEvent.AssistantBlockKind.TEXT)
-                    projector.finalizeTextBlock("run", event.round, event.index, event.replacementContent, messages) else messages
+                    projector.finalizeTextBlock("run", event.round, event.index, event.replacementContent, messages)
+                    else if (event.kind == AgentEvent.AssistantBlockKind.THINKING)
+                        projector.finalizeThinkingBlock("run", event.round, event.index, event.replacementContent, messages) else messages
+                is AgentEvent.AssistantReceived -> if (event.reasoningContent.isNotBlank())
+                    projector.ensureCompletedThinking("run", event.round, event.reasoningContent, messages) else messages
                 is AgentEvent.RunFinished -> projector.finalizeRun("run", messages)
                 else -> messages
             }
@@ -45,7 +52,7 @@ class AgentPauseContinuationTest {
             override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
             override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
                 val part = parts[calls++]
-                assertEquals(if (calls == 1) ReasoningEffort.HIGH else ReasoningEffort.OFF, request.config.reasoningEffort)
+                assertEquals(ReasoningEffort.HIGH, request.config.reasoningEffort)
                 onEvent(ProviderEvent.RequestStarted)
                 onEvent(ProviderEvent.BlockStart(AssistantBlockKind.TEXT, 0))
                 onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 0, "draft"))
@@ -73,7 +80,7 @@ class AgentPauseContinuationTest {
         assertEquals(0, AgentContextCompactor.recentKeepStartIndex(transcript, 1))
     }
 
-    @Test fun pauseBeforeAnyTextAlsoDisablesOptionalReasoningOnResume() {
+    @Test fun pauseBeforeAnyTextKeepsModelReasoningConfiguration() {
         var calls = 0
         val controller = AgentRunController()
         val provider = object : AgentProviderClient {
@@ -85,13 +92,69 @@ class AgentPauseContinuationTest {
                     runController.pause()
                     runController.resume()
                     binding.close()
-                } else assertEquals(ReasoningEffort.OFF, request.config.reasoningEffort)
+                } else assertEquals(ReasoningEffort.HIGH, request.config.reasoningEffort)
                 return ProviderResponse(JSONObject().put("role", "assistant").put("content", if (calls == 1) "" else "done").put("finish_reason", "stop"))
             }
         }
         AgentLoop(config(), JSONArray().put(AgentConversationCodec.userTextMessage("task")), JSONArray(), provider,
             AgentModelClient.ToolExecutor { error("no tools") }, controller, AgentTraceFormatter(), onEvent = {}).run()
         assertEquals(2, calls)
+    }
+
+    @Test fun resumedThinkingIsHiddenFromEventsResultAndReplayButKeptInModelHistory() {
+        for (streaming in listOf(true, false)) {
+            var calls = 0
+            val controller = AgentRunController()
+            val events = mutableListOf<AgentEvent>()
+            val history = JSONArray().put(AgentConversationCodec.userTextMessage("task"))
+            val provider = object : AgentProviderClient {
+                override val id = "resume-hidden"
+                override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+                override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                    calls++
+                    onEvent(ProviderEvent.RequestStarted)
+                    if (calls > 1 && streaming) {
+                        onEvent(ProviderEvent.BlockStart(AssistantBlockKind.THINKING, 7))
+                        onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.THINKING, 7, "hidden-resume"))
+                        onEvent(ProviderEvent.BlockEnd(AssistantBlockKind.THINKING, 7, content = "hidden-resume", replaceContent = true))
+                        // The second reasoning block of the same resumed request stays visible.
+                        if (calls == 3) {
+                            onEvent(ProviderEvent.BlockStart(AssistantBlockKind.THINKING, 9))
+                            onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.THINKING, 9, "visible-later"))
+                            onEvent(ProviderEvent.BlockEnd(AssistantBlockKind.THINKING, 9))
+                        }
+                    }
+                    val text = "part$calls "
+                    onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 10, text))
+                    if (calls < 3) {
+                        val binding = runController.register(interruptible = true) {}
+                        runController.pause()
+                        runController.resume()
+                        binding.close()
+                    }
+                    return ProviderResponse(JSONObject().put("role", "assistant").put("content", text)
+                        .put("reasoning_content", if (calls > 1) "hidden-resume" + if (streaming && calls == 3) "visible-later" else "" else "")
+                        .put("finish_reason", "stop"))
+                }
+            }
+            val result = AgentLoop(config(), history, JSONArray(), provider,
+                AgentModelClient.ToolExecutor { error("no tools") }, controller, AgentTraceFormatter(),
+                onEvent = events::add, turnId = "same-turn").run()
+            assertEquals(3, calls)
+            assertEquals("part1 part2 part3", result.content)
+            assertFalse(result.reasoningContent.contains("hidden-resume"))
+            assertEquals(if (streaming) "visible-later" else "", result.reasoningContent)
+            assertTrue(events.filterIsInstance<AgentEvent.AssistantBlockDelta>().none { it.delta.contains("hidden-resume") })
+            assertTrue(events.filterIsInstance<AgentEvent.AssistantBlockEnd>().none { it.replacementContent.orEmpty().contains("hidden-resume") })
+            assertTrue(events.filterIsInstance<AgentEvent.AssistantReceived>().none { it.reasoningContent.contains("hidden-resume") })
+            assertEquals(listOf(1, 1, 1), events.filterIsInstance<AgentEvent.RoundStarted>().map { it.round })
+            assertTrue(history.toString().contains("hidden-resume"))
+            assertTrue((0 until history.length()).all { history.getJSONObject(it).optString(AgentTurnIdentity.JSON_KEY) == "same-turn" })
+            val replayed = project(events)
+            assertEquals(result.content, replayed.filterIsInstance<AgentMessageUi>().joinToString(" ") { it.content })
+            val thoughts = replayed.filterIsInstance<ThinkingMessageUi>()
+            assertEquals(if (streaming) listOf("visible-later") else emptyList<String>(), thoughts.map { it.content })
+        }
     }
 
     @Test fun legacyResumeAndSteeringRecordsDoNotCreateNewCompressionTurns() {

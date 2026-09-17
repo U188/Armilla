@@ -173,5 +173,5 @@ val prepareSpeechRuntime by tasks.registering(Exec::class) {
     commandLine("python3", rootProject.file("scripts/prepare-speech-runtime.py").absolutePath,
         speechJniDir.get().asFile.absolutePath)
 }
-android.sourceSets.getByName("main").jniLibs.srcDir(speechJniDir)
+android.sourceSets.getByName("main").jniLibs.srcDir(speechJniDir.get().asFile)
 tasks.named("preBuild").configure { dependsOn(prepareSpeechRuntime) }

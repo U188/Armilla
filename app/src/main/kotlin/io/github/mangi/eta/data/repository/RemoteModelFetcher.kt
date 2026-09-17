@@ -3,8 +3,6 @@ package io.github.mangi.eta.data.repository
 import io.github.mangi.eta.agent.model.AgentHttpClient
 import io.github.mangi.eta.agent.model.ProviderRequestHeaders
 import io.github.mangi.eta.agent.model.ProviderUrls
-import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
-import io.github.mangi.eta.data.model.ProviderAuthMode
 import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ModelReasoningCapabilities
@@ -34,6 +32,7 @@ internal object RemoteModelFetcher {
     suspend fun fetch(provider: ProviderSetting): Result<List<Model>> =
         withContext(Dispatchers.IO) {
             runCatching {
+                io.github.mangi.eta.data.model.RemovedProviderPolicy.requireSupported(provider)
                 when (provider) {
                     is AnthropicProviderSetting -> fetchAnthropic(provider)
                     else -> fetchOpenAiCompatible(provider)
@@ -63,11 +62,6 @@ internal object RemoteModelFetcher {
     }
 
     private fun fetchOpenAiCompatible(provider: ProviderSetting): List<Model> {
-        if (GoogleAntigravityOAuth.isAntigravityEndpoint(provider.baseUrl) ||
-            ProviderAuthMode.isAntigravity(provider.authMode)
-        ) {
-            return GoogleAntigravityOAuth.fetchModels(ProviderRepository.context(), provider)
-        }
         val request = Request.Builder()
             .url(ProviderUrls.openAiModelsUrl(provider.baseUrl))
             .headers(

@@ -1,17 +1,14 @@
 package io.github.mangi.eta.agent.model
 
-import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderTypes
 
 internal object ProviderClientFactory {
 
     fun getClient(config: AgentModelClient.ModelConfig): AgentProviderClient {
-        if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl) ||
-            config.openAiEndpointMode == OpenAiEndpointMode.ANTIGRAVITY
-        ) {
-            return AntigravityProvider
-        }
+        io.github.mangi.eta.data.model.RemovedProviderPolicy.requireSupported(
+            config.baseUrl, config.openAiEndpointMode,
+        )
         return when (config.providerType) {
             ProviderTypes.OPENAI_COMPATIBLE -> when (config.openAiEndpointMode) {
                 OpenAiEndpointMode.RESPONSES -> OpenAiResponsesProvider

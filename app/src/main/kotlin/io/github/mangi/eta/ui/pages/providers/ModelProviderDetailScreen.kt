@@ -42,7 +42,6 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.data.model.AnthropicProviderSetting
 import io.github.mangi.eta.data.model.BalanceOption
 import io.github.mangi.eta.data.model.CustomProviderSetting
-import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 import io.github.mangi.eta.data.model.ProviderAuthMode
@@ -103,15 +102,7 @@ internal fun ModelProviderDetailScreen(
     }
     val draft = remember(newType, authMode) {
         when (newType) {
-            NewProviderType.OpenAiCompatible -> if (ProviderAuthMode.isAntigravity(authMode)) {
-                CustomProviderSetting(
-                    id = ProviderRepository.newId(),
-                    name = GoogleAntigravityOAuth.DEFAULT_NAME,
-                    baseUrl = GoogleAntigravityOAuth.BASE_URL,
-                    endpointMode = GoogleAntigravityOAuth.defaultEndpointMode(),
-                    authMode = ProviderAuthMode.OAUTH_ANTIGRAVITY,
-                )
-            } else if (ProviderAuthMode.isOAuth(authMode)) {
+            NewProviderType.OpenAiCompatible -> if (ProviderAuthMode.isOAuth(authMode)) {
                 CustomProviderSetting(
                     id = ProviderRepository.newId(),
                     name = OpenAiCodexOAuth.DEFAULT_NAME,
@@ -276,8 +267,6 @@ private fun ProviderConfigTab(
                     if (ProviderAuthMode.isOAuth(draft.authMode)) {
                         ProviderOAuthLoginRow(
                             providerId = provider.id,
-                            baseUrl = draft.baseUrl,
-                            authMode = draft.authMode,
                             signedIn = draft.apiKey.isNotBlank(),
                             enabled = !isWorking,
                             onToken = { token -> onDraftChange(draft.copy(apiKey = token)) },
@@ -481,11 +470,7 @@ private fun ProviderConfigTab(
                                     val toSave = built.withId(newId).let { saved ->
                                         if (saved.usesOAuth && saved.models.isEmpty()) {
                                             saved.withModels(
-                                                if (GoogleAntigravityOAuth.usesBackend(saved)) {
-                                                    GoogleAntigravityOAuth.defaultModels()
-                                                } else {
-                                                    OpenAiCodexOAuth.defaultModels()
-                                                },
+                                                OpenAiCodexOAuth.defaultModels(),
                                             )
                                         } else {
                                             saved
@@ -648,28 +633,13 @@ private suspend fun testConnection(
     context: android.content.Context,
     provider: ProviderSetting,
 ): String {
-    if (provider.usesOAuth && (
-            OpenAiCodexOAuth.isCodexEndpoint(provider.baseUrl) ||
-                GoogleAntigravityOAuth.isAntigravityEndpoint(provider.baseUrl)
-            )
-    ) {
-        val token = if (GoogleAntigravityOAuth.usesBackend(provider)) {
-            GoogleAntigravityOAuth.validAccessToken(context, provider.id)
-        } else {
-            OpenAiCodexOAuth.validAccessToken(context, provider.id)
-        } ?: provider.apiKey
-        val antigravity = GoogleAntigravityOAuth.usesBackend(provider)
-        return if (token.isBlank()) {
-            context.getString(
-                if (antigravity) R.string.provider_oauth_antigravity_need_sign_in
-                else R.string.provider_oauth_need_sign_in,
-            )
-        } else {
-            context.getString(
-                if (antigravity) R.string.provider_oauth_antigravity_signed_in
-                else R.string.provider_oauth_signed_in,
-            )
-        }
+    io.github.mangi.eta.data.model.RemovedProviderPolicy.requireSupported(provider)
+    if (provider.usesOAuth && OpenAiCodexOAuth.isCodexEndpoint(provider.baseUrl)) {
+        val token = OpenAiCodexOAuth.validAccessToken(context, provider.id) ?: provider.apiKey
+        return context.getString(
+            if (token.isBlank()) R.string.provider_oauth_need_sign_in
+            else R.string.provider_oauth_signed_in,
+        )
     }
     return RemoteModelFetcher.fetch(provider)
         .map { context.resources.getQuantityString(R.plurals.provider_models_fetched, it.size, it.size) }
@@ -684,8 +654,6 @@ private suspend fun testConnection(
 @Composable
 private fun ProviderOAuthLoginRow(
     providerId: String,
-    baseUrl: String,
-    authMode: String,
     signedIn: Boolean,
     enabled: Boolean,
     onToken: (String) -> Unit,
@@ -695,18 +663,14 @@ private fun ProviderOAuthLoginRow(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val id = providerId
-    val antigravity = ProviderAuthMode.isAntigravity(authMode) ||
-        GoogleAntigravityOAuth.isAntigravityEndpoint(baseUrl)
     TextButton(
         text = if (signedIn) {
             context.getString(
-                if (antigravity) R.string.provider_oauth_antigravity_signed_in
-                else R.string.provider_oauth_signed_in,
+                R.string.provider_oauth_signed_in,
             )
         } else {
             context.getString(
-                if (antigravity) R.string.provider_oauth_antigravity_sign_in
-                else R.string.provider_oauth_sign_in,
+                R.string.provider_oauth_sign_in,
             )
         },
         enabled = enabled,
@@ -717,11 +681,7 @@ private fun ProviderOAuthLoginRow(
             onStatus(null)
             scope.launch {
                 try {
-                    val token = if (antigravity) {
-                        GoogleAntigravityOAuth.login(context, id)
-                    } else {
-                        OpenAiCodexOAuth.login(context, id)
-                    }
+                    val token = OpenAiCodexOAuth.login(context, id)
                     onToken(token)
                     onStatus(context.getString(R.string.provider_oauth_sign_in_ok))
                 } catch (cancelled: CancellationException) {
@@ -742,13 +702,11 @@ private fun ProviderOAuthLoginRow(
     Text(
         text = if (signedIn) {
             context.getString(
-                if (antigravity) R.string.provider_oauth_antigravity_signed_in_note
-                else R.string.provider_oauth_signed_in_note,
+                R.string.provider_oauth_signed_in_note,
             )
         } else {
             context.getString(
-                if (antigravity) R.string.provider_oauth_antigravity_sign_in_note
-                else R.string.provider_oauth_sign_in_note,
+                R.string.provider_oauth_sign_in_note,
             )
         },
         style = MiuixTheme.textStyles.footnote2,

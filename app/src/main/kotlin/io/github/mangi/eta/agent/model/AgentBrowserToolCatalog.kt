@@ -8,7 +8,7 @@ internal object AgentBrowserToolCatalog {
         tools.put(
             AgentToolSchema.function(
                 name = "browser_use",
-                description = "操作 Eta 共享的离屏 Agent 浏览器，不会切换到外部浏览器。一次调用只执行一个 action。navigate 接受完整 URL、域名、搜索词、/workspace、/var/minis 或 minis://。可用 desktop_chrome / mobile_chrome。get_cookies 只返回摘要和 /var/minis/offloads/env_cookies_xxx.sh，明文不进对话。通常先 navigate，再用 get_readable 提取 Markdown 正文，或用 find_elements / get_backbone 了解结构。需要把 URI 显式交给外部应用时使用 open_uri。",
+                description = "操作 Eta 共享的离屏多标签 Agent 浏览器（最多 3 个标签），不会切换到外部浏览器。一次调用只执行一个 action。支持 new_tab、close_tab、list_tabs；tab_id 指定标签，不提供则操作当前标签。navigate 接受完整 URL、域名、搜索词、/workspace、/var/minis 或 minis://。可用 desktop_chrome / mobile_chrome。get_cookies 只返回摘要和 /var/minis/offloads/env_cookies_xxx.sh，明文不进对话。通常先 navigate，再用 get_readable 提取 Markdown 正文，或用 find_elements / get_backbone 了解结构。需要把 URI 显式交给外部应用时使用 open_uri。",
                 parameters = JSONObject()
                     .put("type", "object")
                     .put(
@@ -22,6 +22,9 @@ internal object AgentBrowserToolCatalog {
                                     .put(
                                         "enum",
                                         JSONArray()
+                                            .put("new_tab")
+                                            .put("close_tab")
+                                            .put("list_tabs")
                                             .put("navigate")
                                             .put("get_readable")
                                             .put("get_text")
@@ -47,6 +50,7 @@ internal object AgentBrowserToolCatalog {
                                             .put("wait_for_dom_stable"),
                                     ),
                             )
+                            .put("tab_id", JSONObject().put("type", "integer").put("description", "目标标签 ID，来自 list_tabs 或前次结果；无此标签时不会自动换到其他标签。"))
                             .put("url", JSONObject().put("type", "string").put("description", "navigate 或 fetch 的目标；navigate 也接受域名或搜索词。"))
                             .put("selector", JSONObject().put("type", "string").put("description", "click、type、hover、get_text、find_elements、scroll 或 wait_for_selector 使用的 CSS selector。"))
                             .put("text", JSONObject().put("type", "string").put("description", "type 要输入的文本。只会发送给工具，不会显示在运行摘要中。"))

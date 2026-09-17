@@ -1,6 +1,5 @@
 package io.github.mangi.eta.agent.model
 
-import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 
@@ -13,7 +12,7 @@ internal object AgentCompressionEndpoint {
     fun canOverride(config: AgentModelClient.ModelConfig): Boolean {
         if (config.providerType != io.github.mangi.eta.data.model.ProviderTypes.OPENAI_COMPATIBLE) return false
         if (OpenAiCodexOAuth.isCodexEndpoint(config.baseUrl)) return false
-        if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl)) return false
+        if (io.github.mangi.eta.data.model.RemovedProviderPolicy.isRemoved(config.baseUrl, config.openAiEndpointMode)) return false
         return config.openAiEndpointMode == OpenAiEndpointMode.CHAT_COMPLETIONS ||
             config.openAiEndpointMode == OpenAiEndpointMode.RESPONSES
     }

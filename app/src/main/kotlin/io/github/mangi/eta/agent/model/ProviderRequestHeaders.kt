@@ -1,6 +1,5 @@
 package io.github.mangi.eta.agent.model
 
-import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.model.CustomHeader
 import java.util.UUID
@@ -14,6 +13,7 @@ internal object ProviderRequestHeaders {
         customHeaders: List<CustomHeader>,
         sessionId: String = UUID.randomUUID().toString(),
     ) {
+        io.github.mangi.eta.data.model.RemovedProviderPolicy.requireSupported(baseUrl)
         val host = baseUrl.toHttpUrlOrNull()?.host
         if (host == "chatgpt.com") {
             builder.set("User-Agent", "codex_cli_rs/${OpenAiCodexOAuth.CLIENT_VERSION} (Android; arm64)")
@@ -22,9 +22,6 @@ internal object ProviderRequestHeaders {
             if (sessionId.isNotBlank()) {
                 builder.set("session-id", sessionId)
             }
-        } else if (host?.contains("cloudcode-pa") == true) {
-            // Cloud Code 认 Antigravity Hub UA；写成 Eta / Electron IDE 会 403 #3501。
-            builder.set("User-Agent", GoogleAntigravityOAuth.requestUserAgent())
         } else {
             builder.set("User-Agent", "Eta")
         }

@@ -36,6 +36,9 @@ class AgentSummaryPipelineTest {
             if (calls == 1) response(validSummary() + "\n- " + "x".repeat(5000))
             else {
                 assertTrue(it.messages.toString().contains("Target approximately 375 tokens"))
+                assertTrue(it.messages.toString().contains("FAILED length validation"))
+                assertTrue(it.messages.toString().contains("acceptance cap=756"))
+                assertTrue(it.messages.toString().contains("no more than 250 characters"))
                 response(validSummary())
             }
         }))
@@ -94,6 +97,30 @@ class AgentSummaryPipelineTest {
         }
         assertEquals(2, calls)
         assertEquals(original, source)
+    }
+
+    @Test fun twoKBudgetRewriteGivesMeasuredFailureAndChineseWritingBudget() {
+        var calls = 0
+        val source = history()
+        val oversized = validSummary() + "\n- " + "中".repeat(2000)
+        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(2000, 1, config(), provider {
+            calls++
+            val input = it.messages.toString()
+            if (calls == 1) {
+                assertFalse(input.contains("FAILED length validation"))
+                response(oversized)
+            } else {
+                assertTrue(input.contains("acceptance cap=2256"))
+                assertTrue(input.contains("at most 1500 estimated tokens"))
+                assertTrue(input.contains("no more than 1000 characters"))
+                assertTrue(input.contains("Delete repeated explanations"))
+                assertEquals(0, it.tools.length())
+                response(validSummary())
+            }
+        }))
+        assertEquals(2, calls)
+        assertEquals(source.last(), result.last())
+        assertTrue(AgentContextBudget.countTokens(result.first().content) <= 2256)
     }
 
     @Test fun autoTargetResolvesBeforePromptAndValidationUsingMainWindow() {

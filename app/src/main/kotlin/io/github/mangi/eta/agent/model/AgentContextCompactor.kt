@@ -229,8 +229,11 @@ internal object AgentContextCompactor {
             summary = normalizeSummary(compressChunk(
                 listOf(AgentModelClient.ConversationMessage("user", summary)),
                 resolvedConfig.copy(targetTokens = rewriteTarget), controller, null,
+                rewriteFeedback = buildSummaryRewriteFeedback(measured, cap, rewriteTarget),
             ))
             measured = AgentContextBudget.countTokens(summary)
+            runCatching { AndroidAgentLogger.info(
+                "摘要长度重试结果：目标=$resolvedTarget，验收上限=$cap，实际估算=$measured，重试=1") }
         }
         require(measured <= cap) {
             "合并摘要超过目标预算：目标=$resolvedTarget，验收上限=$cap，实际估算=$measured；原历史保持不变"
@@ -441,8 +444,10 @@ internal object AgentContextCompactor {
         config: Config,
         controller: io.github.mangi.eta.agent.runtime.AgentRunController,
         replay: ReplayContext?,
+        rewriteFeedback: String? = null,
     ): String {
-        val prompt = buildCompressPrompt(messages.joinToString("\n\n") { messageToSummaryText(it) }, config.targetTokens)
+        val prompt = buildCompressPrompt(messages.joinToString("\n\n") { messageToSummaryText(it) }, config.targetTokens) +
+            rewriteFeedback.orEmpty()
         val original = config.compressModelConfig ?: error("未配置压缩模型")
         val window = minOf(original.contextWindow?.takeIf { it > 0 }
             ?: error("请先配置摘要模型的上下文窗口"), SUMMARIZER_INPUT_CAP)
@@ -724,11 +729,29 @@ internal object AgentContextCompactor {
             ?: error("摘要模型返回为空")
     }
 
+    internal fun buildSummaryRewriteFeedback(measured: Int, cap: Int, target: Int): String = buildString {
+        appendLine()
+        appendLine("<length_rewrite_requirements>")
+        appendLine("The checkpoint above FAILED length validation: measured=$measured estimated tokens; acceptance cap=$cap.")
+        appendLine("This is a length-reduction rewrite, NOT a request to reproduce or merely reformat that checkpoint.")
+        appendLine("Target at most $target estimated tokens INCLUDING the marker, all eight headings and bullet text.")
+        appendLine("The validator counts CJK characters at 1.5 tokens each and other characters at 0.25 tokens each.")
+        appendLine("For predominantly Chinese text, use no more than ${target * 2 / 3} characters in TOTAL as a conservative writing budget.")
+        appendLine("Keep the current goal, binding constraints, unresolved blockers, decisive verified facts and next action.")
+        appendLine("Delete repeated explanations, superseded attempts and resolved diagnostics; collapse completed work into short outcome bullets.")
+        appendLine("Retain exact identifiers only when needed for the next action or recovery. Do not copy long command outputs or exhaustive file lists.")
+        appendLine("Keep checkpoint references needed to retrieve omitted details; do not invent facts or mark unverified work as successful.")
+        appendLine("Keep all required headings, using (none) when appropriate. Rewrite complete concise sentences; do not cut off a sentence.")
+        appendLine("Return only the substantially shorter checkpoint. Do not describe this validation failure.")
+        appendLine("</length_rewrite_requirements>")
+    }
+
     private fun buildCompressPrompt(content: String, targetTokens: Int): String {
         val headings = SUMMARY_SECTIONS.joinToString("\n") { heading -> "## $heading" }
         return buildString {
             appendLine("Summarize the historical conversation below into a task checkpoint, using its language.")
             appendLine("Target approximately $targetTokens tokens in TOTAL. Start with $SUMMARY_PREFIX.")
+            appendLine("Budget includes headings and marker. Local estimate: CJK character=1.5 tokens; other character=0.25 tokens.")
             appendLine("Use EXACTLY these Markdown section headings, in this order. Under each heading use concise bullets")
             appendLine("in the conversation's language. Write (none) when empty; never omit a heading:")
             appendLine(headings)

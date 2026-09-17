@@ -1338,7 +1338,6 @@
     <string name="ui_compress_strategy_continue_title">优先持续执行（默认）</string>
     <string name="ui_compress_strategy_continue_summary">空间不够时可压缩更早的步骤</string>
     <string name="ui_compress_strategy_note">自动压缩使用此处策略，下次任务生效。手动压缩可另选策略。原文只留在本机，删除会话时一并清理。</string>
-    <string name="ui_compress_target_tokens_title">压缩目标 Token</string>
     <string name="ui_compress_keep_recent_title">保留最近轮数</string>
     <string name="ui_compress_keep_recent_summary">压缩后原样保留最近 N 轮用户发言及其回复，须为 1 到 100 的整数。工具记录和追加消息会随对应轮次一起留下，但不单独计数；旧摘要也不计入。</string>
     <string name="ui_compress_keep_recent_summary_continue">压缩后原样保留最近 N 轮。优先持续执行可为 0 到 100，0 表示不额外保护最近轮次；当前进行中的轮次仍会尽量保留。</string>
@@ -1456,5 +1455,4 @@
     <string name="provider_oauth_antigravity_signed_in_note">Token is stored on this device. Sign in again if requests start failing.</string>
     <string name="provider_oauth_antigravity_need_sign_in">Sign in with Google first</string>
   <string name="context_tool_outputs_pruned">Tool outputs trimmed · no new summary</string>
-  <string name="ui_compress_target_auto">Auto</string>
 </resources>

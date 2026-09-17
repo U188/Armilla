@@ -64,7 +64,6 @@ internal fun TopBarOverflowMenu(
     onCompressConversation: (
         providerId: String?,
         modelId: String?,
-        targetTokens: Int,
         strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },

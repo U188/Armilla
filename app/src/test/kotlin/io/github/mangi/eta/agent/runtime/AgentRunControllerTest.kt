@@ -220,21 +220,31 @@ class AgentRunControllerTest {
     }
 
     @Test
-    fun requestCompactCancelsOnlyInterruptibleResources() {
+    fun requestCompactQueuesWithoutCancellingAnyResources() {
         val controller = AgentRunController()
         val durable = AtomicInteger(0)
         val stream = AtomicInteger(0)
         controller.register { durable.incrementAndGet() }
         controller.register(interruptible = true) { stream.incrementAndGet() }
 
-        assertTrue(controller.requestCompact(keepRecentMessages = 2, targetTokens = 1000))
+        assertTrue(controller.requestCompact(keepRecentMessages = 2))
 
         assertEquals(0, durable.get())
-        assertEquals(1, stream.get())
+        assertEquals(0, stream.get())
         val request = controller.takePendingCompact()
         assertEquals(2, request?.keepRecentMessages)
-        assertEquals(1000, request?.targetTokens)
         assertFalse(controller.hasPendingCompact)
+    }
+
+    @Test fun cancelledOrSealedRunCannotAcceptMaintenanceAndCancelClearsQueue() {
+        val controller = AgentRunController()
+        assertTrue(controller.requestCompact())
+        controller.cancel()
+        assertFalse(controller.hasPendingCompact)
+        assertFalse(controller.requestCompact())
+        val sealed = AgentRunController()
+        assertNull(sealed.pollSteeringOrSeal())
+        assertFalse(sealed.requestCompact())
     }
 
     @Test

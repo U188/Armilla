@@ -95,7 +95,6 @@ internal object AgentRuntimeWire {
     private const val KEY_PROMPT = "prompt"
     private const val KEY_STEER_TEXT = "steer_text"
     private const val KEY_COMPACT_KEEP_RECENT = "compact_keep_recent"
-    private const val KEY_COMPACT_TARGET_TOKENS = "compact_target_tokens"
     private const val KEY_MODEL_SESSION_ID = "model_session_id"
     private const val KEY_PROVIDER_ID = "provider_id"
     private const val KEY_PROVIDER_NAME = "provider_name"
@@ -584,13 +583,11 @@ internal object AgentRuntimeWire {
     fun compactBundle(
         runId: String,
         keepRecent: Int,
-        targetTokens: Int,
         allowCurrentTurn: Boolean = false,
         strategy: String? = null,
     ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
         putInt(KEY_COMPACT_KEEP_RECENT, keepRecent)
-        putInt(KEY_COMPACT_TARGET_TOKENS, targetTokens)
         putBoolean("allow_current_turn_compaction", allowCurrentTurn)
         if (!strategy.isNullOrBlank()) putString("compact_strategy", strategy)
     }
@@ -601,8 +598,6 @@ internal object AgentRuntimeWire {
     fun compactKeepRecentFromBundle(bundle: Bundle): Int =
         bundle.getInt(KEY_COMPACT_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT)
 
-    fun compactTargetTokensFromBundle(bundle: Bundle): Int =
-        bundle.getInt(KEY_COMPACT_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS)
 
     fun attachRunResponseBundle(runId: String, attached: Boolean): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)

@@ -54,29 +54,21 @@ class AgentProtectedHistoryPersistenceTest {
         }
     }
 
-    @Test fun autoTargetSurvivesRuntimeWireAndController() {
-        val bundle = AgentRuntimeWire.compactBundle("run", 1, AgentContextCompactor.AUTO_TARGET_TOKENS)
-        val target = AgentRuntimeWire.compactTargetTokensFromBundle(bundle)
-        assertEquals(0, target)
+    @Test fun oldTargetWireValueIsIgnoredAndQueuePreservesStrategy() {
+        val bundle = AgentRuntimeWire.compactBundle("run", 1,
+            strategy = AgentCompressionStrategy.CONTINUE_TASK.wireValue)
+        assertFalse(bundle.containsKey("compact_target_tokens"))
+        bundle.putInt("compact_target_tokens", 500)
         val controller = io.github.mangi.eta.agent.runtime.AgentRunController()
-        controller.requestCompact(1, target)
-        assertEquals(0, controller.takePendingCompact()!!.targetTokens)
-    }
-
-    @Test fun bothAutomaticAndManualPreferenceKeysRoundTripAutoAndFixedTargets() {
-        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("auto-target-test", 0)
-        val keys = listOf(io.github.mangi.eta.config.Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
-            io.github.mangi.eta.config.Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS)
-        try {
-            for (key in keys) for (target in AgentContextCompactor.TARGET_TOKEN_OPTIONS) {
-                assertTrue(prefs.edit().putInt(key, target).commit())
-                assertEquals(target, AgentContextCompactor.coerceTargetPreference(prefs.getInt(key, 2000)))
-            }
-        } finally { prefs.edit().clear().commit() }
+        controller.requestCompact(AgentRuntimeWire.compactKeepRecentFromBundle(bundle),
+            strategy = AgentCompressionStrategy.parse(AgentRuntimeWire.compactStrategyFromBundle(bundle)))
+        val request = controller.takePendingCompact()!!
+        assertEquals(1, request.keepRecentMessages)
+        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, request.strategy)
     }
 
     @Test fun explicitContinuationConsentAndBlockedReasonRoundTrip() {
-        val bundle = AgentRuntimeWire.compactBundle("run", 1, 500, allowCurrentTurn = true)
+        val bundle = AgentRuntimeWire.compactBundle("run", 1, allowCurrentTurn = true)
         assertTrue(bundle.getBoolean("allow_current_turn_compaction"))
         val event = AgentEvent.ContextCompacted(1, false, 4, 4, blocked = true, reason = "original retained")
         assertEquals(event, AgentRuntimeWire.eventFromBundle(AgentRuntimeWire.eventToBundle(event)))

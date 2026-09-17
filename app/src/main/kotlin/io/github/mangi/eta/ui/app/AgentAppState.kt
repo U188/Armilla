@@ -166,7 +166,6 @@ internal class AgentAppState(
     private val pendingSteerDrafts = mutableMapOf<String, PendingSteerDraft>()
     private var compressionJob: Job? = null
     private var pendingManualCompress: PendingManualCompress? = null
-    private val autoCompressInterruptedIds = mutableSetOf<String>()
     private val pendingInRunCompactConversationIds = mutableSetOf<String>()
     private var pendingRetiredUsage = ConversationTokenUsageUi()
     private var pendingRetiredConversations = 0
@@ -188,7 +187,6 @@ internal class AgentAppState(
                 AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(
                     runId,
                     AgentContextCompactor.keepRecentFor(currentCompressionStrategy()),
-                    Prefs.getInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS),
                     allowCurrentTurn = true,
                     strategy = currentCompressionStrategy().wireValue,
                 )
@@ -1426,7 +1424,6 @@ internal class AgentAppState(
         conversationId: String,
     ) {
         if (conversationId != selectedConversationId || rejectSendIfModelUnavailable()) return
-        autoCompressInterruptedIds.remove(conversationId)
         if (rejectSendIfCompressing()) return
         val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
         val runId = "run-${UUID.randomUUID()}"
@@ -1823,29 +1820,19 @@ internal class AgentAppState(
     private suspend fun tryCompressHistory(
         history: List<AgentModelClient.ConversationMessage>,
         compressModelConfig: AgentModelClient.ModelConfig?,
-        targetTokens: Int? = null,
         keepRecent: Int? = null,
         conversationId: String? = null,
         contextWindow: Int? = null,
         strategy: AgentCompressionStrategy = currentCompressionStrategy(),
-        outputReserveTokens: Int = 4096,
     ): List<AgentModelClient.ConversationMessage> {
-        val resolvedTargetTokens = targetTokens ?: Prefs.getInt(
-            Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
-            AgentContextCompactor.DEFAULT_TARGET_TOKENS,
-        )
         val resolvedKeepRecent = keepRecent ?: keepRecentFor(strategy)
         val archive = conversationId?.let {
             io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, it)
         }
         val config = AgentContextCompactor.Config(
-            targetTokens = AgentContextCompactor.coerceTargetPreference(resolvedTargetTokens),
             keepRecentMessages = coerceKeepRecent(resolvedKeepRecent, strategy),
             compressModelConfig = compressModelConfig,
             compactionArchive = archive,
-            mainContextWindow = contextWindow,
-            requestOverheadTokens = requestOverheadTokens,
-            outputReserveTokens = outputReserveTokens,
         )
         return try {
             var summaryFailure: String? = null
@@ -2098,7 +2085,6 @@ internal class AgentAppState(
                     compressModelConfig = compressModelConfig,
                     conversationId = conversationId,
                     contextWindow = config.contextWindow,
-                    outputReserveTokens = io.github.mangi.eta.agent.model.AgentCompressionBoundary.outputReserve(config),
                 )
                 withContext(Dispatchers.Main) {
                     applyCompressedHistoryToConversation(
@@ -3364,7 +3350,6 @@ internal class AgentAppState(
                 updateRunTrace(runId) { messages ->
                     runMessageProjector.startAssistantBlock(runId, event, messages)
                 }
-                conversationIdForRun(runId)?.let { maybeAutoCompressDuringTurn(it, runId) }
             }
 
             is AgentEvent.AssistantBlockDelta -> {
@@ -3576,7 +3561,7 @@ internal class AgentAppState(
 
     /**
      * 用量达到自动压缩阈值时压缩已提交的历史。
-     * run 进行中只压一次（旧历史），run 结束后再兜底一次（含本轮 transcript）。
+     * 运行中由 Runtime 在安全边界统一处理；结束后按已提交历史检查。
      */
     private fun scheduleAutoCompress(
         conversationId: String,
@@ -3587,7 +3572,6 @@ internal class AgentAppState(
         if (!allowRepeat && runId != null && runId in runCompressedDuringRun) return
         val state = conversationsById[conversationId] ?: return
         if (state.isStreaming || state.isPaused) {
-            maybeAutoCompressDuringTurn(conversationId, runId)
             return
         }
         val boundModel = AgentModelPickerProjector.project(selectionProviders, state.providerId, state.modelId).selectedModel
@@ -3631,8 +3615,7 @@ internal class AgentAppState(
             ?: return
         val compressModelConfig = resolveCompressModelConfig(fallback)
         val compressed = tryCompressHistory(originalHistory, compressModelConfig,
-            conversationId = conversationId, contextWindow = fallback.contextWindow,
-            outputReserveTokens = io.github.mangi.eta.agent.model.AgentCompressionBoundary.outputReserve(fallback))
+            conversationId = conversationId, contextWindow = fallback.contextWindow)
         if (compressed == originalHistory) return
         withContext(Dispatchers.Main) {
             val latest = conversationsById[conversationId] ?: return@withContext
@@ -3798,7 +3781,6 @@ internal class AgentAppState(
             state.copy(livePromptTokens = tokens),
             updateTimestamp = false,
         )
-        maybeAutoCompressDuringTurn(conversationId, runId)
     }
 
     private fun insertSupplementMessage(
@@ -4264,7 +4246,6 @@ internal class AgentAppState(
     fun compressCurrentConversation(
         providerId: String?,
         modelId: String?,
-        targetTokens: Int,
         strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) {
@@ -4272,7 +4253,7 @@ internal class AgentAppState(
             onFinished(false)
             return
         }
-        persistCompressPreferences(providerId, modelId, targetTokens, strategy)
+        persistCompressPreferences(providerId, modelId, strategy)
         val runInFlight = homeState.isStreaming || homeState.isPaused
         if (compressionJob?.isActive == true) {
             onFinished(true)
@@ -4296,22 +4277,20 @@ internal class AgentAppState(
             return
         }
         val conversationId = selectedConversationId
-        setConversationCompressing(conversationId, true)
         onFinished(true)
         if (runInFlight) {
             requestInRunCompress(
                 conversationId,
                 keepRecentMessages,
-                targetTokens,
                 strategy = strategy,
             )
             return
         }
+        setConversationCompressing(conversationId, true)
         pendingManualCompress = PendingManualCompress(
             conversationId = conversationId,
             providerId = providerId,
             modelId = modelId,
-            targetTokens = targetTokens,
             keepRecent = keepRecentMessages,
             strategy = strategy,
             resumeAfter = false,
@@ -4320,59 +4299,26 @@ internal class AgentAppState(
     }
 
 
-    /**
-     * 回复中达到自动压缩阈值：在当前 run 内压缩，不另开 run。
-     * 没在跑工具就打断当前模型请求再压；有工具则等这批跑完、下一次模型请求前再压。
-     */
-    private fun maybeAutoCompressDuringTurn(conversationId: String, runId: String? = null) {
-        if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return
-        if (pendingManualCompress != null || compressionJob?.isActive == true) return
-        if (conversationId in autoCompressInterruptedIds) return
-        if (runId != null && runId in runCompressedDuringRun) return
-        val state = conversationsById[conversationId] ?: return
-        if (!state.isStreaming && !state.isPaused) return
-        val boundModel = AgentModelPickerProjector.project(selectionProviders, state.providerId, state.modelId).selectedModel ?: return
-        val estimatedTokens = liveContextUsage(
-            history = state.history,
-            currentInput = "",
-            pendingImages = emptyList(),
-            selectedModel = boundModel,
-            billedContextTokens = billedPromptTokens(state),
-            requestOverheadTokens = requestOverheadTokens,
-            billedOverheadTokens = billedOverheadTokens,
-        ).contextTokens
-        if (!shouldAutoCompress(state.history, boundModel.contextWindow, estimatedTokens)) return
-        autoCompressInterruptedIds += conversationId
-        requestInRunCompress(
-            conversationId = conversationId,
-            keepRecent = keepRecentFor(),
-            targetTokens = AgentContextCompactor.coerceTargetPreference(Prefs.getInt(
-                Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
-                AgentContextCompactor.DEFAULT_TARGET_TOKENS,
-            )),
-            strategy = currentCompressionStrategy(),
-        )
-    }
-
     private fun requestInRunCompress(
         conversationId: String?,
         keepRecent: Int,
-        targetTokens: Int,
         strategy: AgentCompressionStrategy = currentCompressionStrategy(),
     ) {
-        if (conversationId != null) {
-            pendingInRunCompactConversationIds += conversationId
-        }
-        setConversationCompressing(conversationId, true)
         val runId = runIdForConversation(conversationId) ?: return
+        if (conversationId != null && !pendingInRunCompactConversationIds.add(conversationId)) return
+        // Queued maintenance must not replace the live-output indicator.
+        // ContextCompactionStarted switches the UI only at the actual safe boundary.
         scope.launch(Dispatchers.IO) {
-            AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(
+            val sent = AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(
                 runId = runId,
                 keepRecent = keepRecent,
-                targetTokens = targetTokens,
                 allowCurrentTurn = strategy == AgentCompressionStrategy.CONTINUE_TASK,
                 strategy = strategy.wireValue,
             )
+            if (!sent) withContext(Dispatchers.Main) {
+                conversationId?.let(pendingInRunCompactConversationIds::remove)
+                Toast.makeText(appContext, "压缩请求未送达 Runtime，当前输出未中断。", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -4466,14 +4412,10 @@ internal class AgentAppState(
                 val compressed = tryCompressHistory(
                     history = originalHistory,
                     compressModelConfig = modelConfig,
-                    targetTokens = request.targetTokens,
                     keepRecent = request.keepRecent,
                     conversationId = request.conversationId,
                     contextWindow = fallback?.contextWindow,
                     strategy = request.strategy,
-                    outputReserveTokens = fallback?.let {
-                        io.github.mangi.eta.agent.model.AgentCompressionBoundary.outputReserve(it)
-                    } ?: 4096,
                 )
                 withContext(Dispatchers.Main) {
                     if (compressed == originalHistory) {
@@ -4566,13 +4508,8 @@ internal class AgentAppState(
     private fun persistCompressPreferences(
         providerId: String?,
         modelId: String?,
-        targetTokens: Int,
         strategy: AgentCompressionStrategy,
     ) {
-        Prefs.putInt(
-            Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS,
-            AgentContextCompactor.coerceTargetPreference(targetTokens),
-        )
         Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY, strategy.wireValue)
         Prefs.putInt(
             Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
@@ -4640,7 +4577,6 @@ private data class PendingManualCompress(
     val conversationId: String?,
     val providerId: String?,
     val modelId: String?,
-    val targetTokens: Int,
     val keepRecent: Int,
     val strategy: AgentCompressionStrategy,
     val resumeAfter: Boolean = false,

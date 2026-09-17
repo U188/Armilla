@@ -80,14 +80,13 @@ internal class AgentRuntimeSession(
 
     fun requestCompact(
         keepRecentMessages: Int? = null,
-        targetTokens: Int? = null,
         allowCurrentTurn: Boolean = false,
         strategy: AgentCompressionStrategy? = null,
     ): Boolean {
         lock.withLock {
             if (state != State.RUNNING) return false
         }
-        return controller.requestCompact(keepRecentMessages, targetTokens, allowCurrentTurn, strategy)
+        return controller.requestCompact(keepRecentMessages, allowCurrentTurn, strategy)
     }
 
     fun <T : AgentEvent> steer(

@@ -794,7 +794,6 @@ class AgentModelClientLoopTest {
                 enabled = true,
                 contextWindow = 100_000,
                 keepRecentMessages = 2,
-                targetTokens = 2000,
                 compressModelConfig = modelConfig(),
             ),
             compactHistory = { source, policy ->
@@ -825,7 +824,7 @@ class AgentModelClientLoopTest {
         val events = mutableListOf<AgentEvent>()
         var compactCalls = 0
         val controller = AgentRunController()
-        controller.requestCompact(keepRecentMessages = 1, targetTokens = 200)
+        controller.requestCompact(keepRecentMessages = 1)
         val provider = ScriptedProvider(
             responses = listOf(
                 { _, _ -> assistant(content = "完成", finishReason = "stop", promptTokens = 20) },
@@ -857,9 +856,8 @@ class AgentModelClientLoopTest {
             onEvent = events::add,
             compactPolicy = AgentLoop.CompactPolicy(
                 enabled = false,
-                contextWindow = 8,
+                contextWindow = 128_000,
                 keepRecentMessages = 2,
-                targetTokens = 2000,
                 compressModelConfig = modelConfig(),
             ),
             compactHistory = { source, policy ->
@@ -886,12 +884,12 @@ class AgentModelClientLoopTest {
     }
 
     @Test
-    fun compactContinueRoundDisablesOptionalThinking() {
+    fun compactDuringFinalResponseDoesNotGenerateAnotherReplyOrChangeThinking() {
         val controller = AgentRunController()
         val provider = ScriptedProvider(
             responses = listOf(
                 { _, ctrl ->
-                    ctrl.requestCompact(keepRecentMessages = 1, targetTokens = 200)
+                    ctrl.requestCompact(keepRecentMessages = 1)
                     assistant(content = "前文", finishReason = "stop", promptTokens = 80)
                 },
                 { _, _ -> assistant(content = "续写", finishReason = "stop", promptTokens = 20) },
@@ -926,9 +924,8 @@ class AgentModelClientLoopTest {
             onEvent = {},
             compactPolicy = AgentLoop.CompactPolicy(
                 enabled = false,
-                contextWindow = 8,
+                contextWindow = 128_000,
                 keepRecentMessages = 2,
-                targetTokens = 2000,
                 compressModelConfig = modelConfig(),
             ),
             compactHistory = { source, _ ->
@@ -941,16 +938,15 @@ class AgentModelClientLoopTest {
             },
         ).run()
 
-        assertEquals("续写", result.content)
-        assertEquals(2, provider.requestConfigs.size)
+        assertEquals("前文", result.content)
+        assertEquals(1, provider.requestConfigs.size)
         assertTrue(provider.requestConfigs[0].thinkingEnabled)
         assertEquals(ReasoningEffort.HIGH, provider.requestConfigs[0].reasoningEffort)
-        assertFalse(provider.requestConfigs[1].thinkingEnabled)
-        assertEquals(ReasoningEffort.OFF, provider.requestConfigs[1].reasoningEffort)
-        val continueContents = (0 until provider.requests[1].length()).map {
-            provider.requests[1].getJSONObject(it).optString("content")
-        }
-        assertTrue(continueContents.any { it.contains(AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT) })
+        assertFalse((0 until messages.length()).any {
+            messages.getJSONObject(it).optString("content") == AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT
+        })
+        assertFalse(controller.requestCompact()) // run has sealed its maintenance inlet
+
     }
 
     @Test
@@ -1090,7 +1086,6 @@ class AgentModelClientLoopTest {
                 enabled = true,
                 contextWindow = 500_000,
                 keepRecentMessages = 2,
-                targetTokens = 2000,
                 compressModelConfig = modelConfig(),
             ),
             compactHistory = { source, _ ->

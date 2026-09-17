@@ -21,35 +21,6 @@ class AgentSummaryPipelineTest {
     }
     private fun response(text: String, finish: String = "stop") = JSONObject().put("role", "assistant").put("content", text).put("finish_reason", finish)
 
-    @Test fun selectedTextBudgetIsSeparateFromTransportGenerationRoom() {
-        assertEquals(2256, AgentContextCompactor.summaryTotalCap(2000))
-        assertEquals(756, AgentContextCompactor.summaryTotalCap(500))
-        assertEquals(4500, AgentContextCompactor.summaryTotalCap(4000))
-        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(2000, 128_000))
-        assertTrue(AgentContextCompactor.summaryTotalCap(128) <= 128 * 2)
-    }
-
-    @Test fun firstPassGetsConcreteLengthAndSelectionRulesWithoutExtraRequest() {
-        for (target in listOf(500, 2000, 4000, 8000)) {
-            var calls = 0
-            val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(target, 1, config(), provider {
-                calls++
-                val prompt = it.messages.getJSONObject(it.messages.length() - 1).getString("content")
-                val contract = AgentContextCompactor.buildSummaryLengthInstruction(target)
-                assertTrue(prompt.substringBefore("<conversation>").contains(contract))
-                assertTrue(prompt.substringAfterLast("</conversation>").contains(contract))
-                assertTrue(prompt.contains("no more than ${target * 2 / 3} characters"))
-                assertTrue(prompt.contains("Delete repeated explanations"))
-                assertTrue(prompt.contains("not a detailed report"))
-                assertFalse(prompt.contains("FAILED length validation"))
-                assertEquals(AgentContextCompactor.summaryGenerationLimit(target, 128_000), it.config.summaryOutputLimit)
-                response(validSummary())
-            }))
-            assertEquals(1, calls)
-            assertEquals(history().last(), result.last())
-        }
-    }
-
     @Test fun streamingTimingObservationDoesNotChangeSummaryOrExposeReasoning() {
         val streaming = object : AgentProviderClient {
             override val id = "summary-streaming-timing"
@@ -62,44 +33,11 @@ class AgentSummaryPipelineTest {
                 return ProviderResponse(response(validSummary()))
             }
         }
-        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(2000, 1, config(), streaming))
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), streaming))
         // Stored checkpoints use the canonical marker, not the provider's English marker.
         assertEquals(AgentContextCompactor.coerceSummary(validSummary()), result.first().content)
         assertEquals(history().last(), result.last())
         assertFalse(result.first().content.contains("private reasoning"))
-    }
-
-    @Test fun oversizedCompleteSummaryIsRewrittenOnceBeforeCommit() {
-        var calls = 0
-        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
-            calls++
-            if (calls == 1) response(validSummary() + "\n- " + "x".repeat(5000))
-            else {
-                assertTrue(it.messages.toString().contains("Target approximately 375 tokens"))
-                assertTrue(it.messages.toString().contains("FAILED length validation"))
-                assertTrue(it.messages.toString().contains("acceptance cap=756"))
-                assertTrue(it.messages.toString().contains("no more than 250 characters"))
-                response(validSummary())
-            }
-        }))
-        assertEquals(2, calls)
-        assertTrue(AgentContextBudget.countTokens(result.first().content) <= AgentContextCompactor.summaryTotalCap(500))
-        assertEquals(history().last(), result.last())
-    }
-
-    @Test fun oversizedRewriteFailsWithoutMutatingHistoryOrLooping() {
-        var calls = 0
-        val source = history()
-        val original = source.toList()
-        val failure = assertThrows(IllegalArgumentException::class.java) {
-            AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
-                calls++
-                response(validSummary() + "\n- " + "x".repeat(5000))
-            }))
-        }
-        assertEquals(2, calls)
-        assertTrue(failure.message.orEmpty().contains("实际估算="))
-        assertEquals(original, source)
     }
 
     @Test fun oversizedIntermediateChunksCanStillConsolidateWithinFinalBudget() {
@@ -110,7 +48,7 @@ class AgentSummaryPipelineTest {
             AgentModelClient.ConversationMessage("user", "protected"),
         )
         val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(
-            500, 1, config().copy(contextWindow = 64_000), provider {
+            1, config().copy(contextWindow = 64_000), provider {
                 calls++
                 if (calls <= 2) response(validSummary() + "\n- " + "z".repeat(2000))
                 else response(validSummary())
@@ -118,69 +56,12 @@ class AgentSummaryPipelineTest {
         ))
         assertEquals(3, calls)
         assertEquals(source.last(), result.last())
-        assertTrue(AgentContextBudget.countTokens(result.first().content) <= AgentContextCompactor.summaryTotalCap(500))
-    }
-
-    @Test fun cancelledLengthRewriteLeavesHistoryUnchanged() {
-        val parent = AgentRunController()
-        var calls = 0
-        val source = history()
-        val original = source.toList()
-        assertThrows(AgentRunCancelledException::class.java) {
-            AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
-                if (++calls == 1) response(validSummary() + "\n- " + "x".repeat(5000))
-                else {
-                    parent.cancel()
-                    response(validSummary())
-                }
-            }), controller = parent)
-        }
-        assertEquals(2, calls)
-        assertEquals(original, source)
-    }
-
-    @Test fun twoKBudgetRewriteGivesMeasuredFailureAndChineseWritingBudget() {
-        var calls = 0
-        val source = history()
-        val oversized = validSummary() + "\n- " + "中".repeat(2000)
-        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(2000, 1, config(), provider {
-            calls++
-            val input = it.messages.toString()
-            if (calls == 1) {
-                assertFalse(input.contains("FAILED length validation"))
-                response(oversized)
-            } else {
-                assertTrue(input.contains("acceptance cap=2256"))
-                assertTrue(input.contains("at most 1500 estimated tokens"))
-                assertTrue(input.contains("no more than 1000 characters"))
-                assertTrue(input.contains("Delete repeated explanations"))
-                assertEquals(0, it.tools.length())
-                response(validSummary())
-            }
-        }))
-        assertEquals(2, calls)
-        assertEquals(source.last(), result.last())
-        assertTrue(AgentContextBudget.countTokens(result.first().content) <= 2256)
-    }
-
-    @Test fun autoTargetResolvesBeforePromptAndValidationUsingMainWindow() {
-        val source = listOf(AgentModelClient.ConversationMessage("user", "x".repeat(160_000)),
-            AgentModelClient.ConversationMessage("user", "protected"))
-        val autoConfig = AgentContextCompactor.Config(0, 1, config(), provider {
-            assertTrue(it.messages.toString().contains("Target approximately 1000 tokens"))
-            assertFalse(it.messages.toString().contains("Target approximately 0 tokens"))
-            assertEquals(8192, it.config.summaryOutputLimit)
-            response(validSummary())
-        }, mainContextWindow = 32_000)
-        val result = AgentContextCompactor.compress(source, autoConfig)
-        assertEquals(source.last(), result.last())
-        assertTrue(AgentContextCompactor.isCompressionSummary(result.first()))
-        assertEquals(0, autoConfig.targetTokens)
+        assertTrue(AgentContextBudget.countTokens(result.first().content) < source.sumOf { AgentContextBudget.countMessage(it) })
     }
 
     @Test fun summaryCallIsOneShotCappedAndNeverExecutesTools() {
         var calls = 0
-        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
             calls++
             assertEquals(8192, it.config.summaryOutputLimit)
             assertEquals(0, it.tools.length())
@@ -201,7 +82,7 @@ class AgentSummaryPipelineTest {
             val source = history()
             val original = source.toList()
             assertThrows(RuntimeException::class.java) {
-                AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider { output }))
+                AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider { output }))
             }
             assertEquals(original, source)
         }
@@ -211,7 +92,7 @@ class AgentSummaryPipelineTest {
         val controller = AgentRunController()
         val source = history()
         assertThrows(AgentRunCancelledException::class.java) {
-            AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
+            AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider {
                 controller.cancel()
                 response(validSummary())
             }), controller = controller)
@@ -236,7 +117,7 @@ class AgentSummaryPipelineTest {
             }
         }
         assertThrows(AgentRunCancelledException::class.java) {
-            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), blockingProvider), controller = parent)
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), blockingProvider), controller = parent)
         }
         assertTrue(resourceCancelled)
     }
@@ -252,7 +133,7 @@ class AgentSummaryPipelineTest {
                 return ProviderResponse(response(validSummary()))
             }
         }
-        AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), completedProvider), controller = parent)
+        AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), completedProvider), controller = parent)
         parent.cancel()
         assertNotNull(captured)
         assertFalse(captured!!.isCancelled)
@@ -281,7 +162,7 @@ class AgentSummaryPipelineTest {
         }
         val worker = Thread {
             try {
-                AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), blockingProvider))
+                AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), blockingProvider))
             } catch (caught: Throwable) { failure.set(caught) }
         }.apply { isDaemon = true; start() }
         try {
@@ -308,14 +189,14 @@ class AgentSummaryPipelineTest {
             }
         }
         assertThrows(AgentRunCancelledException::class.java) {
-            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), repairingProvider), controller = parent)
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), repairingProvider), controller = parent)
         }
         assertEquals(2, calls)
     }
 
     @Test fun outputLimitFailureReportsNormalizedReasonAndNeverAcceptsPartialSummary() {
         val failure = assertThrows(IllegalArgumentException::class.java) {
-            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
                 response(validSummary(), "length")
             }))
         }
@@ -326,7 +207,7 @@ class AgentSummaryPipelineTest {
         val limits = mutableListOf<Int>()
         val inputs = mutableListOf<String>()
         val sessions = mutableListOf<String>()
-        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
             limits += requireNotNull(it.config.summaryOutputLimit)
             inputs += it.messages.toString()
             sessions += it.sessionId
@@ -344,7 +225,7 @@ class AgentSummaryPipelineTest {
         val source = history()
         val snapshot = source.toList()
         val error = assertThrows(IllegalArgumentException::class.java) {
-            AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
+            AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider {
                 calls++
                 response(validSummary(), "length")
             }))
@@ -356,9 +237,9 @@ class AgentSummaryPipelineTest {
     }
 
     @Test fun outputRetryRespectsWindowRoomAndHardCap() {
-        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(500, 200_000))
-        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(128, 200_000))
-        assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(500, 8192))
+        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(200_000))
+        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(200_000))
+        assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(8192))
         assertEquals(16384, AgentContextCompactor.summaryRetryLimit(12_000, 200_000, 1000))
         // window=10000 leaves 9488 total after the minimum 512-token safety reserve.
         assertEquals(2988, AgentContextCompactor.summaryRetryLimit(2048, 10_000, 6500))
@@ -370,7 +251,7 @@ class AgentSummaryPipelineTest {
         val parent = AgentRunController()
         var calls = 0
         assertThrows(AgentRunCancelledException::class.java) {
-            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
                 calls++
                 parent.cancel()
                 response("partial", "length")
@@ -382,7 +263,7 @@ class AgentSummaryPipelineTest {
     @Test fun outputLimitWithToolCallsIsNotRetried() {
         var calls = 0
         assertThrows(IllegalArgumentException::class.java) {
-            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
                 calls++
                 response("partial", "length").put("tool_calls", JSONArray().put(JSONObject().put("id", "bad")))
             }))
@@ -393,7 +274,7 @@ class AgentSummaryPipelineTest {
     @Test fun contentFilterIsNotRetriedAsOutputLimit() {
         var calls = 0
         assertThrows(IllegalArgumentException::class.java) {
-            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
                 calls++
                 response("filtered", "content_filter")
             }))
@@ -401,13 +282,34 @@ class AgentSummaryPipelineTest {
         assertEquals(1, calls)
     }
 
-    @Test fun biggerGenerationLimitDoesNotRelaxCheckpointLengthValidation() {
-        val oversized = validSummary() + "\n" + "x".repeat(8000)
+    @Test fun completeReducingCheckpointHasNoFixedLengthAcceptanceCap() {
+        var calls = 0
+        val longer = validSummary() + "\n- " + "x".repeat(8000)
+        val source = history()
+        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider {
+            calls++
+            assertEquals(8192, it.config.summaryOutputLimit)
+            assertFalse(it.messages.toString().contains("Target approximately"))
+            assertFalse(it.messages.toString().contains("characters in TOTAL"))
+            response(longer)
+        }))
+        assertEquals(1, calls)
+        assertEquals(AgentContextCompactor.coerceSummary(longer), result.first().content)
+        assertEquals(source.last(), result.last())
+    }
+
+    @Test fun nonReducingCheckpointIsRejectedWithoutChangingHistory() {
+        val source = history()
+        val original = source.toList()
+        var calls = 0
         assertThrows(IllegalArgumentException::class.java) {
-            AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
-                response(oversized)
+            AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider {
+                calls++
+                response(validSummary() + "\n- " + "x".repeat(20_000))
             }))
         }
+        assertEquals(1, calls)
+        assertEquals(original, source)
     }
 
     @Test fun sameModelReplayRetainsPrefixToolsAndSessionButDoesNotRunAgentLoop() {
@@ -417,15 +319,15 @@ class AgentSummaryPipelineTest {
         val replay = AgentContextCompactor.ReplayContext(JSONArray().put(system),
             JSONArray().put(AgentConversationCodec.toJsonObject(source[0])).put(AgentConversationCodec.toJsonObject(source[1])), tools, "stable-session")
         var calls = 0
-        AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, config(), provider {
+        AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider {
             calls++
             assertEquals("stable-session", it.sessionId)
             assertEquals(system.toString(), it.messages.getJSONObject(0).toString())
             assertEquals(source[0].content, it.messages.getJSONObject(1).getString("content"))
             assertEquals(tools.toString(), it.tools.toString())
             val instruction = it.messages.getJSONObject(it.messages.length() - 1).getString("content")
-            assertTrue(instruction.substringAfterLast("</conversation>").contains(
-                AgentContextCompactor.buildSummaryLengthInstruction(500)))
+            assertTrue(instruction.contains(
+                "Output contract for this request"))
             response(validSummary())
         }), replay = replay)
         assertEquals(1, calls)
@@ -469,7 +371,7 @@ class AgentSummaryPipelineTest {
 
     @Test fun malformedSummaryIsRepairedWithASecondFormatOnlyCall() {
         var calls = 0
-        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(500, 1, config(), provider {
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
             calls++
             if (calls == 1) response("下面是摘要\n目标：继续任务")
             else {
@@ -488,7 +390,7 @@ class AgentSummaryPipelineTest {
         var calls = 0
         val source = history()
         val cfg = config().copy(providerId = "compress-probe", model = "probe-model")
-        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, cfg, provider {
+        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, cfg, provider {
             calls++
             when (it.config.reasoningEffort) {
                 ReasoningEffort.OFF, ReasoningEffort.MINIMAL ->
@@ -507,7 +409,7 @@ class AgentSummaryPipelineTest {
         assertEquals(ReasoningEffort.LOW, CompressionReasoningStore.effortFor(cfg))
         assertEquals("user", result.first().role)
 
-        val again = AgentContextCompactor.compress(source, AgentContextCompactor.Config(500, 1, cfg, provider {
+        val again = AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, cfg, provider {
             calls++
             assertEquals(ReasoningEffort.LOW, it.config.reasoningEffort)
             response(validSummary())

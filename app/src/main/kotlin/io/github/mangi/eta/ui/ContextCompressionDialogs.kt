@@ -107,15 +107,6 @@ private fun rememberActivityImeBottomDp(): Dp {
 }
 
 
-private fun storedCompressTargetTokens(): Int {
-    val stored = Prefs.getInt(
-        Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS,
-        AgentContextCompactor.DEFAULT_TARGET_TOKENS,
-    )
-    return CompressTargetTokenOptions.firstOrNull { it == stored }
-        ?: CompressTargetTokenOptions.minBy { kotlin.math.abs(it - stored) }
-}
-
 private fun currentCompressionStrategy(): AgentCompressionStrategy =
     AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY))
 
@@ -129,7 +120,6 @@ private fun storedManualCompressionStrategy(): AgentCompressionStrategy {
     return currentCompressionStrategy()
 }
 
-private val CompressTargetTokenOptions = AgentContextCompactor.TARGET_TOKEN_OPTIONS
 
 @Composable
 internal fun CompressionStrategyOptions(
@@ -196,14 +186,12 @@ internal fun CompressConversationDialog(
     onConfirm: (
         providerId: String?,
         modelId: String?,
-        targetTokens: Int,
         strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit,
 ) {
     val prefs = remember { Prefs.localAgentPreferences() }
     val scope = rememberCoroutineScope()
-    var targetTokens by remember { mutableIntStateOf(AgentContextCompactor.DEFAULT_TARGET_TOKENS) }
     var strategy by remember { mutableStateOf(AgentCompressionStrategy.DEFAULT) }
     var selectedModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
     var customModelEnabled by remember { mutableStateOf(false) }
@@ -225,7 +213,6 @@ internal fun CompressConversationDialog(
             showModelDialog = false
             return@LaunchedEffect
         }
-        targetTokens = storedCompressTargetTokens()
         strategy = storedManualCompressionStrategy()
         isLoadingModels = true
         customModelEnabled = Prefs.isCustomCompressModelEnabled(prefs)
@@ -309,35 +296,6 @@ internal fun CompressConversationDialog(
             }
 
             Text(
-                text = stringResource(R.string.ui_compress_target_tokens_title),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-            )
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CompressTargetTokenOptions.forEach { value ->
-                    val selected = targetTokens == value
-                    androidx.compose.material3.FilterChip(
-                        selected = selected,
-                        onClick = {
-                            TouchHaptics.click(view)
-                            if (value != targetTokens) {
-                                targetTokens = value
-                                Prefs.putInt(Prefs.Keys.AGENT_MANUAL_COMPRESS_TARGET_TOKENS, value)
-                            }
-                        },
-                        enabled = !isCompressing,
-                        label = { Text(if (value == AgentContextCompactor.AUTO_TARGET_TOKENS)
-                            stringResource(R.string.ui_compress_target_auto) else value.toString()) },
-                    )
-                }
-            }
-
-            Text(
                 text = stringResource(R.string.ui_compress_strategy_title),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -391,7 +349,6 @@ internal fun CompressConversationDialog(
                     onConfirm(
                         selectedModel?.providerId.takeIf { customModelEnabled },
                         selectedModel?.id.takeIf { customModelEnabled },
-                        targetTokens,
                         strategy,
                     ) { ok ->
                         if (ok) onDismiss()

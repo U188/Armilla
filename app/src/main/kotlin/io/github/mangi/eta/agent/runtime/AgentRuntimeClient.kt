@@ -156,14 +156,13 @@ internal class AgentRuntimeClient(
     fun compactRun(
         runId: String,
         keepRecent: Int,
-        targetTokens: Int,
         allowCurrentTurn: Boolean = false,
         strategy: String? = null,
     ): Boolean {
         if (runId.isBlank()) return false
         return withRuntimeMessenger(false) { serviceMessenger ->
             val msg = Message.obtain(null, AgentRuntimeWire.MSG_COMPACT_RUN)
-            msg.data = AgentRuntimeWire.compactBundle(runId, keepRecent, targetTokens, allowCurrentTurn, strategy)
+            msg.data = AgentRuntimeWire.compactBundle(runId, keepRecent, allowCurrentTurn, strategy)
             serviceMessenger.send(msg)
             true
         }

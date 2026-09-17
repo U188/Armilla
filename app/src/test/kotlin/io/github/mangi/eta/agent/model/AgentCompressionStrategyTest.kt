@@ -20,6 +20,12 @@ class AgentCompressionStrategyTest {
     private fun message(role: String, text: String = "", id: String = "", calls: String = "") =
         AgentModelClient.ConversationMessage(role, content = text, toolCallId = id, toolCallsJson = calls)
 
+    @Test fun defaultPressureStartsAtNinetyPercent() {
+        val history = listOf(message("user", "old"), message("assistant", "result"), message("user", "current"))
+        assertFalse(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 89_999))
+        assertTrue(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 90_000))
+    }
+
     @Test fun missingStrategyDefaultsToContinueTask() {
         assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(null))
         assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(""))
@@ -50,8 +56,9 @@ class AgentCompressionStrategyTest {
 
     @Test fun continuationRetentionIsBoundedForLargeContextWindows() {
         assertEquals(2_000, AgentCompressionBoundary.continuationRetentionBudget(20_000))
-        assertEquals(4_166, AgentCompressionBoundary.continuationRetentionBudget(50_000))
-        assertEquals(32_000, AgentCompressionBoundary.continuationRetentionBudget(500_000))
+        assertEquals(4_000, AgentCompressionBoundary.continuationRetentionBudget(50_000))
+        assertEquals(8_000, AgentCompressionBoundary.continuationRetentionBudget(128_000))
+        assertEquals(12_000, AgentCompressionBoundary.continuationRetentionBudget(500_000))
         assertEquals(1, AgentCompressionBoundary.continuationRetentionBudget(500_000, overflow = true))
     }
 
@@ -150,34 +157,13 @@ class AgentCompressionStrategyTest {
         }
         val model = config(200_000)
         AgentLoop(model, source, AgentToolCatalog.build(terminalTools = false, browserTools = false), provider,
-            AgentModelClient.ToolExecutor { controller.requestCompact(1, 500); AgentModelClient.ToolResult(toolBody) },
+            AgentModelClient.ToolExecutor { controller.requestCompact(1); AgentModelClient.ToolResult(toolBody) },
             controller, AgentTraceFormatter(), onEvent = { if (it is AgentEvent.ContextCompacted && it.applied) compressed = true },
-            compactPolicy = AgentLoop.CompactPolicy(false, 200_000, 1, 500, model),
+            compactPolicy = AgentLoop.CompactPolicy(false, 200_000, 1, model),
             compactHistory = { history, _ -> listOf(message("user", "[Conversation summary]\nold work")) + history.drop(2) },
         ).run()
         assertTrue(compressed)
         assertEquals(2, calls)
-    }
-
-    @Test fun inRunManualAutoTargetIsResolvedInsteadOfClampedTo500() {
-        val controller = AgentRunController()
-        controller.requestCompact(1, AgentContextCompactor.AUTO_TARGET_TOKENS)
-        val model = config(128_000)
-        val source = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(160_000)))
-            .put(AgentConversationCodec.userTextMessage("protected"))
-        var resolved = 0
-        AgentLoop(model, source, JSONArray(), provider {
-            assertEquals(4000, resolved)
-            JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
-        }, AgentModelClient.ToolExecutor { error("No tools") }, controller, AgentTraceFormatter(),
-            onEvent = { if (it is AgentEvent.ContextCompacted) assertFalse(it.reason, it.blocked) },
-            compactPolicy = AgentLoop.CompactPolicy(false, 128_000, 1, 500, model),
-            compactHistory = { history, policy ->
-                resolved = policy.targetTokens
-                listOf(message("user", "[Conversation summary]\nverified old work")) + history.drop(1)
-            },
-        ).run()
-        assertEquals(4000, resolved)
     }
 
     @Test fun firstRequestCompactsAtPressureBeforeSendingAnOtherwiseValidRequest() {
@@ -195,7 +181,7 @@ class AgentCompressionStrategyTest {
             JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
         }, AgentModelClient.ToolExecutor { error("No tools") }, AgentRunController(), AgentTraceFormatter(),
             onEvent = { if (it is AgentEvent.ContextCompacted && it.applied) compacted = true },
-            compactPolicy = AgentLoop.CompactPolicy(true, 100_000, 1, 500, model),
+            compactPolicy = AgentLoop.CompactPolicy(true, 100_000, 1, model),
             compactHistory = { history, _ -> listOf(message("user", "[Conversation summary]\nold task")) + history.drop(2) },
         ).run()
         assertEquals(1, requests)
@@ -226,13 +212,13 @@ class AgentCompressionStrategyTest {
                 }
             }, AgentModelClient.ToolExecutor {
                 toolRuns++
-                if (toolRuns == 2) controller.requestCompact(0, 500, strategy = AgentCompressionStrategy.CONTINUE_TASK)
+                if (toolRuns == 2) controller.requestCompact(0, strategy = AgentCompressionStrategy.CONTINUE_TASK)
                 AgentModelClient.ToolResult(if (toolRuns == 1) "O".repeat(20_000) else tail)
             }, controller, AgentTraceFormatter(), onEvent = {
                 if (it is AgentEvent.ContextCompacted) assertFalse(it.reason, it.blocked)
                 events += it
             },
-            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, 500, model, AgentCompressionStrategy.CONTINUE_TASK),
+            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, model, AgentCompressionStrategy.CONTINUE_TASK),
             compactionArchive = AgentCompactionArchive(temporary.root, "same-run"),
             compactHistory = { history, _ ->
                 summaries++

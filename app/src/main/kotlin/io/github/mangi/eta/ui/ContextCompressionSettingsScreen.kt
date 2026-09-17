@@ -47,7 +47,6 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Unit) {
     val prefs = remember(context) { Prefs.localAgentPreferences() }
     var enabled by remember { mutableStateOf(prefs?.getBoolean(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED, false) ?: false) }
-    var targetTokens by remember { mutableIntStateOf(prefs?.getInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, AgentContextCompactor.DEFAULT_TARGET_TOKENS) ?: AgentContextCompactor.DEFAULT_TARGET_TOKENS) }
     var strategy by remember { mutableStateOf(AgentCompressionStrategy.parse(prefs?.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, null))) }
 
     val scope = rememberCoroutineScope()
@@ -81,7 +80,6 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
             when (key) {
                 Prefs.Keys.AGENT_COMPRESSION_STRATEGY -> strategy = AgentCompressionStrategy.parse(prefs?.getString(key, null))
                 Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED -> enabled = prefs?.getBoolean(key, false) ?: false
-                Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS -> targetTokens = prefs?.getInt(key, AgentContextCompactor.DEFAULT_TARGET_TOKENS) ?: AgentContextCompactor.DEFAULT_TARGET_TOKENS
                 Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID,
                 Prefs.Keys.AGENT_COMPRESS_MODEL_ID -> {
                     prefs?.let { currentPrefs ->
@@ -176,35 +174,6 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                         },
                         holdDownState = showModelDialog,
                     )
-                }
-            }
-        }
-
-        item(key = "target_tokens") {
-            SmallTitle(stringResource(R.string.ui_compress_target_tokens_title))
-            Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AgentContextCompactor.TARGET_TOKEN_OPTIONS.forEach { value ->
-                        val selected = targetTokens == value
-                        androidx.compose.material3.Button(
-                            onClick = {
-                                TouchHaptics.click(view)
-                                prefs?.edit()?.putInt(Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS, value)?.apply()
-                                targetTokens = value
-                            },
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            ),
-                        ) {
-                            Text(if (value == AgentContextCompactor.AUTO_TARGET_TOKENS)
-                                stringResource(R.string.ui_compress_target_auto) else value.toString())
-                        }
-                    }
                 }
             }
         }

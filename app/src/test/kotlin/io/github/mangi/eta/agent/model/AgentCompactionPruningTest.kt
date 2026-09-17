@@ -46,7 +46,7 @@ class AgentCompactionPruningTest {
         assertTrue(working[2].content.contains("[Eta tool output pruned;"))
         assertEquals(source.drop(cut), working.drop(cut))
         val result = AgentContextCompactor.compress(working,
-            AgentContextCompactor.Config(500, 1, model(), provider {}, archive), keepStartOverride = cut)
+            AgentContextCompactor.Config(1, model(), provider {}, archive), keepStartOverride = cut)
         assertEquals(source.drop(cut), result.takeLast(source.size - cut))
         assertEquals("LIVE ".repeat(4000), result.last().content)
     }
@@ -55,7 +55,7 @@ class AgentCompactionPruningTest {
         val source = listOf(AgentModelClient.ConversationMessage("user", "x".repeat(10_000))) +
             AgentModelClient.ConversationMessage("user", "protected") + batch("live", "L".repeat(20_000))
         val result = AgentContextCompactor.compress(source,
-            AgentContextCompactor.Config(500, 1, model(), provider {}, AgentCompactionArchive(temporary.root, "pure")))
+            AgentContextCompactor.Config(1, model(), provider {}, AgentCompactionArchive(temporary.root, "pure")))
         assertEquals(source.drop(1), result.drop(1))
         assertTrue(temporary.root.listFiles().orEmpty().isEmpty())
     }
@@ -69,7 +69,7 @@ class AgentCompactionPruningTest {
         raw.getJSONObject(1).put("provider_private", "opaque-kept")
         val replay = AgentContextCompactor.ReplayContext(JSONArray(), raw, JSONArray(), "session")
         var calls = 0
-        AgentContextCompactor.compress(working, AgentContextCompactor.Config(500, 1, model(), provider { request ->
+        AgentContextCompactor.compress(working, AgentContextCompactor.Config(1, model(), provider { request ->
             calls++
             assertEquals(working[2].content, request.messages.getJSONObject(2).getString("content"))
             assertEquals("opaque-kept", request.messages.getJSONObject(1).getString("provider_private"))
@@ -87,7 +87,7 @@ class AgentCompactionPruningTest {
             source.take(3).forEach { array.put(AgentConversationCodec.toJsonObject(it)) }
         }, JSONArray(), "session")
         val failure = assertThrows(IllegalArgumentException::class.java) {
-            AgentContextCompactor.compress(working, AgentContextCompactor.Config(500, 1, model(), provider {
+            AgentContextCompactor.compress(working, AgentContextCompactor.Config(1, model(), provider {
                 fail("Stale replay must never be sent")
             }), keepStartOverride = 3, replay = replay)
         }

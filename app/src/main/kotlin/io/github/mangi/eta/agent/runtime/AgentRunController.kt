@@ -34,7 +34,6 @@ internal class AgentRunController {
 
     data class CompactRequest(
         val keepRecentMessages: Int? = null,
-        val targetTokens: Int? = null,
         val strategy: AgentCompressionStrategy? = null,
     )
 
@@ -78,27 +77,24 @@ internal class AgentRunController {
     }
 
     /**
-     * 请求在下一次模型请求前压缩，并打断当前 SSE。
+     * 压缩排队到响应和工具批次完成后的安全边界，不打断当前 SSE。
      * 工具批次不会被取消。暂停中会唤醒循环，以便立刻压缩。
      */
     fun requestCompact(
         keepRecentMessages: Int? = null,
-        targetTokens: Int? = null,
         allowCurrentTurn: Boolean = false,
         strategy: AgentCompressionStrategy? = null,
     ): Boolean {
         lock.withLock {
-            if (cancelled) return false
+            if (cancelled || !acceptingSteering) return false
             if (allowCurrentTurn) allowCurrentTurnCompaction = true
             pendingCompact = CompactRequest(
                 keepRecentMessages = keepRecentMessages,
-                targetTokens = targetTokens,
                 strategy = strategy,
             )
             paused = false
             pauseCondition.signalAll()
         }
-        interruptCurrentRequest()
         return true
     }
 

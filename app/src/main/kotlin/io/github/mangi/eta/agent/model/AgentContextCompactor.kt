@@ -8,51 +8,15 @@ internal object AgentContextCompactor {
     const val MIN_KEEP_RECENT = 1
     const val MIN_KEEP_RECENT_CONTINUE = 0
     const val MAX_KEEP_RECENT = 100
-    const val DEFAULT_TARGET_TOKENS = 2000
-    const val AUTO_TARGET_TOKENS = 0
-    val TARGET_TOKEN_OPTIONS = listOf(AUTO_TARGET_TOKENS, 500, 1000, 2000, 4000)
-
-    fun coerceTargetPreference(value: Int): Int =
-        if (value == AUTO_TARGET_TOKENS) value else value.coerceIn(500, 4000)
-
-    /** Resolve after pruning and boundary selection, never persist the resolved number.
-     * Aim at ~10% of selected history, capped by 1/32 of the main window.
-     * Leave room for the verbatim tail, request envelope, model output and archive
-     * references. Validation permits up to twice the target, so reserve that too.
-     */
-    internal fun resolveTargetTokens(
-        requested: Int,
-        history: List<AgentModelClient.ConversationMessage>,
-        cut: Int,
-        contextWindow: Int?,
-        requestOverheadTokens: Int = 0,
-        outputReserveTokens: Int = 4096,
-    ): Int {
-        if (requested != AUTO_TARGET_TOKENS) return requested
-        require(cut in 1..history.size) { "没有可自动摘要的历史" }
-        val prefixTokens = history.take(cut).sumOf { AgentContextBudget.countMessage(it).toLong() }
-        val tailTokens = history.drop(cut).sumOf { AgentContextBudget.countMessage(it).toLong() }
-        val desired = ((prefixTokens + 9) / 10).coerceIn(1000, 8000)
-        val window = contextWindow?.takeIf { it > 0 }
-        if (window == null) return desired.toInt()
-        val room = AgentCompressionBoundary.inputLimit(window, outputReserveTokens.coerceAtLeast(0)).toLong() -
-            tailTokens - requestOverheadTokens.coerceAtLeast(0) - 512
-        val availableTarget = minOf(maxOf(500, window / 32).toLong(), room / 2)
-        require(availableTarget >= 500) { "保留原文与请求预留后没有足够的摘要空间，请调整压缩策略或使用更大窗口" }
-        return minOf(desired, availableTarget).toInt()
-    }
-
     /** DeepSeek harness 按 token 留尾巴；单次摘要输入也按真实窗口收紧，避免 1M 覆盖把 128k 模型打爆。 */
     internal const val SUMMARIZER_INPUT_CAP = 128_000
     internal const val SUMMARY_REQUEST_TIMEOUT_MS = 120_000L
     internal const val SUMMARY_GENERATION_FLOOR = 8_192
     internal const val SUMMARY_GENERATION_CAP = 16_384
 
-    // Transport generation room includes mandatory reasoning and is NOT the
-    // accepted summary length. Enforce the text budget after complete output.
-    internal fun summaryGenerationLimit(targetTokens: Int, window: Int): Int =
-        minOf(maxOf(SUMMARY_GENERATION_FLOOR.toLong(), targetTokens.toLong() * 2 + 4096)
-            .coerceAtMost(SUMMARY_GENERATION_CAP.toLong()).toInt(), maxOf(1024, window / 4))
+    // Generation ceiling, NOT a desired or accepted checkpoint length.
+    internal fun summaryGenerationLimit(window: Int): Int =
+        minOf(SUMMARY_GENERATION_FLOOR, maxOf(1024, window / 4))
 
     internal fun summaryRetryLimit(current: Int, window: Int, inputTokens: Int): Int? {
         val available = AgentCompressionBoundary.inputLimit(window, 0).toLong() - inputTokens
@@ -82,14 +46,10 @@ internal object AgentContextCompactor {
     )
 
     data class Config(
-        val targetTokens: Int = DEFAULT_TARGET_TOKENS,
         val keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         val compressModelConfig: AgentModelClient.ModelConfig? = null,
         val summaryProvider: AgentProviderClient? = null,
         val compactionArchive: AgentCompactionArchive? = null,
-        val mainContextWindow: Int? = null,
-        val requestOverheadTokens: Int = 0,
-        val outputReserveTokens: Int = 4096,
     )
 
     fun keepRecentFor(strategy: AgentCompressionStrategy): Int =
@@ -139,7 +99,7 @@ internal object AgentContextCompactor {
         if (!shouldCompress(history, contextWindow, config.keepRecentMessages, estimatedTokens = estimated)) {
             return null
         }
-        val compressed = compress(history, config.copy(mainContextWindow = config.mainContextWindow ?: contextWindow), toolExecutor, capabilitiesProvider)
+        val compressed = compress(history, config, toolExecutor, capabilitiesProvider)
         if (compressed == history) return null
         val cut = recentKeepStartIndex(history, config.keepRecentMessages)
         val keptJson = (historyStart + cut until messages.length()).map { messages.getJSONObject(it) }
@@ -193,16 +153,8 @@ internal object AgentContextCompactor {
             }) { "摘要回放与选中历史不一致，未发送请求" }
         }
 
-        val resolvedTarget = resolveTargetTokens(config.targetTokens, history, keepStart,
-            config.mainContextWindow ?: config.compressModelConfig?.contextWindow,
-            config.requestOverheadTokens, config.outputReserveTokens)
-        val resolvedConfig = config.copy(targetTokens = resolvedTarget)
-        if (config.targetTokens == AUTO_TARGET_TOKENS) runCatching {
-            AndroidAgentLogger.info("自动摘要目标：$resolvedTarget tokens，选中 $keepStart 条历史")
-        }
-        val chunks = splitMessages(messagesToCompress, resolvedConfig, replay)
+        val chunks = splitMessages(messagesToCompress, config, replay)
         runCatching { AndroidAgentLogger.info("开始摘要：${messagesToCompress.size} 条历史，分 ${chunks.size} 块，保留 ${messagesToKeep.size} 条") }
-        val perChunk = resolvedConfig.copy(targetTokens = (resolvedConfig.targetTokens / chunks.size).coerceAtLeast(128))
         var offset = 0
         val summaries = chunks.mapIndexed { index, chunk ->
             controller.throwIfCancelled()
@@ -211,33 +163,14 @@ internal object AgentContextCompactor {
                 for (i in offset until offset + chunk.size) array.put(replay.historyMessages.getJSONObject(i))
             })
             offset += chunk.size
-            compressChunk(chunk, perChunk, controller, chunkReplay)
+            compressChunk(chunk, config, controller, chunkReplay)
         }
         // Intermediate chunks are not committed. Do not reject their aggregate
         // before the consolidation request has a chance to fit the total budget.
         val candidate = if (summaries.size <= 1) summaries.single() else compressChunk(
-            summaries.map { AgentModelClient.ConversationMessage("user", it) }, resolvedConfig, controller, null,
+            summaries.map { AgentModelClient.ConversationMessage("user", it) }, config, controller, null,
         )
-        val cap = summaryTotalCap(resolvedTarget)
-        var summary = normalizeSummary(candidate)
-        var measured = AgentContextBudget.countTokens(summary)
-        if (measured > cap) {
-            runCatching { AndroidAgentLogger.info(
-                "摘要长度重试：目标=$resolvedTarget，验收上限=$cap，实际估算=$measured，重试=1") }
-            // One bounded rewrite, never substring/truncate an accepted checkpoint.
-            val rewriteTarget = minOf(resolvedTarget, maxOf(128, resolvedTarget * 3 / 4))
-            summary = normalizeSummary(compressChunk(
-                listOf(AgentModelClient.ConversationMessage("user", summary)),
-                resolvedConfig.copy(targetTokens = rewriteTarget), controller, null,
-                rewriteFeedback = buildSummaryRewriteFeedback(measured, cap, rewriteTarget),
-            ))
-            measured = AgentContextBudget.countTokens(summary)
-            runCatching { AndroidAgentLogger.info(
-                "摘要长度重试结果：目标=$resolvedTarget，验收上限=$cap，实际估算=$measured，重试=1") }
-        }
-        require(measured <= cap) {
-            "合并摘要超过目标预算：目标=$resolvedTarget，验收上限=$cap，实际估算=$measured；原历史保持不变"
-        }
+        val summary = normalizeSummary(candidate)
         val consolidated = listOf(summary)
 
         val summaryMessages = consolidated.map { summary ->
@@ -401,11 +334,6 @@ internal object AgentContextCompactor {
         }
     }
 
-    internal fun summaryTotalCap(targetTokens: Int): Int {
-        val target = targetTokens.coerceAtLeast(1)
-        return (target + maxOf(256, target / 8)).coerceAtMost(target * 2)
-    }
-
     private fun splitMessages(
         messages: List<AgentModelClient.ConversationMessage>, config: Config, replay: ReplayContext?,
     ): List<List<AgentModelClient.ConversationMessage>> {
@@ -414,7 +342,7 @@ internal object AgentContextCompactor {
         val summarizerWindow = minOf(window, SUMMARIZER_INPUT_CAP)
         val overhead = if (replay == null) 1024 else AgentContextBudget.estimate(replay.systemMessages) +
             AgentContextBudget.countTokens(replay.tools.toString()) + 1024
-        val budget = AgentCompressionBoundary.inputLimit(summarizerWindow, summaryGenerationLimit(config.targetTokens, summarizerWindow)) - overhead
+        val budget = AgentCompressionBoundary.inputLimit(summarizerWindow, summaryGenerationLimit(summarizerWindow)) - overhead
         require(budget > 0) { "摘要模型窗口太小" }
         val cuts = AgentCompressionBoundary.balancedCuts(messages)
         val result = mutableListOf<List<AgentModelClient.ConversationMessage>>()
@@ -435,7 +363,7 @@ internal object AgentContextCompactor {
             end = cut
         }
         if (end > start) result += messages.subList(start, end).toList()
-        require(result.size <= maxOf(1, config.targetTokens / 128)) { "历史分块过多，请增大摘要预算或使用更大窗口的摘要模型" }
+        require(result.size <= 32) { "历史分块过多，请使用更大窗口的摘要模型" }
         return result
     }
 
@@ -444,10 +372,8 @@ internal object AgentContextCompactor {
         config: Config,
         controller: io.github.mangi.eta.agent.runtime.AgentRunController,
         replay: ReplayContext?,
-        rewriteFeedback: String? = null,
     ): String {
-        val prompt = buildCompressPrompt(messages.joinToString("\n\n") { messageToSummaryText(it) }, config.targetTokens) +
-            rewriteFeedback.orEmpty()
+        val prompt = buildCompressPrompt(messages.joinToString("\n\n") { messageToSummaryText(it) })
         val original = config.compressModelConfig ?: error("未配置压缩模型")
         val window = minOf(original.contextWindow?.takeIf { it > 0 }
             ?: error("请先配置摘要模型的上下文窗口"), SUMMARIZER_INPUT_CAP)
@@ -457,7 +383,7 @@ internal object AgentContextCompactor {
             terminalTools = false, browserTools = false, deviceDirectTools = false,
             deviceSensitiveReadTools = false, deviceSensitiveActionTools = false, hostedWebSearchEnabled = false,
             extraBodyJson = "", customBody = emptyList(),
-            summaryOutputLimit = summaryGenerationLimit(config.targetTokens, window),
+            summaryOutputLimit = summaryGenerationLimit(window),
         )
         val input = if (replay == null) org.json.JSONArray()
             .put(org.json.JSONObject().put("role", "system").put("content", model.systemPrompt))
@@ -466,7 +392,7 @@ internal object AgentContextCompactor {
                 for (i in 0 until replay.systemMessages.length()) array.put(replay.systemMessages.getJSONObject(i))
                 for (i in 0 until replay.historyMessages.length()) array.put(replay.historyMessages.getJSONObject(i))
                 array.put(org.json.JSONObject().put("role", "user").put("content", buildCompressPrompt(
-                    "The historical data to summarize is in the preceding messages. Only produce a checkpoint; do not perform the task.", config.targetTokens)))
+                    "The historical data to summarize is in the preceding messages. Only produce a checkpoint; do not perform the task.")))
             }
         val requestTools = replay?.tools ?: org.json.JSONArray()
         val outbound = AgentRequestMediaPolicy.filter(input, model.supportsVision, model.supportsVideo)
@@ -630,7 +556,7 @@ internal object AgentContextCompactor {
     internal fun messageToSummaryText(message: AgentModelClient.ConversationMessage): String = buildString {
         append("[").append(message.role).append("]")
         if (message.content.isNotBlank()) append("\n").append(message.content)
-        if (message.contentJson.isNotBlank()) append("\n[structured content] ").append(message.contentJson.replace(Regex("data:[^;\\s\"]+;base64,[A-Za-z0-9+/=\\s]+"), "[embedded media; original retained, content not interpreted]"))
+        if (message.contentJson.isNotBlank()) append("\n[structured content] ").append(AgentSummaryContent.project(message.contentJson))
         if (message.toolCallsJson.isNotBlank()) append("\n[tool calls] ").append(message.toolCallsJson)
         if (message.toolCallId.isNotBlank()) append("\n[tool result for] ").append(message.toolCallId)
         // Hidden reasoning is not a source of authoritative facts and can overwhelm the evidence.
@@ -740,39 +666,11 @@ internal object AgentContextCompactor {
             ?: error("摘要模型返回为空")
     }
 
-    internal fun buildSummaryRewriteFeedback(measured: Int, cap: Int, target: Int): String = buildString {
-        appendLine()
-        appendLine("<length_rewrite_requirements>")
-        appendLine("The checkpoint above FAILED length validation: measured=$measured estimated tokens; acceptance cap=$cap.")
-        appendLine("This is a length-reduction rewrite, NOT a request to reproduce or merely reformat that checkpoint.")
-        appendLine("Target at most $target estimated tokens INCLUDING the marker, all eight headings and bullet text.")
-        appendLine("The validator counts CJK characters at 1.5 tokens each and other characters at 0.25 tokens each.")
-        appendLine("For predominantly Chinese text, use no more than ${target * 2 / 3} characters in TOTAL as a conservative writing budget.")
-        appendLine("Keep the current goal, binding constraints, unresolved blockers, decisive verified facts and next action.")
-        appendLine("Delete repeated explanations, superseded attempts and resolved diagnostics; collapse completed work into short outcome bullets.")
-        appendLine("Retain exact identifiers only when needed for the next action or recovery. Do not copy long command outputs or exhaustive file lists.")
-        appendLine("Keep checkpoint references needed to retrieve omitted details; do not invent facts or mark unverified work as successful.")
-        appendLine("Keep all required headings, using (none) when appropriate. Rewrite complete concise sentences; do not cut off a sentence.")
-        appendLine("Return only the substantially shorter checkpoint. Do not describe this validation failure.")
-        appendLine("</length_rewrite_requirements>")
-    }
-
-    internal fun buildSummaryLengthInstruction(targetTokens: Int): String {
-        val target = targetTokens.coerceAtLeast(1)
-        val cjkChars = target.toLong() * 2 / 3
-        return "Write at most $target locally estimated tokens in TOTAL. " +
-            "For predominantly Chinese text, use no more than $cjkChars characters in TOTAL as a conservative writing budget, including headings and marker. " +
-            "Select fewer facts rather than exceeding the budget; keep active constraints and essential recovery references. " +
-            "Finish complete sentences; do not pad to fill the budget."
-    }
-
-    private fun buildCompressPrompt(content: String, targetTokens: Int): String {
+    private fun buildCompressPrompt(content: String): String {
         val headings = SUMMARY_SECTIONS.joinToString("\n") { heading -> "## $heading" }
         return buildString {
             appendLine("Summarize the historical conversation below into a task checkpoint, using its language.")
-            appendLine("Target approximately $targetTokens tokens in TOTAL. Start with $SUMMARY_PREFIX.")
-            appendLine("Budget includes headings and marker. Local estimate: CJK character=1.5 tokens; other character=0.25 tokens.")
-            appendLine(buildSummaryLengthInstruction(targetTokens))
+            appendLine("Start with $SUMMARY_PREFIX. Write a concise checkpoint, not a transcript.")
             appendLine("Use EXACTLY these Markdown section headings, in this order. Under each heading use concise bullets")
             appendLine("in the conversation's language. Write (none) when empty; never omit a heading:")
             appendLine(headings)
@@ -792,7 +690,6 @@ internal object AgentContextCompactor {
             // Repeat the output contract AFTER a large history, including replay's
             // final user message, without changing the cacheable history prefix.
             appendLine("Output contract for this request (not historical data):")
-            appendLine(buildSummaryLengthInstruction(targetTokens))
             append("Use all eight required headings; prefer one short bullet per section. Return only the compact checkpoint, not a detailed report.")
         }
     }

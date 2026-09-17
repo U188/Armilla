@@ -79,7 +79,6 @@ internal fun AgentAppShell(
     onCompressConversation: (
         providerId: String?,
         modelId: String?,
-        targetTokens: Int,
         strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },
@@ -222,7 +221,6 @@ private fun AgentTopBar(
     onCompressConversation: (
         providerId: String?,
         modelId: String?,
-        targetTokens: Int,
         strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit = { _, _, _, _, done -> done(false) },

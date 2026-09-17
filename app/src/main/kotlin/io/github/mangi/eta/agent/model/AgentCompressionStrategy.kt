@@ -89,14 +89,15 @@ internal object AgentCompressionBoundary {
     /**
      * Keep a bounded working tail for CONTINUE_TASK. The previous 16% rule made
      * a 500k window retain about 80k tokens before the summary, which is too much
-     * for a compacted context. Scale modestly with the window, but cap the tail.
+     * for a compacted context. Use an internal 4k–12k tail for larger windows, rather than reserving 80k
+     * in a 500k window. Small windows retain 10% (at least 1k).
      */
     internal fun continuationRetentionBudget(contextWindow: Int, overflow: Boolean = false): Int {
         if (overflow) return 1
         return when {
             contextWindow <= 0 -> 1
             contextWindow <= 32_000 -> maxOf(1_000, contextWindow / 10)
-            else -> minOf(32_000, maxOf(4_000, contextWindow / 12))
+            else -> minOf(12_000, maxOf(4_000, contextWindow / 16))
         }
     }
 

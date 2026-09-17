@@ -398,10 +398,6 @@ internal class AgentRuntimeRunExecutor(
                     Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY),
                 ),
             ),
-            targetTokens = AgentContextCompactor.coerceTargetPreference(Prefs.getInt(
-                Prefs.Keys.AGENT_COMPRESS_TARGET_TOKENS,
-                AgentContextCompactor.DEFAULT_TARGET_TOKENS,
-            )),
             compressModelConfig = compressModelConfig,
             strategy = io.github.mangi.eta.agent.model.AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY)),
         )

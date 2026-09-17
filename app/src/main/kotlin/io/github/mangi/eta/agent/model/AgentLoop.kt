@@ -199,12 +199,15 @@ internal class AgentLoop(
             }
 
             val pausedInterrupt = runController.consumePausedInterrupt()
-            if (pausedInterrupt) {
+            val completeToolCallsOnResume = pausedInterrupt &&
+                toolCalls.isNotEmpty() &&
+                providerResponse.stopReason == AssistantStopReason.TOOL_USE
+            if (pausedInterrupt && !completeToolCallsOnResume) {
                 continuingInterruptedRequest = true
                 // Resume keeps the user's reasoning configuration. Only the first
                 // reasoning block's UI projection is hidden, not the model's thinking.
                 // 半截正文留在当前轮次历史里，继续时模型才能接着写。
-                // 不 round++，也不执行未完成的工具调用，压缩保护边界仍是这一轮。
+                // 未完成的工具调用不执行；已经完整给出的 TOOL_USE 在恢复后走正常批次。
                 if (hasAssistantPayload) {
                     assistantMessage.optString("content").takeIf { it != "null" }?.let(interruptedTextPrefix::append)
                     messages.put(

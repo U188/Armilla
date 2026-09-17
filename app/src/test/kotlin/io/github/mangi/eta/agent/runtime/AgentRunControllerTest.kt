@@ -170,7 +170,7 @@ class AgentRunControllerTest {
     }
 
     @Test
-    fun steeringDoesNotResumeAPausedRun() {
+    fun steeringResumesAPausedRun() {
         val controller = AgentRunController()
         val entered = CountDownLatch(1)
         val finished = CountDownLatch(1)
@@ -184,10 +184,56 @@ class AgentRunControllerTest {
         try {
             assertTrue(entered.await(1, TimeUnit.SECONDS))
             assertTrue(controller.steer("补充条件"))
-            assertFalse(finished.await(100, TimeUnit.MILLISECONDS))
+            assertTrue(finished.await(1, TimeUnit.SECONDS))
             assertEquals("补充条件", controller.pollSteeringMessage())
+        } finally {
+            controller.cancel()
+            worker.join(1_000)
+        }
+    }
+
+    @Test
+    fun requestCompactDoesNotResumeAPausedRun() {
+        val controller = AgentRunController()
+        val entered = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        controller.pause()
+        val worker = thread(name = "controller-paused-compact-test", isDaemon = true) {
+            entered.countDown()
+            runCatching(controller::throwIfCancelled)
+            finished.countDown()
+        }
+
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            assertTrue(controller.requestCompact(keepRecentMessages = 2))
+            assertFalse(finished.await(100, TimeUnit.MILLISECONDS))
+            assertTrue(controller.hasPendingCompact)
             controller.resume()
             assertTrue(finished.await(1, TimeUnit.SECONDS))
+        } finally {
+            controller.cancel()
+            worker.join(1_000)
+        }
+    }
+
+    @Test
+    fun requestCompactAllowCurrentTurnResumesAPausedRun() {
+        val controller = AgentRunController()
+        val entered = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        controller.pause()
+        val worker = thread(name = "controller-budget-compact-test", isDaemon = true) {
+            entered.countDown()
+            runCatching(controller::throwIfCancelled)
+            finished.countDown()
+        }
+
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            assertTrue(controller.requestCompact(allowCurrentTurn = true))
+            assertTrue(finished.await(1, TimeUnit.SECONDS))
+            assertTrue(controller.hasPendingCompact)
         } finally {
             controller.cancel()
             worker.join(1_000)

@@ -62,6 +62,10 @@ internal class AgentRunController {
     fun steer(input: SteeringInput): Boolean {
         val interrupt = enqueueSteering(input) ?: return false
         interruptSteering(interrupt)
+        if (!interrupt) {
+            // 暂停时流已经拆掉。入队后唤醒循环，避免 Binder/语音直连时追加排着却一直挂起。
+            resume()
+        }
         return true
     }
 
@@ -78,7 +82,7 @@ internal class AgentRunController {
 
     /**
      * 压缩排队到响应和工具批次完成后的安全边界，不打断当前 SSE。
-     * 工具批次不会被取消。暂停中会唤醒循环，以便立刻压缩。
+     * 工具批次不会被取消。只有允许压缩当前轮（预算恢复）时才解开暂停。
      */
     fun requestCompact(
         keepRecentMessages: Int? = null,
@@ -92,7 +96,9 @@ internal class AgentRunController {
                 keepRecentMessages = keepRecentMessages,
                 strategy = strategy,
             )
-            paused = false
+            if (allowCurrentTurn) {
+                paused = false
+            }
             pauseCondition.signalAll()
         }
         return true

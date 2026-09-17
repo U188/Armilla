@@ -2762,7 +2762,10 @@ internal class AgentAppState(
             runCompressedDuringRun.remove(runId)
         }
         if (conversationId == null) {
-            val frozen = freezeStreamingMessages(homeState.messages)
+            val frozen = runMessageProjector.failRunningTools(
+                SYNTHETIC_STATUS_STOPPED,
+                freezeStreamingMessages(homeState.messages),
+            )
             homeState = homeState.copy(
                 isStreaming = false,
                 isPaused = false,
@@ -2776,7 +2779,10 @@ internal class AgentAppState(
         } else {
             val state = conversationsById[conversationId]
             if (state != null) {
-                val frozen = freezeStreamingMessages(state.messages)
+                val frozen = runMessageProjector.failRunningTools(
+                    SYNTHETIC_STATUS_STOPPED,
+                    freezeStreamingMessages(state.messages),
+                )
                 updateConversation(
                     conversationId,
                     state.copy(

@@ -72,6 +72,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -473,9 +474,18 @@ private fun PaneSearchRow(
     )
     val searchFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    var searchActive by remember { mutableStateOf(false) }
     LaunchedEffect(enableSearchFocus) {
         if (!enableSearchFocus) {
+            searchActive = false
             focusManager.clearFocus(force = true)
+        }
+    }
+    LaunchedEffect(searchActive, enableSearchFocus) {
+        if (searchActive && enableSearchFocus) {
+            showChatInputIme(searchFocusRequester, keyboard, view)
         }
     }
     Row(
@@ -483,6 +493,13 @@ private fun PaneSearchRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(DrawerMetrics.SearchCornerRadius))
             .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+            .clickable(
+                enabled = enableSearchFocus && !searchActive,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
+                searchActive = true
+            }
             .padding(horizontal = 12.dp, vertical = DrawerMetrics.SearchVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -509,7 +526,8 @@ private fun PaneSearchRow(
                 enabled = enableSearchFocus,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(searchFocusRequester),
+                    .focusRequester(searchFocusRequester)
+                    .focusProperties { canFocus = enableSearchFocus && searchActive },
                 singleLine = true,
                 textStyle = textStyle,
                 cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),

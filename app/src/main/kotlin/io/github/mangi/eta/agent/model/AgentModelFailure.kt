@@ -172,9 +172,9 @@ internal class AgentModelFailure(
         }
 
         private fun htmlTitle(body: String): String? =
-            Regex("(?is)<title[^>]*>(.*?)</title>").find(body)
+            Regex("""(?is)<title[^>]*>(.*?)</title>""").find(body)
                 ?.groupValues?.getOrNull(1)
-                ?.replace(Regex("\s+"), " ")
+                ?.replace(Regex("""\s+"""), " ")
                 ?.trim()
                 ?.take(80)
                 ?.ifBlank { null }

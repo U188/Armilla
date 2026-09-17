@@ -1003,6 +1003,70 @@ class AgentModelClientLoopTest {
     }
 
     @Test
+    fun pauseAfterCompleteToolCallsExecutesThemOnResume() {
+        val controller = AgentRunController()
+        val started = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val paused = CountDownLatch(1)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable>()
+        val toolsStarted = AtomicInteger()
+        val provider = ScriptedProvider(
+            responses = listOf(
+                { _, runController ->
+                    runController.register(interruptible = true) {}
+                    runController.pause()
+                    paused.countDown()
+                    assistant(
+                        finishReason = "tool_calls",
+                        toolCalls = listOf(toolCall("call-1", "get_current_context", "{}")),
+                    )
+                },
+                { request, _ ->
+                    val roles = (0 until request.messages.length()).map {
+                        request.messages.getJSONObject(it).optString("role")
+                    }
+                    assertTrue(roles.contains("tool"))
+                    assertFalse((0 until request.messages.length()).any {
+                        request.messages.getJSONObject(it).optString("content") ==
+                            AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT
+                    })
+                    assistant(content = "已根据上下文继续", finishReason = "stop")
+                },
+            )
+        )
+        val worker = thread(name = "pause-tool-loop") {
+            started.countDown()
+            runCatching {
+                AgentModelClient.complete(
+                    config = modelConfig(),
+                    prompt = "查一下时间",
+                    provider = provider,
+                    runController = controller,
+                    toolExecutor = AgentModelClient.ToolExecutor {
+                        toolsStarted.incrementAndGet()
+                        AgentModelClient.ToolResult("{\"now\":\"2026-09-17\"}")
+                    },
+                )
+            }.exceptionOrNull()?.let(failure::set)
+            finished.countDown()
+        }
+        try {
+            assertTrue(started.await(1, TimeUnit.SECONDS))
+            assertTrue(paused.await(2, TimeUnit.SECONDS))
+            assertFalse(finished.await(200, TimeUnit.MILLISECONDS))
+            assertEquals(0, toolsStarted.get())
+            controller.resume()
+            assertTrue(finished.await(3, TimeUnit.SECONDS))
+            assertEquals(null, failure.get()?.toString(), failure.get()?.message)
+            assertEquals(1, toolsStarted.get())
+            assertEquals(2, provider.requests.size)
+        } finally {
+            controller.cancel()
+            worker.join(1_000)
+        }
+    }
+
+    @Test
     fun projectsPromptOccupancyAfterToolResults() {
 
         val events = mutableListOf<AgentEvent>()

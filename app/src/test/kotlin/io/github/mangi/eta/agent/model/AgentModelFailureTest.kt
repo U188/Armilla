@@ -44,6 +44,16 @@ class AgentModelFailureTest {
     }
 
     @Test
+    fun htmlTitleCollapsesWhitespace() {
+        val failure = AgentModelFailure.unexpectedResponse(
+            status = 502,
+            contentType = "text/html",
+            body = "<html><head><title>  502\nBad   Gateway  </title></head></html>",
+        )
+        assertTrue(failure.message!!.contains("502 Bad Gateway"))
+    }
+
+    @Test
     fun responsesEventStreamOnChatEndpointAsksToSwitchMode() {
         val failure = AgentModelFailure.unexpectedResponse(
             status = 200,

@@ -34,9 +34,11 @@ Reference inspected: deepseek-ai/deepseek-harness commit
 - Continuation tail uses retainRatio 0.16 (DeepSeek harness). 128k -> 20.5k, 500k -> 80k.
   These are selection budgets, not permission to split tool batches or truncate a
   large newest unit. Explicit full-turn protection remains available.
-- Summary sections follow harness fact-density headings. Archive checkpoint IDs stay
-  in model footnotes for read_compacted_history and are stripped from the user-facing sheet.
-- Keep raw checkpoint archives/references, full retained tail, same turn IDs,
+- Summary sections follow harness fact-density headings. The live summary lands
+  one replacement checkpoint (surfaceOp=replace), not a growing UUID index.
+  Older originals remain in the session archive JSON; the user-facing sheet
+  still strips the footnote.
+- Keep raw checkpoint archives, full retained tail, same turn IDs,
   format validation, prefix-budget splitting (up to 32 chunks), timeout and
   cancellation propagation. This is not a wholesale TypeScript backend port.
 - Failure never commits the failed summary. Independently committed tool pruning

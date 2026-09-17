@@ -59,7 +59,7 @@ class AgentCompactionArchiveTest {
         assertTrue(runCatching { archive.read(JSONObject().put("checkpoint", id).put("offset", 1_000_000).toString()) }.isFailure)
     }
 
-    @Test fun deterministicPointersSurviveRecompressionAndInventedPointersAreRemoved() {
+    @Test fun replacementLandsOnlyTheCurrentCheckpoint() {
         val archive = AgentCompactionArchive(temporary.root, "conversation")
         val old = archive.save(listOf(AgentModelClient.ConversationMessage("user", "old")))
         val prefix = listOf(AgentModelClient.ConversationMessage("user", "[Conversation summary]\ncontext-checkpoint:$old"))
@@ -68,14 +68,34 @@ class AgentCompactionArchiveTest {
         val summary = listOf(AgentModelClient.ConversationMessage("user", "summary context-checkpoint:$madeUp"),
             AgentModelClient.ConversationMessage("user", "protected"))
         val rewritten = archive.attachReferences(prefix, latest, summary, 1)
-        assertTrue(rewritten.first().content.contains(old))
-        assertTrue(rewritten.first().content.contains(latest))
+        assertTrue(rewritten.first().content.contains("context-checkpoint:$latest"))
+        assertFalse(rewritten.first().content.contains(old))
         assertFalse(rewritten.first().content.contains(madeUp))
+        assertEquals(1, Regex("context-checkpoint:[0-9a-f-]{36}").findAll(rewritten.first().content).count())
         assertEquals(summary.last(), rewritten.last())
         val shown = AgentContextCompactor.displaySummary(rewritten.first().content)
         assertFalse(shown.contains(old))
         assertFalse(shown.contains(latest))
         assertFalse(shown.contains("context-checkpoint:"))
+        assertTrue(JSONObject(archive.read(JSONObject().put("checkpoint", latest).toString()).content).getString("content").contains(old))
+    }
+
+    @Test fun manyHistoricalPointersDoNotFailTheReplacement() {
+        val archive = AgentCompactionArchive(temporary.root, "conversation")
+        val historical = (1..140).map {
+            archive.save(listOf(AgentModelClient.ConversationMessage("user", "turn-$it")))
+        }
+        val prefix = listOf(AgentModelClient.ConversationMessage("user",
+            historical.joinToString("\n") { "context-checkpoint:$it" }))
+        val latest = archive.save(prefix)
+        val summary = listOf(
+            AgentModelClient.ConversationMessage("user", "[Conversation summary]\n## Current Work\n- continue"),
+            AgentModelClient.ConversationMessage("user", "protected"),
+        )
+        val rewritten = archive.attachReferences(prefix, latest, summary, 1)
+        assertTrue(rewritten.first().content.contains("context-checkpoint:$latest"))
+        assertEquals(1, Regex("context-checkpoint:[0-9a-f-]{36}").findAll(rewritten.first().content).count())
+        historical.forEach { id -> assertFalse(rewritten.first().content.contains(id)) }
     }
 
     @Test fun displaySummaryStripsArchiveFootnotes() {

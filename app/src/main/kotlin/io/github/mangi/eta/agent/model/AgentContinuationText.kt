@@ -35,10 +35,11 @@ internal class AgentContinuationText(prefix: String) {
     private fun isSeamCandidate(candidate: String): Boolean {
         val visibleChars = candidate.filterNot { it.isWhitespace() }
         if (visibleChars.isEmpty()) return false
-        // Lone CJK glyph: pause on "这", resume "这世上" -> drop one 这.
-        // "好。" stays because it is one glyph plus punctuation, not a repeated clause.
-        if (visibleChars.length == 1) {
-            return candidate.length == 1 && visibleChars[0].isIdeograph()
+        val ideographs = visibleChars.filter { it.isIdeograph() }
+        // "这" at the pause point is a seam. "好。" is a short acknowledgement:
+        // the period counts as a visible character, but it is not a repeated clause.
+        if (ideographs.length <= 1 && visibleChars.length <= 2) {
+            return candidate.length == 1 && ideographs.length == 1
         }
         return true
     }

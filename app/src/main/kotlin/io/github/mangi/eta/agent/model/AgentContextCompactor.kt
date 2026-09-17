@@ -22,7 +22,7 @@ internal object AgentContextCompactor {
     internal fun summaryRetryLimit(current: Int, window: Int, inputTokens: Int): Int? {
         val available = AgentCompressionBoundary.inputLimit(window, 0).toLong() - inputTokens
         val next = minOf(current.toLong() * 2, SUMMARY_GENERATION_CAP.toLong(), available).toInt()
-        return next.takeIf { it > current }
+        return next.takeIf { it >= current + SUMMARY_GENERATION_FLOOR / 2 }
     }
     private const val TOOL_PRUNE_LIMIT = 8_192
     private const val TOOL_PRUNE_HEAD = 4_096

@@ -244,9 +244,9 @@ class AgentSummaryPipelineTest {
         assertEquals(16384, AgentContextCompactor.summaryGenerationLimit(200_000))
         assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(8192))
         assertEquals(16384, AgentContextCompactor.summaryRetryLimit(12_000, 200_000, 1000))
-        // window=10000 leaves 9488 total after the minimum 512-token safety reserve.
-        assertEquals(2988, AgentContextCompactor.summaryRetryLimit(2048, 10_000, 6500))
-        assertNull(AgentContextCompactor.summaryRetryLimit(2988, 10_000, 6500))
+        assertNull(AgentContextCompactor.summaryRetryLimit(16000, 128_000, 1000))
+        // Tiny leftover room is not worth a second request.
+        assertNull(AgentContextCompactor.summaryRetryLimit(2048, 10_000, 6500))
         assertNull(AgentContextCompactor.summaryRetryLimit(16384, 200_000, 1000))
     }
 

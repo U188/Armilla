@@ -687,7 +687,7 @@ private fun UserMessageBubble(
             modifier = Modifier.padding(top = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TooltipBox(text = stringResource(R.string.ui_copy_4edd1d), enabled = actionsEnabled) {
+            TooltipBox(text = stringResource(R.string.ui_copy_4edd1d), enabled = true) {
                 IconButton(
                     onClick = {
                         TouchHaptics.click(view)
@@ -695,7 +695,6 @@ private fun UserMessageBubble(
                         clipboardManager.setText(AnnotatedString(copyText))
                         copied = true
                     },
-                    enabled = actionsEnabled,
                     minWidth = 30.dp,
                     minHeight = 30.dp,
                 ) {
@@ -860,7 +859,6 @@ private fun AgentMessageBlock(
         if (
             showCopyAction &&
             !message.isStreaming &&
-            !isPaused &&
             message.content.isNotBlank() &&
             (!keepStreamingMarkdown || streamingRevealComplete)
         ) {
@@ -2974,6 +2972,9 @@ private fun ContextCompactedDivider(
     message: ContextCompactedMessageUi,
     modifier: Modifier = Modifier,
 ) {
+    // Zero-count maintenance markers keep token accounting, but have no user-facing notice.
+    // This also hides pruning notices saved by older versions.
+    if (message.compactedCount <= 0) return
     val view = LocalView.current
     var showSummary by remember { mutableStateOf(false) }
     val lineColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.55f)
@@ -3012,7 +3013,7 @@ private fun ContextCompactedDivider(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = if (message.compactedCount == 0 && message.compressorLabel.contains("工具输出")) stringResource(R.string.context_tool_outputs_pruned) else pluralStringResource(
+                text = pluralStringResource(
                     R.plurals.context_compacted_messages,
                     message.compactedCount,
                     message.compactedCount,

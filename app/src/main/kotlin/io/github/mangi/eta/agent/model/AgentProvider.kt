@@ -46,10 +46,21 @@ internal data class ProviderResponse(
         get() = AssistantStopReason.fromWireValue(assistantMessage.optString("finish_reason"))
 }
 
+/** An intentionally interrupted response is a text draft, never an executable tool batch.
+ * Construct a fresh message so neither partial tool_calls nor opaque Responses items leak into replay.
+ */
+internal fun interruptedAssistantMessage(text: String, reasoning: String): JSONObject =
+    JSONObject()
+        .put("role", "assistant")
+        .put("content", text)
+        .put("reasoning_content", reasoning)
+        .put("finish_reason", "eta_interrupted")
+
 internal enum class AssistantStopReason {
     END_TURN,
     TOOL_USE,
     OUTPUT_LIMIT,
+    INTERRUPTED,
     CONTENT_FILTER,
     UNKNOWN;
 
@@ -59,6 +70,7 @@ internal enum class AssistantStopReason {
                 "stop", "end_turn" -> END_TURN
                 "tool_calls", "tool_use" -> TOOL_USE
                 "length", "max_tokens" -> OUTPUT_LIMIT
+                "eta_interrupted" -> INTERRUPTED
                 "content_filter", "refusal" -> CONTENT_FILTER
                 else -> UNKNOWN
             }

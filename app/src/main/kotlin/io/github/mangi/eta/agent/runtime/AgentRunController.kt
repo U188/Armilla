@@ -51,7 +51,7 @@ internal class AgentRunController {
     }
 
     /**
-     * 将补充指令排入下一个 turn。
+     * 将补充指令排入下一次模型请求，仍属于当前逻辑 turn。
      *
      * 流式模型请求会被打断（取消已注册的 EventSource），已写出的正文由 AgentLoop
      * 保留后立刻注入 steering。工具批次仍跑完，不在这里取消。

@@ -13,6 +13,7 @@ internal data class AgentChatUiState(
     val isStreaming: Boolean,
     val isPaused: Boolean = false,
     val isCompressingContext: Boolean = false,
+    val isWaitingForCompression: Boolean = false,
     val thinkingEnabled: Boolean,
     val reasoningEffort: ReasoningEffort = ReasoningEffort.fromLegacy(thinkingEnabled),
     val providerId: String = "",

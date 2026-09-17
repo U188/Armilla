@@ -36,9 +36,11 @@ internal sealed interface AgentEvent {
         val maxAttempts: Int,
         val delayMs: Int,
         val reasonCode: String,
+        val reasonDetail: String = "",
     ) : AgentEvent {
         val displayMessage: String
-            get() = "模型请求暂时中断，${delayMs / 1000} 秒后重试（$attempt/$maxAttempts）；此前工具结果已保留。"
+            get() = "模型请求暂时中断，${delayMs / 1000} 秒后重试（$attempt/$maxAttempts）；此前工具结果已保留。" +
+                reasonDetail.takeIf { it.isNotBlank() }?.let { "\n原因：$it" }.orEmpty()
 
         override fun toLogLine(): String =
             "model_retry_scheduled round=$round, attempt=$attempt, delay_ms=$delayMs, code=${reasonCode.toSafeLogToken()}"

@@ -40,6 +40,20 @@ internal object AgentSseClient {
         )
         val emitOpen = onOpen
         val emitEvent = onEvent
+        fun httpFailure(response: Response): AgentModelFailure {
+            val secrets = request.headers.names().filter {
+                it.equals("Authorization", true) || it.contains("key", true) || it.contains("token", true) || it.equals("Cookie", true)
+            }.flatMap { name -> request.headers.values(name) }.flatMap { value ->
+                listOf(value, value.removePrefix("Bearer ").removePrefix("bearer "))
+            }
+            return AgentModelFailure.http(
+                status = response.code,
+                body = runCatching { response.peekBody(64L * 1024).string() }.getOrDefault(""),
+                headers = response.headers,
+                secrets = secrets,
+            )
+        }
+
 
         val listener = object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
@@ -49,10 +63,7 @@ internal object AgentSseClient {
                     if (!response.isSuccessful) {
                         failure.compareAndSet(
                             null,
-                            AgentModelFailure.http(
-                                response.code,
-                                runCatching { response.body?.string() }.getOrNull().orEmpty(),
-                            ),
+                            httpFailure(response),
                         )
                         stream.finish()
                     }
@@ -110,10 +121,7 @@ internal object AgentSseClient {
                             }
                             failure.compareAndSet(
                                 null,
-                                AgentModelFailure.http(
-                                    response.code,
-                                    runCatching { response.body?.string() }.getOrNull().orEmpty(),
-                                ),
+                                httpFailure(response),
                             )
                         }
                         t != null &&

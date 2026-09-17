@@ -40,6 +40,7 @@ internal fun AgentChatScreen(
             isStreaming = state.isStreaming,
             isPaused = state.isPaused,
             isCompressingContext = state.isCompressingContext,
+            isWaitingForCompression = state.isWaitingForCompression,
             reasoningEffort = state.reasoningEffort,
             availableReasoningEfforts = state.availableReasoningEfforts,
             pendingImages = state.pendingImages,

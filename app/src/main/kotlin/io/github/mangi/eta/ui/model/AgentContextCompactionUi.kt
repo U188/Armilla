@@ -26,7 +26,7 @@ internal object AgentContextCompactionUi {
             0
         }
         val compactedCount = if (pruningOnly) 0 else compactedVisible.takeIf { it > 0 } ?: keepStart.coerceAtLeast(1)
-        val summary = if (pruningOnly) "仅修剪超大工具输出，未生成新的对话摘要；原文可通过检查点回读。" else compressedHistory
+        val summary = if (pruningOnly) "" else compressedHistory
             .filter(AgentContextCompactor::isCompressionSummary)
             .joinToString("\n\n") { AgentContextCompactor.displaySummary(it.content) }
         val keptUserCount = keptHistory.count { message ->

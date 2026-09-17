@@ -52,6 +52,7 @@
   <string name="compress_conversation_failed">压缩会话失败</string>
   <string name="compress_conversation_streaming">模型回复时无法压缩</string>
   <string name="compress_conversation_done">上下文已压缩</string>
+  <string name="compress_conversation_waiting">正在等待压缩…</string>
   <string name="compress_conversation_in_progress">正在压缩会话…</string>
 
   <string name="context_budget_title">上下文已满</string>
@@ -66,8 +67,6 @@
   <string name="ui_custom_compress_model_title">自定义压缩模型</string>
   <string name="ui_custom_compress_model_summary">关闭后使用当前对话所选模型</string>
   <string name="ui_compress_endpoint_title">Endpoint 模式</string>
-  <string name="ui_compress_endpoint_chat_summary">压缩时使用 Chat Completions API</string>
-  <string name="ui_compress_endpoint_responses_summary">压缩时使用 Responses API</string>
   <string name="ui_compress_endpoint_description">仅对压缩摘要请求生效，不修改会话供应商或正常对话的 Endpoint。部分中转站两种 API 的延迟不同，可单独选择兼容且更快的接口。默认 Chat Completions；仅支持 Responses 的模型请选 Responses。原生 Anthropic、Codex 和反重力接口保持原协议。</string>
   <string name="compress_model_missing_window_title">未设置上下文窗口</string>
   <string name="compress_model_missing_window_summary">这个压缩模型还没有上下文窗口，压缩时无法估算输入预算。请先到该模型编辑页填写后再用。</string>
@@ -1422,5 +1421,4 @@
     <string name="provider_oauth_antigravity_login_title">登录 Google</string>
     <string name="provider_oauth_antigravity_signed_in_note">令牌保存在本机。请求失败时再登录一次即可。</string>
     <string name="provider_oauth_antigravity_need_sign_in">请先使用 Google 登录</string>
-  <string name="context_tool_outputs_pruned">已修剪工具输出 · 未生成新摘要</string>
 </resources>

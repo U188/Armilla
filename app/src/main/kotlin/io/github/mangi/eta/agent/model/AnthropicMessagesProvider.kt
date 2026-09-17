@@ -243,6 +243,11 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
             },
         )
 
+        if (!sawMessageStop && finishReason.isNullOrBlank() &&
+            (runController.hasPendingSteering || runController.hasPausedInterrupt)) {
+            return interruptedAssistantMessage(content.toString(), reasoning.toString())
+        }
+
         if (!sawMessageStop) {
             val hasToolCalls = blocks.values.any { it.type == "tool_use" && it.name.isNotBlank() }
             if (content.isBlank() && reasoning.isBlank() && !hasToolCalls) {

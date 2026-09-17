@@ -91,6 +91,22 @@ class AgentContinuationBuilderTest {
         assertEquals("entry-run", again.effectiveTurnId)
     }
 
+    @Test
+    fun explicitLogicalTurnSurvivesMultipleReplacementRuns() {
+        val original = AgentRuntimeWire.RunRequest(
+            runId = "execution-1", turnId = "logical-turn", prompt = "start",
+            config = modelConfig(), images = emptyList(),
+        )
+        val response = AgentModelClient.ModelResponse.Text("partial", transcript = listOf(
+            AgentModelClient.ConversationMessage("assistant", "partial"),
+        ))
+        val next = AgentContinuationBuilder.build(original, response, "supplement 1", newRunId = "execution-2")
+        val last = AgentContinuationBuilder.build(next, response, "supplement 2", newRunId = "execution-3")
+        assertEquals("logical-turn", last.effectiveTurnId)
+        assertEquals(setOf("logical-turn"), last.history.map { it.turnId }.toSet())
+        assertEquals("execution-3", last.runId)
+    }
+
     private fun modelConfig(): AgentModelClient.ModelConfig =
         AgentModelClient.ModelConfig(
             baseUrl = "https://example.invalid/v1",

@@ -12,6 +12,7 @@ internal class AgentModelFailure(
     val retryable: Boolean,
     message: String,
     cause: Throwable? = null,
+    val diagnostic: String = "",
 ) : IllegalStateException(message, cause) {
     companion object {
         private val transientStatus = setOf(408, 429, 500, 502, 503, 504, 524, 529)
@@ -23,14 +24,20 @@ internal class AgentModelFailure(
             "api_error", "internal_error", "provider_unavailable", "service_unavailable",
         )
 
-        fun http(status: Int, body: String): AgentModelFailure {
+        fun http(
+            status: Int,
+            body: String,
+            headers: okhttp3.Headers? = null,
+            secrets: List<String> = emptyList(),
+        ): AgentModelFailure {
+            val diagnostic = AgentHttpFailureDiagnostics.collect(status, body, headers, secrets)
             val error = try {
                 JSONObject(body).optJSONObject("error")
             } catch (_: org.json.JSONException) {
                 null
             }
             if (status in setOf(400, 413) && isContextOverflow(error)) {
-                return AgentModelFailure("CONTEXT_WINDOW_EXCEEDED", false, "提供方确认上下文超限，需缩减上下文后重试。")
+                return AgentModelFailure("CONTEXT_WINDOW_EXCEEDED", false, "提供方确认上下文超限，需缩减上下文后重试。", diagnostic = diagnostic)
             }
             val permanent = isPermanent(error, body)
             val providerMessage = error?.optString("message")
@@ -38,28 +45,30 @@ internal class AgentModelFailure(
                 ?.replace('\r', ' ')
                 ?.trim()
                 .orEmpty()
-                .take(400)
+            val safeProviderMessage = AgentHttpFailureDiagnostics.safe(providerMessage, secrets, 400)
+            val retryAfter = headers?.get("Retry-After")?.let { AgentHttpFailureDiagnostics.safe(it, secrets, 100) }
             val validationUrl = extractGoogleValidationUrl(error, body)
             return AgentModelFailure(
                 code = "HTTP_$status",
                 retryable = status in transientStatus && !permanent,
-                message = if (permanent) "模型接口额度或计费受限（HTTP $status），请检查服务商账户。"
+                message = if (permanent) "模型接口额度或计费受限（HTTP $status），请检查服务商账户。" +
+                    safeProviderMessage.takeIf { it.isNotBlank() }?.let { " 服务端：$it" }.orEmpty()
                 else when (status) {
                     400 -> {
-                        val detail = providerMessage.takeIf { it.isNotBlank() }
+                        val detail = safeProviderMessage.takeIf { it.isNotBlank() }
                             ?: body.replace('\n', ' ').replace('\r', ' ').trim().take(400)
                                 .takeIf { it.isNotBlank() }
                         if (detail != null) "模型请求参数无效（HTTP 400）：$detail"
                         else "模型请求参数无效（HTTP 400），请检查模型配置。"
                     }
                     401 -> {
-                        val detail = providerMessage.takeIf { it.isNotBlank() }
+                        val detail = safeProviderMessage.takeIf { it.isNotBlank() }
                         if (detail != null && detail.contains("verify", true))
                             "Google 要求验证这个账号（HTTP 401）：$detail"
                         else "模型接口认证失败（HTTP 401）。OAuth 请重新登录，API Key 请检查密钥。"
                     }
                     403 -> {
-                        val detail = providerMessage.takeIf { it.isNotBlank() }
+                        val detail = safeProviderMessage.takeIf { it.isNotBlank() }
                             ?: body.replace('\n', ' ').replace('\r', ' ').trim().take(400)
                                 .takeIf { it.isNotBlank() }
                         val verify = validationUrl != null || (
@@ -79,7 +88,9 @@ internal class AgentModelFailure(
                         }
                     }
                     404 -> "模型接口或模型不存在（HTTP 404），请检查接口地址与模型名称。"
-                    429 -> "模型接口暂时限流（HTTP 429）。"
+                    429 -> "模型接口暂时限流（HTTP 429）。" +
+                        safeProviderMessage.takeIf { it.isNotBlank() }?.let { " 服务端：$it" }.orEmpty() +
+                        retryAfter?.let { " Retry-After：$it" }.orEmpty()
                     else -> {
                         val title = htmlTitle(body)
                         if (title != null || body.contains("<html", ignoreCase = true) ||
@@ -91,6 +102,7 @@ internal class AgentModelFailure(
                         }
                     }
                 },
+                diagnostic = diagnostic,
             )
         }
 

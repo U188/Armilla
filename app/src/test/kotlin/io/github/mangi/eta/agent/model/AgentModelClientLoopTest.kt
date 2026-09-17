@@ -134,6 +134,70 @@ class AgentModelClientLoopTest {
     }
 
     @Test
+    fun interruptedToolDraftPreservesTextAndSteeringWithoutToolFailureOrReplay() {
+        val events = mutableListOf<AgentEvent>()
+        val executed = mutableListOf<String>()
+        val provider = ScriptedProvider(responses = listOf(
+            { _, controller ->
+                controller.steer("new instruction")
+                interruptedAssistantMessage("before ", "")
+            },
+            { request, _ ->
+                assertTrue(request.messages.toString().contains("before"))
+                assertTrue(request.messages.toString().contains("new instruction"))
+                assertFalse(request.messages.toString().contains("INVALID_TOOL_ARGUMENTS"))
+                assertFalse(request.messages.toString().contains("tool_calls"))
+                assistant(finishReason = "tool_calls", toolCalls = listOf(toolCall("fresh", "get_current_context", "{}")))
+            },
+            { _, _ -> assistant(content = "done", finishReason = "stop") },
+        ))
+        AgentModelClient.complete(config = modelConfig(), prompt = "task", provider = provider,
+            toolExecutor = AgentModelClient.ToolExecutor { call ->
+                executed += call.id
+                AgentModelClient.ToolResult("ok")
+            }, onEvent = events::add)
+        assertEquals(listOf("fresh"), executed)
+        assertEquals(listOf("fresh"), events.filterIsInstance<AgentEvent.ToolStarted>().map { it.toolCallId })
+        assertEquals(3, provider.requests.size)
+    }
+
+    @Test
+    fun pauseResumeAndSupplementKeepTheOriginalLogicalTurn() {
+        val controller = AgentRunController()
+        val provider = ScriptedProvider(responses = listOf(
+            { _, control ->
+                val binding = control.register(interruptible = true) {}
+                try {
+                    control.pause()
+                    control.resume()
+                } finally { binding.close() }
+                interruptedAssistantMessage("first ", "")
+            },
+            { _, control ->
+                val binding = control.register(interruptible = true) {}
+                try {
+                    control.pause()
+                    control.steer("supplement")
+                } finally { binding.close() }
+                interruptedAssistantMessage("second ", "")
+            },
+            { _, _ -> assistant(content = "done", finishReason = "stop") },
+        ))
+        val result = AgentModelClient.complete(
+            config = modelConfig(), prompt = "original task", turnId = "original-turn",
+            provider = provider, runController = controller,
+            toolExecutor = AgentModelClient.ToolExecutor { error("No tools expected") },
+        )
+        assertEquals(3, provider.requests.size)
+        assertTrue(result.transcript.isNotEmpty())
+        assertEquals(setOf("original-turn"), result.transcript.map { it.turnId }.toSet())
+        assertTrue(result.transcript.any { it.role == "user" && it.content.contains("supplement") })
+        assertTrue(result.transcript.any { it.content.contains("first") })
+        assertFalse(controller.isPaused)
+        assertFalse(controller.hasPendingSteering)
+    }
+
+    @Test
     fun steeringWaitsForWholeToolBatchWithoutCancellingResources() {
         val controller = AgentRunController()
         val cancelledResources = AtomicInteger(0)

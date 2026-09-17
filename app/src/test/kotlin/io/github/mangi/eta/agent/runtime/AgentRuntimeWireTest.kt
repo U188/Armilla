@@ -103,9 +103,19 @@ class AgentRuntimeWireTest {
 
     @Test
     fun retryEventSurvivesIpcAndArchiveJson() {
-        val event = AgentEvent.ModelRetryScheduled(7, 2, 3, 4_000, "MODEL_TIMEOUT")
+        val event = AgentEvent.ModelRetryScheduled(7, 2, 3, 4_000, "HTTP_429", "服务端：Model busy；Retry-After：45")
         assertEquals(event, AgentRuntimeWire.eventFromBundle(AgentRuntimeWire.eventToBundle(event)))
         assertEquals(event, AgentEventJsonCodec.decode(AgentEventJsonCodec.encode(event)))
+    }
+
+    @Test
+    fun oldRetryEventWithoutReasonDetailRemainsReadable() {
+        val old = AgentEvent.ModelRetryScheduled(1, 1, 3, 2000, "HTTP_429")
+        val bundle = AgentRuntimeWire.eventToBundle(old)
+        bundle.remove("reason_detail")
+        assertEquals(old, AgentRuntimeWire.eventFromBundle(bundle))
+        assertTrue(!old.displayMessage.contains("原因："))
+        assertTrue(old.copy(reasonDetail = "Model busy").displayMessage.contains("原因：Model busy"))
     }
 
     @Test

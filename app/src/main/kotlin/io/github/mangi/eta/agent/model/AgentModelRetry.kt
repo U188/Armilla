@@ -70,6 +70,16 @@ internal class AgentModelRetry(
                 }
                 if (callbackFailed || Thread.currentThread().isInterrupted) throw failure
                 val classified = AgentModelFailure.transport(failure) ?: throw failure
+                val reasonDetail = AgentHttpFailureDiagnostics.safe(classified.message.orEmpty(), listOf(request.config.apiKey), 600)
+                // Log the first failure, including terminal/non-retryable responses, before scheduling retries.
+                if (classified.diagnostic.isNotBlank()) runCatching {
+                    io.github.mangi.eta.core.AndroidAgentLogger.warn(
+                        "Model HTTP failure: provider=${AgentHttpFailureDiagnostics.safe(provider.id, limit = 80)}, " +
+                            "model=${AgentHttpFailureDiagnostics.safe(request.config.model, limit = 120)}, " +
+                            "round=$round, attempt=${retries + 1}, " +
+                            AgentHttpFailureDiagnostics.safe(classified.diagnostic, listOf(request.config.apiKey), 4000),
+                    )
+                }
                 if (!classified.retryable || hostedToolStarted || sawCompleted || sawVisibleText) {
                     throw classified
                 }
@@ -78,11 +88,12 @@ internal class AgentModelRetry(
                         classified.code, false,
                         "${classified.message} 已重试 $MAX_RETRIES 次仍未恢复，已保留此前完成的工具结果。",
                         classified,
+                        diagnostic = classified.diagnostic,
                     )
                 }
                 retries += 1
                 val delayMs = BASE_DELAY_MS shl (retries - 1)
-                onEvent(AgentEvent.ModelRetryScheduled(round, retries, MAX_RETRIES, delayMs.toInt(), classified.code))
+                onEvent(AgentEvent.ModelRetryScheduled(round, retries, MAX_RETRIES, delayMs.toInt(), classified.code, reasonDetail))
                 waitBeforeRetry(controller, delayMs)
                 controller.throwIfCancelled()
                 // 展示保留失败尝试，模型上下文与最终推理摘要只接纳成功尝试。

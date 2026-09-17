@@ -35,7 +35,7 @@ class AgentContextCompactionUiTest {
         val marker = updated.filterIsInstance<ContextCompactedMessageUi>().single()
         assertEquals(0, marker.compactedCount)
         assertEquals("工具输出修剪（非摘要）", marker.compressorLabel)
-        assertTrue(marker.summary.contains("未生成新的对话摘要"))
+        assertTrue(marker.summary.isEmpty())
         assertTrue(!marker.summary.contains("old checkpoint"))
     }
 

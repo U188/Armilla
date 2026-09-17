@@ -1512,6 +1512,7 @@ internal class AgentAppState(
         }
 
     fun beginMessageEdit(messageId: String) {
+        if (homeState.isStreaming || homeState.isPaused) return
         if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) return
         if (rejectSendIfCompressing()) return
@@ -1571,6 +1572,7 @@ internal class AgentAppState(
         }
 
     fun deleteMessageTurn(messageId: String) {
+        if (homeState.isStreaming || homeState.isPaused) return
         if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) return
         abortActiveRunForRevision()
@@ -1615,6 +1617,7 @@ internal class AgentAppState(
             isStreaming = false,
             isPaused = false,
             isCompressingContext = false,
+            isWaitingForCompression = false,
             pendingImages = emptyList(),
             pendingFileReferences = emptyList(),
             appliedRuntimeRunIds = emptyList(),
@@ -1651,6 +1654,7 @@ internal class AgentAppState(
     }
 
     private fun regenerateMessage(messageId: String, ignoreCompression: Boolean) {
+        if (homeState.isStreaming || homeState.isPaused) return
         if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) return
         if (!ignoreCompression && rejectSendIfCompressing()) return
@@ -1866,7 +1870,7 @@ internal class AgentAppState(
             }
             if (summaryFailure != null) withContext(Dispatchers.Main) {
                 if (conversationId == selectedConversationId) Toast.makeText(appContext,
-                    "仅修剪了工具输出，未生成摘要：$summaryFailure", Toast.LENGTH_LONG).show()
+                    "压缩会话失败：$summaryFailure", Toast.LENGTH_LONG).show()
             }
             compressed
         } catch (cancelled: CancellationException) {
@@ -2380,6 +2384,7 @@ internal class AgentAppState(
             conversationId,
             current.copy(
                 isCompressingContext = false,
+                isWaitingForCompression = false,
                 history = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(compressedHistory) + userHistoryMessage,
                 livePromptTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
@@ -2399,25 +2404,13 @@ internal class AgentAppState(
             billedOverheadConversationId = conversationId
             billedOverheadTokens = null
         }
-        showCompactedRevisionNotice(resumeInPlace = true,
-            pruningOnly = AgentContextCompactionUi.isPruningOnly(originalHistory, compressedHistory))
         persistConversations()
     }
 
-    private fun showCompactedRevisionNotice(resumeInPlace: Boolean = false, pruningOnly: Boolean = false) {
-        if (pruningOnly) {
-            Toast.makeText(appContext, R.string.context_tool_outputs_pruned, Toast.LENGTH_LONG).show()
-            return
-        }
+    private fun showCompactedRevisionNotice() {
         Toast.makeText(
             appContext,
-            appContext.getString(
-                if (resumeInPlace) {
-                    R.string.state_ui_earlier_context_compressed_will_continue
-                } else {
-                    R.string.state_ui_the_earlier_context_has_been_compressed_and_will_cf6c86
-                },
-            ),
+            R.string.state_ui_the_earlier_context_has_been_compressed_and_will_cf6c86,
             Toast.LENGTH_LONG,
         ).show()
     }
@@ -2769,6 +2762,7 @@ internal class AgentAppState(
                 isStreaming = false,
                 isPaused = false,
                 isCompressingContext = shouldKeepCompressingIndicator(null),
+                isWaitingForCompression = false,
                 messages = frozen,
                 history = AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(
                     homeState.history,
@@ -2788,6 +2782,7 @@ internal class AgentAppState(
                         isStreaming = false,
                         isPaused = false,
                         isCompressingContext = shouldKeepCompressingIndicator(conversationId),
+                        isWaitingForCompression = false,
                         messages = frozen,
                         history = AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(
                             state.history,
@@ -3541,10 +3536,19 @@ internal class AgentAppState(
         }
         runCompressedDuringRun.add(runId)
         val current = conversationsById[conversationId] ?: return
+        if (conversationId in pendingInRunCompactConversationIds &&
+            AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
+            updateConversation(conversationId, current.copy(history = event.history, livePromptTokens = null))
+            billedOverheadConversationId = conversationId
+            billedOverheadTokens = null
+            persistConversations()
+            return
+        }
         updateConversation(
             conversationId,
             current.copy(
                 isCompressingContext = false,
+                isWaitingForCompression = false,
                 history = event.history,
                 livePromptTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
@@ -3561,8 +3565,6 @@ internal class AgentAppState(
         pendingInRunCompactConversationIds.remove(conversationId)
         billedOverheadConversationId = conversationId
         billedOverheadTokens = null
-        showCompactedRevisionNotice(resumeInPlace = true,
-            pruningOnly = AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel))
         persistConversations()
     }
 
@@ -3631,6 +3633,7 @@ internal class AgentAppState(
                 conversationId,
                 latest.copy(
                     isCompressingContext = false,
+                    isWaitingForCompression = false,
                     history = compressed,
                     livePromptTokens = null,
                     messages = AgentContextCompactionUi.applyMarker(
@@ -3644,8 +3647,6 @@ internal class AgentAppState(
             )
             billedOverheadConversationId = conversationId
             billedOverheadTokens = null
-            showCompactedRevisionNotice(resumeInPlace = true,
-                pruningOnly = AgentContextCompactionUi.isPruningOnly(originalHistory, compressed))
             persistConversations()
         }
     }
@@ -3972,15 +3973,22 @@ internal class AgentAppState(
         }
     }
 
-    private fun setConversationCompressing(conversationId: String?, compressing: Boolean) {
+    private fun setConversationWaitingForCompression(conversationId: String?, waiting: Boolean) {
         if (conversationId == null) {
-            if (homeState.isCompressingContext == compressing) return
-            homeState = homeState.copy(isCompressingContext = compressing)
+            homeState = homeState.copy(isWaitingForCompression = waiting)
             return
         }
         val current = conversationsById[conversationId] ?: return
-        if (current.isCompressingContext == compressing) return
-        updateConversation(conversationId, current.copy(isCompressingContext = compressing))
+        updateConversation(conversationId, current.copy(isWaitingForCompression = waiting))
+    }
+
+    private fun setConversationCompressing(conversationId: String?, compressing: Boolean) {
+        if (conversationId == null) {
+            homeState = homeState.copy(isCompressingContext = compressing, isWaitingForCompression = false)
+            return
+        }
+        val current = conversationsById[conversationId] ?: return
+        updateConversation(conversationId, current.copy(isCompressingContext = compressing, isWaitingForCompression = false))
     }
 
     private fun setConversationStreaming(runId: String, isStreaming: Boolean) {
@@ -3990,6 +3998,7 @@ internal class AgentAppState(
             conversationId,
             state.copy(
                 isStreaming = isStreaming,
+                isWaitingForCompression = isStreaming && state.isWaitingForCompression,
                 isPaused = if (isStreaming) state.isPaused else false,
                 isCompressingContext = when {
                     isStreaming -> state.isCompressingContext
@@ -4265,7 +4274,7 @@ internal class AgentAppState(
             onFinished(true)
             return
         }
-        if (!runInFlight && homeState.isCompressingContext) {
+        if (homeState.isCompressingContext || homeState.isWaitingForCompression) {
             onFinished(true)
             return
         }
@@ -4292,7 +4301,7 @@ internal class AgentAppState(
             )
             return
         }
-        setConversationCompressing(conversationId, true)
+        setConversationWaitingForCompression(conversationId, true)
         pendingManualCompress = PendingManualCompress(
             conversationId = conversationId,
             providerId = providerId,
@@ -4311,25 +4320,35 @@ internal class AgentAppState(
         providerId: String? = null,
         modelId: String? = null,
     ) {
-        val runId = runIdForConversation(conversationId) ?: return
+        val runId = runIdForConversation(conversationId) ?: run {
+            Toast.makeText(appContext, "当前任务已结束，请重新发起压缩。", Toast.LENGTH_LONG).show()
+            return
+        }
         if (conversationId != null && !pendingInRunCompactConversationIds.add(conversationId)) return
-        // Queued maintenance must not replace the live-output indicator.
-        // ContextCompactionStarted switches the UI only at the actual safe boundary.
+        // Show queued maintenance alongside live output until Runtime reaches a safe boundary.
+        setConversationWaitingForCompression(conversationId, true)
         val snapshot = conversationsById[conversationId] ?: homeState
         scope.launch(Dispatchers.IO) {
-            val model = resolveCompressModelConfig(
-                fallback = runtimeConfigForBoundModel(snapshot, assistant = null),
-                providerId = providerId,
-                modelId = modelId,
-                manual = true,
-            )
-            val sent = model != null && AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(
-                runId = runId,
-                keepRecent = keepRecent,
-                compressModelConfig = model,
-            )
+            val sent = try {
+                val model = resolveCompressModelConfig(
+                    fallback = runtimeConfigForBoundModel(snapshot, assistant = null),
+                    providerId = providerId,
+                    modelId = modelId,
+                    manual = true,
+                )
+                model != null && AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(
+                    runId = runId,
+                    keepRecent = keepRecent,
+                    compressModelConfig = model,
+                )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                false
+            }
             if (!sent) withContext(Dispatchers.Main) {
                 conversationId?.let(pendingInRunCompactConversationIds::remove)
+                setConversationWaitingForCompression(conversationId, false)
                 Toast.makeText(appContext, "压缩请求未送达 Runtime，当前输出未中断。", Toast.LENGTH_LONG).show()
             }
         }
@@ -4444,7 +4463,6 @@ internal class AgentAppState(
                         originalHistory,
                         compressed,
                         compressorLabel(modelConfig),
-                        announceRestart = !resumeAfter,
                     )
                 }
             } finally {
@@ -4533,7 +4551,6 @@ internal class AgentAppState(
         originalHistory: List<AgentModelClient.ConversationMessage>,
         compressedHistory: List<AgentModelClient.ConversationMessage>,
         compressorLabel: String = "",
-        announceRestart: Boolean = true,
     ) {
         if (conversationId != null) {
             val current = conversationsById[conversationId] ?: return
@@ -4571,8 +4588,6 @@ internal class AgentAppState(
         }
         billedOverheadConversationId = conversationId
         billedOverheadTokens = null
-        if (announceRestart) showCompactedRevisionNotice(resumeInPlace = true,
-            pruningOnly = AgentContextCompactionUi.isPruningOnly(originalHistory, compressedHistory))
         persistConversations()
     }
 }

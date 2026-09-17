@@ -265,7 +265,16 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
             },
         )
 
+        // A name (or even parseable JSON) is not proof that the model finished its arguments.
+        if (finishReason.isNullOrBlank() && (runController.hasPendingSteering || runController.hasPausedInterrupt)) {
+            finishActiveVisibleBlock()
+            return interruptedAssistantMessage(content.toString(), reasoningContent.toString())
+        }
+
         if (!sawStreamData) throw AgentModelFailure.incompleteStream("模型接口未返回 SSE data chunk")
+        if (finishReason.isNullOrBlank() && toolCalls.isNotEmpty() && !sawDone) {
+            throw AgentModelFailure.incompleteStream("工具调用缺少完整结束标记，未执行")
+        }
         val recoveredReason = recoveredFinishReason(finishReason, content, reasoningContent, toolCalls)
         if (recoveredReason == null) {
             throw AgentModelFailure.incompleteStream("模型接口 SSE 流未正常结束")
@@ -315,7 +324,10 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
     ): String? {
         if (!finishReason.isNullOrBlank()) return finishReason
         if (toolCalls.isNotEmpty()) {
-            val complete = toolCalls.values.all { call -> call.name.toString().isNotBlank() }
+            val complete = toolCalls.values.all { call ->
+                call.name.toString().isNotBlank() &&
+                    runCatching { JSONObject(call.arguments.toString()) }.isSuccess
+            }
             return if (complete) "tool_calls" else null
         }
         if (content.isNotBlank() || reasoningContent.isNotBlank()) return "stop"

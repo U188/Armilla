@@ -15,6 +15,80 @@ import org.junit.Test
 class OpenAiChatCompletionsProviderTest {
 
     @Test
+    fun steeringDiscardsUnfinishedToolBatchEvenWithParseableArguments() {
+        for (arguments in listOf("{\"command\":", "{}")) {
+            val controller = AgentRunController()
+            val body = sseChunk(JSONObject().put("content", "before")) +
+                sseChunk(JSONObject().put("tool_calls", JSONArray().put(
+                    JSONObject().put("index", 0).put("id", "draft").put("type", "function")
+                        .put("function", JSONObject().put("name", "terminal").put("arguments", arguments)))))
+            withSseServer(body) { baseUrl ->
+                val response = OpenAiChatCompletionsProvider.complete(providerRequest(baseUrl), controller) { event ->
+                    if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TOOL_CALL) {
+                        controller.steer("new instruction")
+                    }
+                }
+                assertEquals(AssistantStopReason.INTERRUPTED, response.stopReason)
+                assertEquals("before", response.assistantMessage.getString("content"))
+                assertTrue(!response.assistantMessage.has("tool_calls"))
+                assertTrue(controller.hasPendingSteering)
+            }
+        }
+    }
+
+    @Test
+    fun pauseThenSteerAlsoDiscardsUnfinishedArguments() {
+        val controller = AgentRunController()
+        val body = sseChunk(JSONObject().put("tool_calls", JSONArray().put(
+            JSONObject().put("index", 0).put("id", "draft").put("type", "function")
+                .put("function", JSONObject().put("name", "terminal").put("arguments", "{}")))))
+        withSseServer(body) { baseUrl ->
+            val response = OpenAiChatCompletionsProvider.complete(providerRequest(baseUrl), controller) { event ->
+                if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TOOL_CALL) {
+                    controller.pause()
+                    controller.steer("new instruction")
+                }
+            }
+            assertEquals(AssistantStopReason.INTERRUPTED, response.stopReason)
+            assertTrue(!response.assistantMessage.has("tool_calls"))
+            assertTrue(controller.hasPausedInterrupt)
+            assertTrue(controller.hasPendingSteering)
+        }
+    }
+
+    @Test
+    fun explicitToolFinishRemainsAuthoritativeEvenWhenSteeringArrives() {
+        // Malformed arguments in a genuinely completed response must still reach normal validation.
+        val controller = AgentRunController()
+        val body = sseChunk(JSONObject().put("tool_calls", JSONArray().put(
+            JSONObject().put("index", 0).put("id", "complete").put("type", "function")
+                .put("function", JSONObject().put("name", "terminal").put("arguments", "{")))),
+            finishReason = "tool_calls")
+        withSseServer(body) { baseUrl ->
+            val response = OpenAiChatCompletionsProvider.complete(providerRequest(baseUrl), controller) { event ->
+                if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TOOL_CALL) {
+                    controller.steer("new instruction")
+                }
+            }
+            assertEquals(AssistantStopReason.TOOL_USE, response.stopReason)
+            assertEquals("{", response.assistantMessage.getJSONArray("tool_calls")
+                .getJSONObject(0).getJSONObject("function").getString("arguments"))
+        }
+    }
+
+    @Test
+    fun eofWithParseableToolArgumentsButNoFinishIsNotAnExecutableBatch() {
+        val body = sseChunk(JSONObject().put("tool_calls", JSONArray().put(
+            JSONObject().put("index", 0).put("id", "draft").put("type", "function")
+                .put("function", JSONObject().put("name", "terminal").put("arguments", "{}")))))
+        withSseServer(body) { baseUrl ->
+            org.junit.Assert.assertThrows(AgentModelFailure::class.java) {
+                OpenAiChatCompletionsProvider.complete(providerRequest(baseUrl), AgentRunController())
+            }
+        }
+    }
+
+    @Test
     fun completeParsesTextDeltasWithDoneSentinel() {
         val body = buildString {
             append(sseChunk(JSONObject().put("content", "Hel")))

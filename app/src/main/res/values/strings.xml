@@ -1333,8 +1333,6 @@
     <string name="ui_auto_compress_context_title">自动压缩上下文</string>
     <string name="ui_auto_compress_context_summary">达到上下文窗口阈值时自动压缩历史对话</string>
     <string name="ui_compress_endpoint_title">Endpoint 模式</string>
-    <string name="ui_compress_endpoint_chat_summary">压缩时使用 Chat Completions API</string>
-    <string name="ui_compress_endpoint_responses_summary">压缩时使用 Responses API</string>
     <string name="ui_compress_endpoint_description">仅对压缩摘要请求生效，不修改会话供应商或正常对话的 Endpoint。部分中转站两种 API 的延迟不同，可单独选择兼容且更快的接口。默认 Chat Completions；仅支持 Responses 的模型请选 Responses。原生 Anthropic、Codex 和反重力接口保持原协议。</string>
     <string name="ui_compress_model_title">压缩模型</string>
     <string name="ui_custom_compress_model_title">自定义压缩模型</string>
@@ -1349,7 +1347,8 @@
     <string name="compress_conversation_failed">Failed to compress conversation</string>
     <string name="compress_conversation_streaming">Cannot compress while a reply is in progress</string>
     <string name="compress_conversation_done">Conversation compressed</string>
-    <string name="compress_conversation_in_progress">Compressing conversation…</string>
+    <string name="compress_conversation_waiting">Waiting to compress…</string>
+  <string name="compress_conversation_in_progress">Compressing conversation…</string>
 
     <string name="context_budget_title">Context window is full</string>
     <string name="context_budget_body">This run is paused. Earlier steps stay protected and will not be dropped automatically.</string>
@@ -1449,5 +1448,4 @@
     <string name="provider_oauth_antigravity_login_title">Sign in with Google</string>
     <string name="provider_oauth_antigravity_signed_in_note">Token is stored on this device. Sign in again if requests start failing.</string>
     <string name="provider_oauth_antigravity_need_sign_in">Sign in with Google first</string>
-  <string name="context_tool_outputs_pruned">Tool outputs trimmed · no new summary</string>
 </resources>

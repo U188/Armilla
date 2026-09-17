@@ -3,7 +3,7 @@ package io.github.mangi.eta.agent.runtime
 import io.github.mangi.eta.agent.model.AgentModelClient
 import java.util.UUID
 
-/** 补充指令接续原用户轮次；执行 run 可以更换，压缩保护的 turnId 不变。 */
+/** 补充指令接续原用户逻辑轮次；执行 run 可以更换，turnId 不变。 */
 internal object AgentContinuationBuilder {
     fun build(
         request: AgentRuntimeWire.RunRequest,

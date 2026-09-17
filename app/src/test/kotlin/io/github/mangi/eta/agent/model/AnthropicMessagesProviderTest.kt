@@ -15,6 +15,29 @@ import org.junit.Test
 
 class AnthropicMessagesProviderTest {
     @Test
+    fun steeringDiscardsPartialToolInputInsteadOfInferringToolUse() {
+        val controller = AgentRunController()
+        val body = event("content_block_start", JSONObject().put("type", "content_block_start").put("index", 0)
+            .put("content_block", JSONObject().put("type", "tool_use").put("id", "draft")
+                .put("name", "terminal").put("input", JSONObject()))) +
+            event("content_block_delta", JSONObject().put("type", "content_block_delta").put("index", 0)
+                .put("delta", JSONObject().put("type", "input_json_delta").put("partial_json", "{}")))
+        withAnthropicServer(body) { baseUrl ->
+            val result = AnthropicMessagesProvider.complete(ProviderRequest(
+                AgentModelClient.ModelConfig(providerType = ProviderTypes.ANTHROPIC,
+                    baseUrl = baseUrl, apiKey = "test", model = "test", systemPrompt = ""),
+                JSONArray(), JSONArray()), controller,
+            ) { event ->
+                if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TOOL_CALL) {
+                    controller.steer("new instruction")
+                }
+            }
+            assertEquals(AssistantStopReason.INTERRUPTED, result.stopReason)
+            assertTrue(!result.assistantMessage.has("tool_calls"))
+        }
+    }
+
+    @Test
     fun completeParsesTextAndToolUseStream() {
         val body = buildString {
             append(event("content_block_start", JSONObject()

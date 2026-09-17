@@ -200,7 +200,8 @@ internal class AgentLoop(
             val completeToolCallsOnResume = pausedInterrupt &&
                 toolCalls.isNotEmpty() &&
                 providerResponse.stopReason == AssistantStopReason.TOOL_USE
-            if (pausedInterrupt && !completeToolCallsOnResume) {
+            if (providerResponse.stopReason == AssistantStopReason.INTERRUPTED ||
+                (pausedInterrupt && !completeToolCallsOnResume)) {
                 continuingInterruptedRequest = true
                 // Resume keeps the user's reasoning configuration. Only the first
                 // reasoning block's UI projection is hidden, not the model's thinking.
@@ -379,6 +380,7 @@ internal class AgentLoop(
                 reason = "当前保留范围内没有可压缩的完整历史单元。"))
             return
         }
+        if (forced) onEvent(AgentEvent.ContextCompactionStarted(round))
         val pruned = pruneOversizedToolResults(round, systemCount + cut)
         if (pruned) {
             // Both the DTO and same-model JSON replay must come from this new snapshot.
@@ -386,6 +388,10 @@ internal class AgentLoop(
             cut = compactionStart(history)
             if (!forced && storedHistoryChars() <= persistenceCharLimit() * 7 / 10 &&
                 estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window) && !requestOverBudget()) return
+        }
+        if (forced && cut <= 0) {
+            onEvent(AgentEvent.ContextCompacted(round, false, messages.length(), messages.length(),
+                reason = "当前保留范围内没有可压缩的完整历史单元。"))
         }
         val reduced = cut > 0 && applyCompaction(round, history, cut)
         if (reduced || pruned) {

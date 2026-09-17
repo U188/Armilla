@@ -27,6 +27,20 @@ class AgentCompressionBoundaryTest {
         assertTrue(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 80_000))
     }
 
+    @Test fun compressionCutsDoNotDependOnRequestRoundsOrSupplementTurnIds() {
+        val history = listOf(message("user", "task"), message("assistant", "x".repeat(8000)),
+            message("user", AgentContextCompactor.steeringUserContent("supplement")),
+            message("assistant", calls = """[{"id":"a"},{"id":"b"}]"""),
+            message("tool", "a", id = "a"), message("tool", "b", id = "b"))
+        val sameTurn = history.map { it.copy(turnId = "original-turn") }
+        val separateIds = history.mapIndexed { i, entry -> entry.copy(turnId = "request-$i") }
+        val cut = AgentCompressionBoundary.selectStart(sameTurn, 10_000)
+        assertTrue(cut > 0)
+        assertEquals(cut, AgentCompressionBoundary.selectStart(separateIds, 10_000))
+        assertTrue(cut in AgentCompressionBoundary.balancedCuts(sameTurn))
+        assertTrue(cut <= 3) // Never split the latest parallel tool batch.
+    }
+
     @Test fun parallelToolResultsCannotBeSplit() {
         val history = listOf(message("user", "old"),
             message("assistant", calls = "[{\"id\":\"a\"},{\"id\":\"b\"}]"),

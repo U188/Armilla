@@ -144,6 +144,7 @@ internal fun AgentChatBody(
     isStreaming: Boolean,
     isPaused: Boolean = false,
     isCompressingContext: Boolean = false,
+    isWaitingForCompression: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -198,8 +199,8 @@ internal fun AgentChatBody(
             message is AgentMessageUi && message.content.isBlank()
         }
     }
-    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext) {
-        visibleMessages.toTimelineEntries().size + if (isCompressingContext) 1 else 0
+    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression) {
+        visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression) 1 else 0
     }
     val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = initialBottomItemIndex)
     val currentBrowserMessageId = remember(
@@ -264,6 +265,7 @@ internal fun AgentChatBody(
             isStreaming = isStreaming,
             isPaused = isPaused,
             isCompressingContext = isCompressingContext,
+            isWaitingForCompression = isWaitingForCompression,
             reasoningEffort = reasoningEffort,
             availableReasoningEfforts = availableReasoningEfforts,
             pendingImages = pendingImages,
@@ -326,6 +328,7 @@ private fun AgentChatScaffold(
     isStreaming: Boolean,
     isPaused: Boolean = false,
     isCompressingContext: Boolean = false,
+    isWaitingForCompression: Boolean = false,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -445,6 +448,7 @@ private fun AgentChatScaffold(
                 isStreaming = isStreaming,
                 isPaused = isPaused,
                 isCompressingContext = isCompressingContext,
+                isWaitingForCompression = isWaitingForCompression,
                 bottomInset = bottomPadding,
                 keepBottomAnchored = keepBottomAnchored,
                 onBottomAnchorChanged = onBottomAnchorChanged,
@@ -479,6 +483,7 @@ internal fun AgentConversationMessages(
     isStreaming: Boolean,
     isPaused: Boolean = false,
     isCompressingContext: Boolean = false,
+    isWaitingForCompression: Boolean = false,
     bottomInset: Dp,
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,
@@ -515,8 +520,8 @@ internal fun AgentConversationMessages(
             onScrollToMessageConsumed()
         }
     }
-    // 复制按钮只出现在每轮对话的最终结果上，中间步骤的过渡文本不提供复制入口。
-    // 流式进行中当前这一轮尚未收尾，此时的“最后一条正文”只是中间步骤，不标记。
+    // 操作栏只出现在每轮对话的最终结果上，正在输出的正文保持隐藏。
+    // 流式进行中当前这一轮尚未收尾，不把临时的最后一条正文标为最终结果。
     val finalResultMessageIds = remember(visibleMessages, isStreaming, isCompressingContext) {
         resolveFinalResultMessageIds(
             visibleMessages,
@@ -532,7 +537,7 @@ internal fun AgentConversationMessages(
         val activeIds = visibleMessages.mapTo(mutableSetOf()) { it.id }
         streamingMarkdownStates.keys.retainAll(activeIds)
     }
-    val compressingItemCount = if (isCompressingContext) 1 else 0
+    val compressingItemCount = if (isCompressingContext || isWaitingForCompression) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
     // 手指拖走后的惯性也算用户滚动；跟底自己的 scrollBy 不能把这个标志打开。
@@ -787,7 +792,7 @@ internal fun AgentConversationMessages(
                                 showCopyAction = message !is AgentMessageUi ||
                                     message.id in finalResultMessageIds,
                                 showMessageActions = message.id in finalResultMessageIds,
-                                messageActionsEnabled = messageActionsEnabled,
+                                messageActionsEnabled = messageActionsEnabled && !isStreaming && !isPaused,
                                 branchEnabled = branchEnabled,
                                 isEditing = message.id == editTargetMessageId,
                                 onEditMessage = onEditMessage,
@@ -835,9 +840,10 @@ internal fun AgentConversationMessages(
                     }
                 }
             }
-            if (isCompressingContext) {
+            if (isCompressingContext || isWaitingForCompression) {
                 item(key = ChatContextCompressingKey) {
                     ContextCompressingIndicator(
+                        waiting = isWaitingForCompression && !isCompressingContext,
                         modifier = Modifier.animateItem(
                             fadeInSpec = tween(durationMillis = 180),
                             placementSpec = null,
@@ -1174,7 +1180,7 @@ private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
 private const val ChatContextCompressingKey = "agent-chat-context-compressing"
 
 @Composable
-private fun ContextCompressingIndicator(modifier: Modifier = Modifier) {
+private fun ContextCompressingIndicator(waiting: Boolean = false, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1184,7 +1190,7 @@ private fun ContextCompressingIndicator(modifier: Modifier = Modifier) {
     ) {
         CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
         Text(
-            text = stringResource(R.string.compress_conversation_in_progress),
+            text = stringResource(if (waiting) R.string.compress_conversation_waiting else R.string.compress_conversation_in_progress),
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(start = 8.dp),

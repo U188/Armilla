@@ -647,6 +647,7 @@ internal object AgentRuntimeWire {
                 putInt("max_attempts", event.maxAttempts)
                 putInt("delay_ms", event.delayMs)
                 putString("reason_code", event.reasonCode)
+                putString("reason_detail", event.reasonDetail)
             }
 
             is AgentEvent.ProviderRequestStarted -> {
@@ -806,6 +807,7 @@ internal object AgentRuntimeWire {
             maxAttempts = bundle.getInt("max_attempts", 3),
             delayMs = bundle.getInt("delay_ms", 2_000),
             reasonCode = bundle.getString("reason_code").orEmpty(),
+            reasonDetail = bundle.getString("reason_detail").orEmpty(),
         )
 
         "provider_request_started" -> AgentEvent.ProviderRequestStarted(

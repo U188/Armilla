@@ -134,6 +134,10 @@ internal object AntigravityProvider : AgentProviderClient {
                 onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TOOL_CALL, index, argsText))
             }
         })
+        if (finish.isNullOrBlank() && (runController.hasPendingSteering || runController.hasPausedInterrupt)) {
+            finishBlock()
+            return interruptedAssistantMessage(content.toString(), reasoning.toString())
+        }
         if (!saw) throw AgentModelFailure.incompleteStream("模型接口未返回 SSE data chunk")
         finishBlock()
         toolCalls.values.forEach { call ->

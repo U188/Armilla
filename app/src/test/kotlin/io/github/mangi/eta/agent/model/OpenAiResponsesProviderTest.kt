@@ -21,6 +21,29 @@ import org.junit.Test
 
 class OpenAiResponsesProviderTest {
     @Test
+    fun steeringDoesNotPromotePartialFunctionCallToCompletedResponse() {
+        val controller = AgentRunController()
+        val body = event("response.output_text.delta", JSONObject().put("delta", "before")) +
+            event("response.output_item.added", JSONObject().put("output_index", 0).put("item",
+                JSONObject().put("id", "fc_1").put("type", "function_call")
+                    .put("call_id", "draft").put("name", "terminal"))) +
+            event("response.function_call_arguments.delta", JSONObject().put("item_id", "fc_1").put("delta", "{}"))
+        withSseServer(body) { baseUrl ->
+            val result = OpenAiResponsesProvider.complete(
+                ProviderRequest(config(baseUrl), JSONArray(), JSONArray()), controller,
+            ) { event ->
+                if (event is ProviderEvent.BlockDelta && event.kind == AssistantBlockKind.TOOL_CALL) {
+                    controller.steer("new instruction")
+                }
+            }
+            assertEquals(AssistantStopReason.INTERRUPTED, result.stopReason)
+            assertEquals("before", result.assistantMessage.getString("content"))
+            assertFalse(result.assistantMessage.has("tool_calls"))
+            assertNull(ResponsesEphemeralState.outputItems(result.assistantMessage))
+        }
+    }
+
+    @Test
     fun requestUsesTypedInputProtectedFieldsAndOptionalHostedSearch() {
         val assistant = JSONObject().put("role", "assistant").put("content", "先检查")
         ResponsesEphemeralState.attachOutputItems(

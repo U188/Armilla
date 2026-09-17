@@ -349,6 +349,10 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
             },
         )
 
+        if (terminal == null && (runController.hasPendingSteering || runController.hasPausedInterrupt)) {
+            return interruptedAssistantMessage(streamedText.toString(), streamedReasoning.toString())
+        }
+
         if (!sawEvent) throw AgentModelFailure.incompleteStream("模型接口未返回 SSE data chunk")
         val recoveredFromStream = terminal == null &&
             (streamedText.isNotBlank() || streamedReasoning.isNotBlank() || toolCalls.isNotEmpty())

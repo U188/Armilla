@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
@@ -125,18 +126,12 @@ internal fun CompressionEndpointPreference(
         DropdownItem(text = "Responses API"),
     )
     val index = if (selected == OpenAiEndpointMode.RESPONSES) 1 else 0
-    val summary = if (index == 1) {
-        stringResource(R.string.ui_compress_endpoint_responses_summary)
-    } else {
-        stringResource(R.string.ui_compress_endpoint_chat_summary)
-    }
     val horizontal = if (compact) 0.dp else 16.dp
     Column(modifier = Modifier.fillMaxWidth()) {
         WindowSpinnerPreference(
             items = items,
             selectedIndex = index,
             title = stringResource(R.string.ui_compress_endpoint_title),
-            summary = summary,
             enabled = enabled,
             onSelectedIndexChange = { selectedIndex ->
                 onSelect(
@@ -147,8 +142,9 @@ internal fun CompressionEndpointPreference(
         )
         Text(
             stringResource(R.string.ui_compress_endpoint_description),
-            modifier = Modifier.padding(start = horizontal, end = horizontal, bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = horizontal, end = horizontal, bottom = 12.dp),
             style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Justify,
         )
     }
 }

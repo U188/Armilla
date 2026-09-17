@@ -14,9 +14,10 @@ Reference inspected: deepseek-ai/deepseek-harness commit
   checkpoint is not thrown away at 8192 and retried. Small windows still reserve
   input room. A truncated response is never committed. One bounded generation
   retry remains when the first ceiling is below 16384.
-- Split only when the selected prefix cannot fit one summarizer request. Chunk
-  budgeting reserves 8192 output tokens so a higher generation cap does not
-  force extra chunks. Archive attach is validated before the summary request.
+- Split only when the selected prefix cannot fit one summarizer request.
+  Chunk budgeting uses the same generation reserve as the summary request, so
+  the first chunk cannot exceed the input budget after raising the ceiling.
+  Archive attach is validated before the summary request.
 - Automatic pressure at 80% (DeepSeek harness thresholdRatio), owned by Runtime rather than stream UI callbacks.
   Re-evaluate the full request after actual shrink, with at most one additional
   pressure pass. Confirmed overflow recovery remains bounded and fail-closed.

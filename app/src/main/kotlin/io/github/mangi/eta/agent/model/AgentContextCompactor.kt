@@ -365,8 +365,7 @@ internal object AgentContextCompactor {
         val overhead = if (replay == null) 1024 else AgentContextBudget.estimate(replay.systemMessages) +
             AgentContextBudget.countTokens(replay.tools.toString()) + 1024
         val generation = summaryGenerationLimit(summarizerWindow)
-        val splitReserve = minOf(generation, SUMMARY_GENERATION_FLOOR)
-        val budget = AgentCompressionBoundary.inputLimit(summarizerWindow, splitReserve) - overhead
+        val budget = AgentCompressionBoundary.inputLimit(summarizerWindow, generation) - overhead
         require(budget > 0) { "摘要模型窗口太小" }
         val cuts = AgentCompressionBoundary.balancedCuts(messages)
         val result = mutableListOf<List<AgentModelClient.ConversationMessage>>()

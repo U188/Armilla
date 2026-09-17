@@ -59,6 +59,27 @@ class AgentSummaryPipelineTest {
         assertTrue(AgentContextBudget.countTokens(result.first().content) < source.sumOf { AgentContextBudget.countMessage(it) })
     }
 
+    @Test fun splitChunksFitTheSameInputBudgetUsedByTheSummaryRequest() {
+        var calls = 0
+        val source = listOf(
+            AgentModelClient.ConversationMessage("user", "x".repeat(160_000)),
+            AgentModelClient.ConversationMessage("assistant", "y".repeat(160_000)),
+            AgentModelClient.ConversationMessage("user", "protected"),
+        )
+        val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(
+            1, config().copy(contextWindow = 128_000), provider {
+                calls++
+                val window = requireNotNull(it.config.contextWindow)
+                val output = requireNotNull(it.config.summaryOutputLimit)
+                val used = AgentContextBudget.estimate(it.messages) + AgentContextBudget.countTokens(it.tools.toString())
+                assertTrue(used <= AgentCompressionBoundary.inputLimit(window, output))
+                response(validSummary())
+            },
+        ))
+        assertTrue(calls >= 1)
+        assertEquals(source.last(), result.last())
+    }
+
     @Test fun summaryCallIsOneShotCappedAndNeverExecutesTools() {
         var calls = 0
         val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {

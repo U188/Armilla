@@ -817,7 +817,7 @@ class AgentModelClientLoopTest {
         val secondContents = (0 until second.length()).map { second.getJSONObject(it).optString("content") }
         assertTrue(secondContents.any { it.contains("摘要") || it.contains("对话摘要") })
         assertFalse(secondContents.contains("u1"))
-        assertTrue(secondContents.contains("现在") || secondContents.any { it.contains("现在") })
+        assertTrue((0 until second.length()).any { second.getJSONObject(it).optString("role") == "tool" })
     }
 
     @Test

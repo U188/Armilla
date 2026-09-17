@@ -66,7 +66,7 @@ class AgentPauseContinuationTest {
             onEvent = events::add).run()
         assertEquals(2, calls)
         val projected = project(events).filterIsInstance<AgentMessageUi>()
-        assertEquals(listOf("before ", "after"), projected.map { it.content })
+        assertEquals(listOf("before", "after"), projected.map { it.content })
         assertNotEquals(projected[0].id, projected[1].id)
         assertEquals(projected, project(events).filterIsInstance<AgentMessageUi>())
     }

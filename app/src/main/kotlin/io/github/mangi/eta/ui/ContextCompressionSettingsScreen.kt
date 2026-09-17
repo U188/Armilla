@@ -28,7 +28,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentCompressionEndpoint
-import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.haptics.TouchHaptics
@@ -64,10 +63,6 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
 
     LaunchedEffect(prefs) {
         prefs?.let { currentPrefs ->
-            val keep = AgentContextCompactor.keepRecentFor()
-            if (currentPrefs.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, -1) != keep) {
-                currentPrefs.edit().putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, keep).apply()
-            }
             endpointMode = AgentCompressionEndpoint.parse(
                 currentPrefs.getString(Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE, null),
             )

@@ -120,7 +120,6 @@ class AgentCompressionBoundaryTest {
         var compressed = false
         val provider = provider { request ->
             if (calls++ == 0) JSONObject().put("role", "assistant").put("content", "")
-                .put("provider_private", JSONObject().put("opaque", "keep"))
                 .put("finish_reason", "tool_calls").put("tool_calls", JSONArray().put(JSONObject()
                     .put("id", "tool-1").put("type", "function").put("function", JSONObject()
                         .put("name", "get_current_context").put("arguments", "{}"))))
@@ -136,7 +135,12 @@ class AgentCompressionBoundaryTest {
         }
         val model = config(100_000)
         AgentLoop(model, source, AgentToolCatalog.build(terminalTools = false, browserTools = false), provider,
-            AgentModelClient.ToolExecutor { controller.requestCompact(1); AgentModelClient.ToolResult(toolBody) },
+            AgentModelClient.ToolExecutor {
+                // Inject into the actual replay snapshot, after normal response serialization.
+                source.getJSONObject(source.length() - 1).put("provider_private", JSONObject().put("opaque", "keep"))
+                controller.requestCompact(1)
+                AgentModelClient.ToolResult(toolBody)
+            },
             controller, AgentTraceFormatter(), onEvent = { if (it is AgentEvent.ContextCompacted && it.applied) compressed = true },
             compactPolicy = AgentLoop.CompactPolicy(false, 100_000, 1, model),
             compactHistory = { history, policy -> listOf(message("user", "[Conversation summary]\nold work")) + history.drop(requireNotNull(policy.keepStartOverride)) },

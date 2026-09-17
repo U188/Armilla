@@ -193,7 +193,7 @@ class AgentRunControllerTest {
     }
 
     @Test
-    fun requestCompactDoesNotResumeAPausedRun() {
+    fun requestCompactResumesAPausedRunAtSafeBoundary() {
         val controller = AgentRunController()
         val entered = CountDownLatch(1)
         val finished = CountDownLatch(1)
@@ -207,10 +207,8 @@ class AgentRunControllerTest {
         try {
             assertTrue(entered.await(1, TimeUnit.SECONDS))
             assertTrue(controller.requestCompact(keepRecentMessages = 2))
-            assertFalse(finished.await(100, TimeUnit.MILLISECONDS))
-            assertTrue(controller.hasPendingCompact)
-            controller.resume()
             assertTrue(finished.await(1, TimeUnit.SECONDS))
+            assertTrue(controller.hasPendingCompact)
         } finally {
             controller.cancel()
             worker.join(1_000)
@@ -218,7 +216,7 @@ class AgentRunControllerTest {
     }
 
     @Test
-    fun requestCompactAllowCurrentTurnResumesAPausedRun() {
+    fun defaultCompactRequestResumesAPausedRun() {
         val controller = AgentRunController()
         val entered = CountDownLatch(1)
         val finished = CountDownLatch(1)

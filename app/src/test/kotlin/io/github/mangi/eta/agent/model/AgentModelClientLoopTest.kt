@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentModelClientLoopTest {
+    @get:org.junit.Rule val timeout = org.junit.rules.Timeout.seconds(45)
     @Test
     fun eachRoundUsesOneCapabilitySnapshotForDeclarationValidationAndPrompt() {
         var root = true
@@ -803,7 +804,7 @@ class AgentModelClientLoopTest {
                         role = "system",
                         content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
                     ),
-                ) + source.drop(AgentContextCompactor.recentKeepStartIndex(source, policy.keepRecentMessages))
+                ) + source.drop(requireNotNull(policy.keepStartOverride))
             },
         ).run()
 
@@ -868,7 +869,7 @@ class AgentModelClientLoopTest {
                         role = "system",
                         content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
                     ),
-                ) + source.drop(AgentContextCompactor.recentKeepStartIndex(source, 1))
+                ) + source.drop(requireNotNull(policy.keepStartOverride))
             },
         ).run()
 
@@ -928,13 +929,13 @@ class AgentModelClientLoopTest {
                 keepRecentMessages = 2,
                 compressModelConfig = modelConfig(),
             ),
-            compactHistory = { source, _ ->
+            compactHistory = { source, policy ->
                 listOf(
                     AgentModelClient.ConversationMessage(
                         role = "system",
                         content = AgentContextCompactor.SUMMARY_PREFIX_ZH + "\n摘要",
                     ),
-                ) + source.drop(AgentContextCompactor.recentKeepStartIndex(source, 1))
+                ) + source.drop(requireNotNull(policy.keepStartOverride))
             },
         ).run()
 
@@ -1152,7 +1153,7 @@ class AgentModelClientLoopTest {
                 keepRecentMessages = 2,
                 compressModelConfig = modelConfig(),
             ),
-            compactHistory = { source, _ ->
+            compactHistory = { source, policy ->
                 compactCalls += 1
                 source
             },

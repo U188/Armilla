@@ -11,6 +11,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRuntimeSessionTest {
+    @Test fun pausedSupplementIsAcknowledgedBeforeResuming() {
+        val controller = AgentRunController()
+        controller.pause()
+        var acknowledged = false
+        val session = AgentRuntimeSession("paused", controller, eventSink = {
+            assertTrue(controller.isPaused)
+            acknowledged = true
+        })
+        session.steer("new instruction", "[]") { AgentEvent.UserSupplementReceived(1, "new instruction") }
+        assertTrue(acknowledged)
+        assertFalse(controller.isPaused)
+        assertTrue(controller.hasPendingSteering)
+    }
+
     @Test
     fun replayBoundaryPrecedesConcurrentLiveEventsAndTerminalResult() {
         val deliveries = Collections.synchronizedList(mutableListOf<String>())

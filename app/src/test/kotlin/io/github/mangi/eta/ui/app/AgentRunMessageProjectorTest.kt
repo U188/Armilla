@@ -15,6 +15,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunMessageProjectorTest {
+    @Test
+    fun supplementSeparatesResumedTextAndReplacementFromPausedBubble() {
+        val projector = AgentRunMessageProjector()
+        var messages: List<io.github.mangi.eta.ui.model.AgentChatMessageUi> = emptyList()
+        messages = projector.appendTextDelta("run", 1, 0, "暂停前", messages)
+        messages = messages + io.github.mangi.eta.ui.model.UserMessageUi(id = "user-run-supplement-1", content = "补充")
+        messages = projector.appendTextDelta("run", 1, 1, "新输出", messages)
+        messages = projector.finalizeTextBlock("run", 1, 1, "新输出定稿", messages)
+        assertEquals(listOf("暂停前", "补充", "新输出定稿"), messages.map {
+            when (it) {
+                is io.github.mangi.eta.ui.model.AgentMessageUi -> it.content
+                is io.github.mangi.eta.ui.model.UserMessageUi -> it.content
+                else -> error("Unexpected message")
+            }
+        })
+    }
+
     @Test fun pausedBlockRetainsWhitespaceUntilTerminalFinalization() {
         val projector = AgentRunMessageProjector { 1_000L }
         var messages = projector.appendTextDelta("resume", 1, 0, "first \n", emptyList())

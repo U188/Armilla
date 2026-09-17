@@ -42,7 +42,7 @@ internal class AgentLoop(
         val contextWindow: Int,
         val keepRecentMessages: Int,
         val compressModelConfig: AgentModelClient.ModelConfig?,
-        val strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK,
+        val keepStartOverride: Int? = null,
     ) {
         companion object {
             val Disabled = CompactPolicy(
@@ -75,12 +75,12 @@ internal class AgentLoop(
     private val continuationReasoning = AgentContinuationReasoning()
     private val interruptedTextPrefix = StringBuilder()
     private var continuingInterruptedRequest = false
-    private var activeTurnStart = (messages.length() - systemCount - 1).coerceAtLeast(0)
+    private var supplementStartsNewBlock = false
     private var compactionFailure = ""
     private var currentRoundTools = tools
     private var manualBudgetAttempt = false
     private var budgetKeepRecent = compactPolicy.keepRecentMessages
-    private var budgetStrategy = compactPolicy.strategy
+    private var budgetCompressModelConfig = compactPolicy.compressModelConfig
     private var overflowPending = false
     private var overflowRecoveryAttempts = 0
     private var lastFailedCompaction: Pair<String, Int>? = null
@@ -93,9 +93,6 @@ internal class AgentLoop(
     fun run(): Result {
         // Only annotate messages created by this run. The current user entry is initially last.
         messages.optJSONObject(messages.length() - 1)?.put(AgentTurnIdentity.JSON_KEY, turnId)
-        activeTurnStart = (systemCount until messages.length()).firstOrNull {
-            messages.optJSONObject(it)?.optString(AgentTurnIdentity.JSON_KEY) == turnId
-        }?.minus(systemCount) ?: activeTurnStart
         var round = 1
 
         while (true) {
@@ -130,7 +127,8 @@ internal class AgentLoop(
             val continuationText = AgentContinuationTextEvents(
                 if (continuingInterruptedRequest) interruptedTextPrefix.toString() else "")
             continuationReasoning.beginRequest(continuingInterruptedRequest)
-            continuationBlocks.beginRequest(continuingInterruptedRequest)
+            continuationBlocks.beginRequest(continuingInterruptedRequest && !supplementStartsNewBlock)
+            supplementStartsNewBlock = false
             continuingInterruptedRequest = false
             val completedRound = try {
                 modelRetry.complete(
@@ -368,13 +366,12 @@ internal class AgentLoop(
         val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
         if (!forced && !pressureRetry && skipIneffectiveAutoCompact && !charPressure && !requestOverBudget()) return
         if (!forced && !charPressure && estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) return
-        val strategy = override?.strategy ?: if (pressureRetry) budgetStrategy else compactPolicy.strategy
+        budgetCompressModelConfig = override?.compressModelConfig
+            ?: if (pressureRetry) budgetCompressModelConfig else compactPolicy.compressModelConfig
         val keep = AgentContextCompactor.coerceKeepRecent(
             override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
-            strategy,
         )
         budgetKeepRecent = keep
-        budgetStrategy = strategy
         var history = historyForCompaction()
         var cut = compactionStart(history)
         if (cut <= 0) {
@@ -406,14 +403,14 @@ internal class AgentLoop(
 
     private fun compactionStart(history: List<AgentModelClient.ConversationMessage>): Int {
         return runCatching {
-            AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, budgetKeepRecent,
+            AgentCompressionBoundary.selectStart(history,
                 config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow,
-                activeTurnStart, overflowPending)
+                overflowPending)
         }.getOrDefault(0)
     }
 
     private fun tryBudgetCompaction(round: Int): Boolean {
-        if (!compactPolicy.enabled && !manualBudgetAttempt && !runController.allowCurrentTurnCompaction) return false
+        if (!compactPolicy.enabled && !manualBudgetAttempt) return false
         val history = historyForCompaction()
         val cut = compactionStart(history)
         if (cut <= 0) return false
@@ -467,7 +464,7 @@ internal class AgentLoop(
     }
 
     private fun applyCompaction(round: Int, history: List<AgentModelClient.ConversationMessage>, cut: Int): Boolean {
-        val compressConfig = compactPolicy.compressModelConfig?.let { model ->
+        val compressConfig = budgetCompressModelConfig?.let { model ->
             val window = model.contextWindow?.takeIf { it > 0 }
                 ?: config.contextWindow?.takeIf { it > 0 }
                 ?: compactPolicy.contextWindow.takeIf { it > 0 }
@@ -491,7 +488,7 @@ internal class AgentLoop(
             compactionStage = "summary"
             val summarySource = durablePrefix + tail
             val compressed = if (compactHistory != null) {
-                compactHistory.invoke(summarySource, compactPolicy.copy(keepRecentMessages = budgetKeepRecent))
+                compactHistory.invoke(summarySource, compactPolicy.copy(keepRecentMessages = budgetKeepRecent, compressModelConfig = compressConfig, keepStartOverride = cut))
             } else AgentContextCompactor.compress(
                 summarySource, AgentContextCompactor.Config(
                     budgetKeepRecent,
@@ -531,8 +528,6 @@ internal class AgentLoop(
             onEvent(AgentEvent.ContextCompacted(round, false, originalCount, originalCount, reason = compactionFailure))
             return false
         }
-        val removed = history.size - rewritten.size
-        activeTurnStart = if (cut <= activeTurnStart) (activeTurnStart - removed).coerceAtLeast(0) else 0
         // Never reserialize the kept live tail through the persistence DTO. That would strip
         // provider-only response items, images, and long tool bodies even in protected mode.
         val keptJson = (systemCount + cut until messages.length()).map { messages.getJSONObject(it) }
@@ -573,12 +568,14 @@ internal class AgentLoop(
 
     private fun appendPendingSteeringMessage(): Boolean {
         val supplement = runController.pollSteeringInput() ?: return false
+        supplementStartsNewBlock = true
         messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
         return true
     }
 
     private fun appendPendingSteeringOrSeal(): Boolean {
         val supplement = runController.pollSteeringInputOrSeal() ?: return false
+        supplementStartsNewBlock = true
         messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
         return true
     }

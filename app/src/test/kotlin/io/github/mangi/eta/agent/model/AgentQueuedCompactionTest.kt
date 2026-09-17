@@ -9,6 +9,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentQueuedCompactionTest {
+    @get:org.junit.Rule val timeout = org.junit.rules.Timeout.seconds(45)
     @Test fun pressureIsReevaluatedAfterShrinkWithAtMostOneExtraPass() {
         val controller = AgentRunController()
         var compactions = 0
@@ -30,10 +31,10 @@ class AgentQueuedCompactionTest {
         AgentLoop(model, history, JSONArray(), provider, AgentModelClient.ToolExecutor { error("no tools") },
             controller, AgentTraceFormatter(), onEvent = {},
             compactPolicy = AgentLoop.CompactPolicy(true, 100_000, 1, model),
-            compactHistory = { source, _ ->
+            compactHistory = { source, policy ->
                 compactions++
                 check(compactions <= 2)
-                val tail = source.drop(AgentContextCompactor.recentKeepStartIndex(source, 1))
+                val tail = source.drop(requireNotNull(policy.keepStartOverride))
                 listOf(AgentModelClient.ConversationMessage("user", "[对话摘要]\n" +
                     "x".repeat(if (compactions == 1) 360_000 else 4000))) + tail
             }).run()
@@ -81,11 +82,11 @@ class AgentQueuedCompactionTest {
                 AgentModelClient.ToolExecutor { error("no tool replay") }, controller, AgentTraceFormatter(),
                 onEvent = events::add, turnId = "original-turn",
                 compactPolicy = AgentLoop.CompactPolicy(false, 128_000, 1, model),
-                compactHistory = { source, _ ->
+                compactHistory = { source, policy ->
                     assertTrue(responseComplete)
                     compactions++
                     if (failCompaction) error("summary rejected")
-                    listOf(AgentModelClient.ConversationMessage("user", "[对话摘要]\nold facts")) + source.drop(2)
+                    listOf(AgentModelClient.ConversationMessage("user", "[对话摘要]\nold facts")) + source.drop(requireNotNull(policy.keepStartOverride))
                 }).run()
             assertEquals(1, requests)
             assertEquals(1, compactions)

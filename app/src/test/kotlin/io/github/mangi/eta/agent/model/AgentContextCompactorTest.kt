@@ -62,10 +62,10 @@ class AgentContextCompactorTest {
     }
 
     @Test
-    fun shouldCompressUsesUserTurnsNotRawHistorySize() {
+    fun shouldCompressUsesTokenTailRegardlessOfLegacyKeepCount() {
         val history = (1..5).flatMap { turn(it) }
         assertEquals(20, history.size)
-        assertFalse(
+        assertTrue(
             AgentContextCompactor.shouldCompress(
                 history = history,
                 contextWindow = 1,
@@ -107,7 +107,6 @@ class AgentContextCompactorTest {
     @Test
     fun keepRecentFollowsContinueTaskDefault() {
         assertEquals(0, AgentContextCompactor.keepRecentFor())
-        assertEquals(0, AgentContextCompactor.keepRecentFor(AgentCompressionStrategy.CONTINUE_TASK))
     }
 
     @Test
@@ -120,7 +119,7 @@ class AgentContextCompactorTest {
         val history = (1..3).flatMap { turn(it) }
         assertEquals(
             0,
-            AgentContextCompactor.coerceKeepRecent(0, AgentCompressionStrategy.CONTINUE_TASK),
+            AgentContextCompactor.coerceKeepRecent(0),
         )
         val cut = AgentContextCompactor.recentKeepStartIndex(history, 0)
         assertTrue(cut > 0)

@@ -1,6 +1,5 @@
 package io.github.mangi.eta.agent.runtime
 
-import io.github.mangi.eta.agent.model.AgentCompressionStrategy
 
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -80,13 +79,12 @@ internal class AgentRuntimeSession(
 
     fun requestCompact(
         keepRecentMessages: Int? = null,
-        allowCurrentTurn: Boolean = false,
-        strategy: AgentCompressionStrategy? = null,
+        compressModelConfig: io.github.mangi.eta.agent.model.AgentModelClient.ModelConfig? = null,
     ): Boolean {
         lock.withLock {
             if (state != State.RUNNING) return false
         }
-        return controller.requestCompact(keepRecentMessages, allowCurrentTurn, strategy)
+        return controller.requestCompact(keepRecentMessages, compressModelConfig)
     }
 
     fun <T : AgentEvent> steer(
@@ -104,6 +102,7 @@ internal class AgentRuntimeSession(
         }
         // Never cancel network resources while holding the session lock.
         controller.interruptSteering(accepted.second)
+        if (!accepted.second) controller.resume()
         return accepted.first
     }
 

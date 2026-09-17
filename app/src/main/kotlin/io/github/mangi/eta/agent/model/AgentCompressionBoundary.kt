@@ -4,17 +4,6 @@ import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.model.OpenAiEndpointMode
 
-/** Persisted values must remain stable. Unknown values map to continue-task. */
-internal enum class AgentCompressionStrategy(val wireValue: String) {
-    CONTINUE_TASK("continue_task");
-
-    companion object {
-        val DEFAULT = CONTINUE_TASK
-
-        fun parse(@Suppress("UNUSED_PARAMETER") value: String?): AgentCompressionStrategy = DEFAULT
-    }
-}
-
 /** Compression-only Chat Completions / Responses override. Independent of the session provider. */
 internal object AgentCompressionEndpoint {
     fun parse(value: String?): String =
@@ -22,6 +11,7 @@ internal object AgentCompressionEndpoint {
         else OpenAiEndpointMode.CHAT_COMPLETIONS
 
     fun canOverride(config: AgentModelClient.ModelConfig): Boolean {
+        if (config.providerType != io.github.mangi.eta.data.model.ProviderTypes.OPENAI_COMPATIBLE) return false
         if (OpenAiCodexOAuth.isCodexEndpoint(config.baseUrl)) return false
         if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl)) return false
         return config.openAiEndpointMode == OpenAiEndpointMode.CHAT_COMPLETIONS ||
@@ -85,30 +75,21 @@ internal object AgentCompressionBoundary {
         return cuts
     }
 
-    fun protectedStart(history: List<AgentModelClient.ConversationMessage>, keep: Int, activeStart: Int): Int {
-        val requested = minOf(AgentContextCompactor.recentKeepStartIndex(history, keep), activeStart.coerceIn(0, history.size))
-        return availableCuts(history).lastOrNull { it <= requested && it < history.size } ?: 0
-    }
-
-    /** Shared selection for idle/manual, pre-request pressure and overflow recovery.
-     * Continuation retains a token-priced tail, not the entire latest user turn.
-     */
-    @Suppress("UNUSED_PARAMETER")
+    /** Shared token-tail selection. Every cut remains at a complete tool-batch boundary. */
     fun selectStart(
         history: List<AgentModelClient.ConversationMessage>,
-        strategy: AgentCompressionStrategy,
-        keep: Int,
         contextWindow: Int,
-        activeStart: Int = history.size,
         overflow: Boolean = false,
-    ): Int = if (contextWindow > 0) {
-        continuationStart(history, continuationRetentionBudget(contextWindow, overflow))
-    } else {
-        protectedStart(history, keep, activeStart)
+    ): Int {
+        if (contextWindow <= 0) return 0
+        val cut = continuationStart(history, continuationRetentionBudget(contextWindow, overflow))
+        // Billed pressure includes request overhead. A short local history can still
+        // need compaction; retain the newest complete unit if the full budget cannot cut.
+        return if (cut > 0) cut else continuationStart(history, 1)
     }
 
     /**
-     * Keep a priced recent tail for CONTINUE_TASK, matching DeepSeek harness
+     * Keep a priced recent tail for continued execution, matching DeepSeek harness
      * retainRatio=0.16. Overflow recovery may shrink this to a single token so
      * the newest complete tool batch can still be selected.
      */

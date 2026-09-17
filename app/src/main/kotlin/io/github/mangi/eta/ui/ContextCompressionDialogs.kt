@@ -109,11 +109,8 @@ private fun rememberActivityImeBottomDp(): Dp {
 }
 
 
-private fun storedManualCompressionEndpoint(): String {
-    val stored = Prefs.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, "")
-    if (stored.isNotBlank()) return AgentCompressionEndpoint.parse(stored)
-    return AgentCompressionEndpoint.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE, ""))
-}
+private fun storedManualCompressionEndpoint(): String =
+    AgentCompressionEndpoint.parse(Prefs.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, ""))
 
 
 @Composable

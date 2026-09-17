@@ -582,18 +582,16 @@ internal object AgentRuntimeWire {
 
     fun compactBundle(
         runId: String,
-        keepRecent: Int,
-        allowCurrentTurn: Boolean = false,
-        strategy: String? = null,
+        keepRecent: Int? = null,
+        compressModelConfig: AgentModelClient.ModelConfig? = null,
     ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
-        putInt(KEY_COMPACT_KEEP_RECENT, keepRecent)
-        putBoolean("allow_current_turn_compaction", allowCurrentTurn)
-        if (!strategy.isNullOrBlank()) putString("compact_strategy", strategy)
+        keepRecent?.let { putInt("compact_keep_recent", it) }
+        compressModelConfig?.let { putString("compact_model_config", json.encodeToString(it)) }
     }
 
-    fun compactStrategyFromBundle(bundle: Bundle): String? =
-        bundle.getString("compact_strategy")?.takeIf { it.isNotBlank() }
+    fun compactModelConfigFromBundle(bundle: Bundle): AgentModelClient.ModelConfig? =
+        bundle.getString("compact_model_config")?.let { json.decodeFromString<AgentModelClient.ModelConfig>(it) }
 
     fun compactKeepRecentFromBundle(bundle: Bundle): Int =
         bundle.getInt(KEY_COMPACT_KEEP_RECENT, AgentContextCompactor.DEFAULT_KEEP_RECENT)

@@ -231,7 +231,7 @@ class AgentRunControllerTest {
 
         try {
             assertTrue(entered.await(1, TimeUnit.SECONDS))
-            assertTrue(controller.requestCompact(allowCurrentTurn = true))
+            assertTrue(controller.requestCompact())
             assertTrue(finished.await(1, TimeUnit.SECONDS))
             assertTrue(controller.hasPendingCompact)
         } finally {

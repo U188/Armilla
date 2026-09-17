@@ -5,7 +5,6 @@ import io.github.mangi.eta.core.AndroidAgentLogger
 
 internal object AgentContextCompactor {
     const val DEFAULT_KEEP_RECENT = 4
-    const val MIN_KEEP_RECENT = 1
     const val MIN_KEEP_RECENT_CONTINUE = 0
     const val MAX_KEEP_RECENT = 100
     /** DeepSeek harness 按 token 留尾巴；单次摘要输入也按真实窗口收紧，避免 1M 覆盖把 128k 模型打爆。 */
@@ -53,14 +52,9 @@ internal object AgentContextCompactor {
         val compactionArchive: AgentCompactionArchive? = null,
     )
 
-    @Suppress("UNUSED_PARAMETER")
-    fun keepRecentFor(strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK): Int =
-        MIN_KEEP_RECENT_CONTINUE
+    fun keepRecentFor(): Int = 0
 
-    fun coerceKeepRecent(
-        value: Int,
-        strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK,
-    ): Int = value.coerceIn(keepRecentFor(strategy), MAX_KEEP_RECENT)
+    fun coerceKeepRecent(value: Int): Int = value.coerceIn(0, MAX_KEEP_RECENT)
 
     fun configuredContextWindow(value: Int?): Int? = value?.takeIf { it > 0 }
 
@@ -78,10 +72,9 @@ internal object AgentContextCompactor {
         keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         thresholdPercent: Int = AUTO_PRESSURE_PERCENT,
         estimatedTokens: Int? = null,
-        strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK,
     ): Boolean {
         if (contextWindow <= 0) return false
-        val cut = AgentCompressionBoundary.selectStart(history, strategy, keepRecentMessages, contextWindow)
+        val cut = AgentCompressionBoundary.selectStart(history, contextWindow)
         if (cut <= 0 || cut >= history.size) return false
         val estimated = estimatedTokens ?: history.sumOf { AgentContextBudget.countMessage(it) }
         return estimated >= contextWindow.toLong() * thresholdPercent / 100

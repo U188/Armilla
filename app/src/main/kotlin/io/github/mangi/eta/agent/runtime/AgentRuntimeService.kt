@@ -244,8 +244,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     requestCompactRun(
                         runId = AgentRuntimeWire.runIdFromBundle(data),
                         keepRecent = AgentRuntimeWire.compactKeepRecentFromBundle(data),
-                        allowCurrentTurn = data.getBoolean("allow_current_turn_compaction", false),
-                        strategy = AgentRuntimeWire.compactStrategyFromBundle(data),
+                        compressModelConfig = AgentRuntimeWire.compactModelConfigFromBundle(data),
                     )
                 }
             }
@@ -742,14 +741,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
 
     private fun requestCompactRun(
         runId: String,
-        keepRecent: Int,
-        allowCurrentTurn: Boolean = false,
-        strategy: String? = null,
+        keepRecent: Int? = null,
+        compressModelConfig: AgentModelClient.ModelConfig? = null,
     ) {
         if (runId.isBlank()) return
-        val parsedStrategy = io.github.mangi.eta.agent.model.AgentCompressionStrategy.entries
-            .firstOrNull { it.wireValue == strategy }
-        sessions.get(runId)?.requestCompact(keepRecent, allowCurrentTurn, parsedStrategy)
+        sessions.get(runId)?.requestCompact(keepRecent, compressModelConfig)
     }
 
     private fun requestResume(runId: String) {

@@ -394,13 +394,8 @@ internal class AgentRuntimeRunExecutor(
                 config.contextWindow,
             ),
             contextWindow = configuredWindow ?: AgentLoop.CompactPolicy.Disabled.contextWindow,
-            keepRecentMessages = AgentContextCompactor.keepRecentFor(
-                io.github.mangi.eta.agent.model.AgentCompressionStrategy.parse(
-                    Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY),
-                ),
-            ),
+            keepRecentMessages = 0,
             compressModelConfig = compressModelConfig,
-            strategy = io.github.mangi.eta.agent.model.AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY)),
         )
     }
 

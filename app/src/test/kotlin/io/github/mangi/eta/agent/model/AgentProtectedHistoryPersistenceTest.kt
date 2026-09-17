@@ -54,22 +54,20 @@ class AgentProtectedHistoryPersistenceTest {
         }
     }
 
-    @Test fun oldTargetWireValueIsIgnoredAndQueuePreservesStrategy() {
-        val bundle = AgentRuntimeWire.compactBundle("run", 1,
-            strategy = AgentCompressionStrategy.CONTINUE_TASK.wireValue)
-        assertFalse(bundle.containsKey("compact_target_tokens"))
-        bundle.putInt("compact_target_tokens", 500)
+    @Test fun manualCompressionModelSurvivesWireAndQueueWithoutChangingConversation() {
+        val config = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid/v1",
+            apiKey = "test", model = "summary", systemPrompt = "",
+            openAiEndpointMode = io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES)
+        val bundle = AgentRuntimeWire.compactBundle("run", 0, compressModelConfig = config)
+        bundle.putString("compact_strategy", "preserve_turn")
         val controller = io.github.mangi.eta.agent.runtime.AgentRunController()
         controller.requestCompact(AgentRuntimeWire.compactKeepRecentFromBundle(bundle),
-            strategy = AgentCompressionStrategy.parse(AgentRuntimeWire.compactStrategyFromBundle(bundle)))
-        val request = controller.takePendingCompact()!!
-        assertEquals(1, request.keepRecentMessages)
-        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, request.strategy)
+            AgentRuntimeWire.compactModelConfigFromBundle(bundle))
+        assertEquals(config, controller.takePendingCompact()!!.compressModelConfig)
+        assertNull(AgentRuntimeWire.compactModelConfigFromBundle(AgentRuntimeWire.compactBundle("run")))
     }
 
-    @Test fun explicitContinuationConsentAndBlockedReasonRoundTrip() {
-        val bundle = AgentRuntimeWire.compactBundle("run", 1, allowCurrentTurn = true)
-        assertTrue(bundle.getBoolean("allow_current_turn_compaction"))
+    @Test fun blockedReasonRoundTrip() {
         val event = AgentEvent.ContextCompacted(1, false, 4, 4, blocked = true, reason = "original retained")
         assertEquals(event, AgentRuntimeWire.eventFromBundle(AgentRuntimeWire.eventToBundle(event)))
     }

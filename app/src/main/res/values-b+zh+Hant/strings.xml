@@ -65,16 +65,10 @@
   <string name="context_budget_stop_summary">停止後可改用更大視窗的模型</string>
   <string name="ui_custom_compress_model_title">自訂壓縮模型</string>
   <string name="ui_custom_compress_model_summary">關閉後使用目前對話所選模型</string>
-  <string name="ui_compress_strategy_title">壓縮策略</string>
-  <string name="ui_compress_strategy_preserve_title">完整保留本輪</string>
-  <string name="ui_compress_strategy_preserve_summary">空間不夠就暫停，不壓縮目前輪次</string>
-  <string name="ui_compress_strategy_continue_title">優先持續執行（預設）</string>
-  <string name="ui_compress_strategy_continue_summary">空間不夠時可壓縮更早的步驟</string>
-  <string name="ui_compress_strategy_note">自動壓縮使用此處策略，下次任務生效。手動壓縮可另選策略。原文只留在本機，刪除對話時一併清理。</string>
   <string name="ui_compress_endpoint_title">Endpoint 模式</string>
   <string name="ui_compress_endpoint_chat_summary">壓縮時使用 Chat Completions API</string>
   <string name="ui_compress_endpoint_responses_summary">壓縮時使用 Responses API</string>
-  <string name="ui_compress_endpoint_description">只改壓縮請求走哪條 API，與目前會話的供應商設定無關。部分中轉站的 Responses 排隊更久；摘要只要一段文字，Chat Completions 通常更快。</string>
+  <string name="ui_compress_endpoint_description">僅對壓縮摘要請求生效，不修改會話供應商或正常對話的 Endpoint。部分中轉站兩種 API 的延遲不同，可單獨選擇相容且更快的介面。預設 Chat Completions；僅支援 Responses 的模型請選 Responses。原生 Anthropic、Codex 和反重力介面保持原協定。</string>
   <string name="compress_model_missing_window_title">未設定上下文視窗</string>
   <string name="compress_model_missing_window_summary">這個壓縮模型還沒有上下文視窗，壓縮時無法估算輸入預算。請先到該模型編輯頁填寫後再用。</string>
   <plurals name="context_compacted_messages">

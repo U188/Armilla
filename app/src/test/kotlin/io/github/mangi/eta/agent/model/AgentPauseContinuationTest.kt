@@ -41,6 +41,36 @@ class AgentPauseContinuationTest {
         return messages
     }
 
+    @Test fun pausedSupplementStartsNewBubbleButKeepsTheSameRun() {
+        val controller = AgentRunController()
+        val events = mutableListOf<AgentEvent>()
+        var calls = 0
+        val provider = object : AgentProviderClient {
+            override val id = "paused-supplement"
+            override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+            override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                val part = if (++calls == 1) "before " else "after"
+                onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 0, part))
+                onEvent(ProviderEvent.BlockEnd(AssistantBlockKind.TEXT, 0, content = part, replaceContent = true))
+                if (calls == 1) {
+                    val binding = runController.register(interruptible = true) {}
+                    runController.pause()
+                    runController.steer("new instruction")
+                    binding.close()
+                } else assertTrue(request.messages.toString().contains("new instruction"))
+                return ProviderResponse(JSONObject().put("role", "assistant").put("content", part).put("finish_reason", "stop"))
+            }
+        }
+        AgentLoop(config(), JSONArray().put(AgentConversationCodec.userTextMessage("task")), JSONArray(), provider,
+            AgentModelClient.ToolExecutor { error("no tools") }, controller, AgentTraceFormatter(),
+            onEvent = events::add).run()
+        assertEquals(2, calls)
+        val projected = project(events).filterIsInstance<AgentMessageUi>()
+        assertEquals(listOf("before ", "after"), projected.map { it.content })
+        assertNotEquals(projected[0].id, projected[1].id)
+        assertEquals(projected, project(events).filterIsInstance<AgentMessageUi>())
+    }
+
     @Test fun threePausedSegmentsStayInOneRoundAndSurviveFinalResultAndReplay() {
         val controller = AgentRunController()
         val events = mutableListOf<AgentEvent>()
@@ -213,6 +243,5 @@ class AgentPauseContinuationTest {
         ))
         assertTrue(history.all { it.turnId == "original" })
         assertEquals(0, AgentContextCompactor.recentKeepStartIndex(history, 1))
-        assertEquals(0, AgentCompressionBoundary.protectedStart(history, 1, history.size))
     }
 }

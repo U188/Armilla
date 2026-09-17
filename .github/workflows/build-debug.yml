@@ -64,9 +64,21 @@ jobs:
             > "$RUNNER_TEMP/eta-release.p12"
 
       - name: 运行单元测试
+        timeout-minutes: 12
         run: >-
           ./gradlew --no-daemon --no-configuration-cache
           :app:testDebugUnitTest
+
+      - name: 上传单测报告
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: 构建 Release APK
         env:

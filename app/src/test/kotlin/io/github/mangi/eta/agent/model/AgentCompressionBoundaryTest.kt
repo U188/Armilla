@@ -15,7 +15,8 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
-class AgentCompressionStrategyTest {
+class AgentCompressionBoundaryTest {
+    @get:Rule val timeout = org.junit.rules.Timeout.seconds(45)
     @get:Rule val temporary = TemporaryFolder()
     private fun message(role: String, text: String = "", id: String = "", calls: String = "") =
         AgentModelClient.ConversationMessage(role, content = text, toolCallId = id, toolCallsJson = calls)
@@ -24,22 +25,6 @@ class AgentCompressionStrategyTest {
         val history = listOf(message("user", "old"), message("assistant", "result"), message("user", "current"))
         assertFalse(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 79_999))
         assertTrue(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 80_000))
-    }
-
-    @Test fun missingStrategyDefaultsToContinueTask() {
-        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(null))
-        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(""))
-        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse("continue_task"))
-        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse("preserve_turn"))
-        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse("unexpected"))
-    }
-
-    @Test fun strictBoundaryIncludesEntireActiveTurnEvenIfANewUserMessageAppears() {
-        val history = listOf(message("user", "old"), message("assistant", "old answer"),
-            message("user", "active"), message("assistant", calls = "[{\"id\":\"a\"}]"),
-            message("tool", "tool output", id = "a"), message("user", "injected user-shaped record"))
-        assertEquals(2, AgentCompressionBoundary.protectedStart(history, 1, 2))
-        assertEquals(0, AgentCompressionBoundary.protectedStart(history, 10, 2))
     }
 
     @Test fun parallelToolResultsCannotBeSplit() {
@@ -65,20 +50,20 @@ class AgentCompressionStrategyTest {
             message("tool", "x".repeat(20_000), id = "old"),
             message("assistant", calls = """[{"id":"latest"}]"""),
             message("tool", "y".repeat(8_000), id = "latest"))
-        val idle = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000)
-        val active = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000, activeStart = 0)
+        val idle = AgentCompressionBoundary.selectStart(history, 10_000)
+        val active = AgentCompressionBoundary.selectStart(history, 10_000)
         assertEquals(3, idle)
         assertEquals(idle, active)
         assertTrue(AgentContextCompactor.shouldCompress(history, 10_000, 0,
-            estimatedTokens = 9500, strategy = AgentCompressionStrategy.CONTINUE_TASK))
+            estimatedTokens = 9500))
     }
 
     @Test fun overflowCanReduceRetentionButNeverSplitsTheLatestParallelBatch() {
         val history = listOf(message("user", "task"), message("assistant", "x".repeat(8000)),
             message("assistant", calls = """[{"id":"a"},{"id":"b"}]"""),
             message("tool", "a", id = "a"), message("tool", "b", id = "b"))
-        assertEquals(1, AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000))
-        assertEquals(2, AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000, overflow = true))
+        assertEquals(1, AgentCompressionBoundary.selectStart(history, 10_000))
+        assertEquals(2, AgentCompressionBoundary.selectStart(history, 10_000, overflow = true))
     }
 
     @Test fun orphanedOrUnfinishedToolsCannotBeCompacted() {
@@ -102,12 +87,11 @@ class AgentCompressionStrategyTest {
         assertTrue(AgentContextCompactor.messageToSummaryText(message("tool", "exit_code=0", "c1")).contains("c1"))
     }
 
-    @Test fun oneRunConsentIsNotInheritedByAnotherController() {
+    @Test fun manualRequestsAreNotInheritedByAnotherController() {
         val controller = AgentRunController()
-        controller.requestCompact(allowCurrentTurn = true)
-        controller.takePendingCompact()
-        assertTrue(controller.allowCurrentTurnCompaction)
-        assertFalse(AgentRunController().allowCurrentTurnCompaction)
+        controller.requestCompact()
+        assertTrue(controller.hasPendingCompact)
+        assertFalse(AgentRunController().hasPendingCompact)
     }
 
     @Test fun strictOverflowPausesWithoutSendingOrDeletingHistory() {
@@ -136,25 +120,26 @@ class AgentCompressionStrategyTest {
         var compressed = false
         val provider = provider { request ->
             if (calls++ == 0) JSONObject().put("role", "assistant").put("content", "")
+                .put("provider_private", JSONObject().put("opaque", "keep"))
                 .put("finish_reason", "tool_calls").put("tool_calls", JSONArray().put(JSONObject()
                     .put("id", "tool-1").put("type", "function").put("function", JSONObject()
                         .put("name", "get_current_context").put("arguments", "{}"))))
             else {
-                val user = (0 until request.messages.length()).map { request.messages.getJSONObject(it) }
-                    .single { it.optString("content") == "active request" }
-                assertEquals(JSONObject(currentUser.toString()).also { it.remove(AgentTurnIdentity.JSON_KEY) }.toString(), user.toString())
+                val liveCall = (0 until request.messages.length()).map { request.messages.getJSONObject(it) }
+                    .single { it.has("tool_calls") }
+                assertEquals("keep", liveCall.getJSONObject("provider_private").getString("opaque"))
                 val result = (0 until request.messages.length()).map { request.messages.getJSONObject(it) }
                     .single { it.optString("role") == "tool" }
                 assertEquals(toolBody, result.getString("content"))
                 JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
             }
         }
-        val model = config(200_000)
+        val model = config(100_000)
         AgentLoop(model, source, AgentToolCatalog.build(terminalTools = false, browserTools = false), provider,
             AgentModelClient.ToolExecutor { controller.requestCompact(1); AgentModelClient.ToolResult(toolBody) },
             controller, AgentTraceFormatter(), onEvent = { if (it is AgentEvent.ContextCompacted && it.applied) compressed = true },
-            compactPolicy = AgentLoop.CompactPolicy(false, 200_000, 1, model),
-            compactHistory = { history, _ -> listOf(message("user", "[Conversation summary]\nold work")) + history.drop(2) },
+            compactPolicy = AgentLoop.CompactPolicy(false, 100_000, 1, model),
+            compactHistory = { history, policy -> listOf(message("user", "[Conversation summary]\nold work")) + history.drop(requireNotNull(policy.keepStartOverride)) },
         ).run()
         assertTrue(compressed)
         assertEquals(2, calls)
@@ -176,7 +161,7 @@ class AgentCompressionStrategyTest {
         }, AgentModelClient.ToolExecutor { error("No tools") }, AgentRunController(), AgentTraceFormatter(),
             onEvent = { if (it is AgentEvent.ContextCompacted && it.applied) compacted = true },
             compactPolicy = AgentLoop.CompactPolicy(true, 100_000, 1, model),
-            compactHistory = { history, _ -> listOf(message("user", "[Conversation summary]\nold task")) + history.drop(2) },
+            compactHistory = { history, policy -> listOf(message("user", "[Conversation summary]\nold task")) + history.drop(requireNotNull(policy.keepStartOverride)) },
         ).run()
         assertEquals(1, requests)
     }
@@ -206,19 +191,19 @@ class AgentCompressionStrategyTest {
                 }
             }, AgentModelClient.ToolExecutor {
                 toolRuns++
-                if (toolRuns == 2) controller.requestCompact(0, strategy = AgentCompressionStrategy.CONTINUE_TASK)
+                if (toolRuns == 2) controller.requestCompact(0)
                 AgentModelClient.ToolResult(if (toolRuns == 1) "O".repeat(20_000) else tail)
             }, controller, AgentTraceFormatter(), onEvent = {
                 if (it is AgentEvent.ContextCompacted) assertFalse(it.reason, it.blocked)
                 events += it
             },
-            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, model, AgentCompressionStrategy.CONTINUE_TASK),
+            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, model),
             compactionArchive = AgentCompactionArchive(temporary.root, "same-run"),
             compactHistory = { history, _ ->
                 summaries++
                 assertTrue(history[2].content.contains("[Eta tool output pruned;"))
                 assertEquals(tail, history.last().content)
-                val cut = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 20_000)
+                val cut = AgentCompressionBoundary.selectStart(history, 20_000)
                 assertEquals(3, cut)
                 listOf(message("user", "[Conversation summary]\nfirst step verified")) + history.drop(cut)
             },
@@ -280,7 +265,7 @@ class AgentCompressionStrategyTest {
                 toolRuns++
                 if (call.name == "read_image") AgentModelClient.ToolResult(secret, sensitive = true)
                 else {
-                    controller.requestCompact(0, strategy = AgentCompressionStrategy.CONTINUE_TASK)
+                    controller.requestCompact(0)
                     AgentModelClient.ToolResult(tail)
                 }
             },
@@ -293,7 +278,7 @@ class AgentCompressionStrategyTest {
                 }
                 events += it
             },
-            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, model, AgentCompressionStrategy.CONTINUE_TASK),
+            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, model),
             compactionArchive = AgentCompactionArchive(temporary.root, "sensitive-run"),
             compactHistory = { history, _ ->
                 summaries++
@@ -382,6 +367,38 @@ class AgentCompressionStrategyTest {
             openAiEndpointMode = io.github.mangi.eta.data.model.OpenAiEndpointMode.ANTIGRAVITY,
         )
         assertEquals(antigravity, AgentCompressionEndpoint.apply(antigravity, io.github.mangi.eta.data.model.OpenAiEndpointMode.CHAT_COMPLETIONS))
+    }
+
+    @Test fun queuedManualEndpointOnlyOverridesThatCompression() {
+        val automatic = config(100_000)
+        val manual = automatic.copy(model = "manual-summary",
+            openAiEndpointMode = io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES)
+        val controller = AgentRunController()
+        controller.requestCompact(compressModelConfig = manual)
+        val source = JSONArray().put(AgentConversationCodec.userTextMessage("old ".repeat(4000)))
+            .put(AgentConversationCodec.userTextMessage("latest"))
+        var summaryCalls = 0
+        AgentLoop(automatic, source, JSONArray(), provider { request ->
+            assertEquals(automatic.model, request.config.model)
+            assertEquals(automatic.openAiEndpointMode, request.config.openAiEndpointMode)
+            JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
+        }, AgentModelClient.ToolExecutor { error("No tools") }, controller, AgentTraceFormatter(),
+            onEvent = {}, compactPolicy = AgentLoop.CompactPolicy(false, 100_000, 0, automatic),
+            compactHistory = { history, policy ->
+                summaryCalls++
+                assertEquals(manual, policy.compressModelConfig)
+                listOf(message("user", "[Conversation summary] old")) + history.drop(requireNotNull(policy.keepStartOverride))
+            }).run()
+        assertEquals(1, summaryCalls)
+    }
+
+    @Test fun compressionEndpointLeavesNativeProviderAndSessionUntouched() {
+        val native = config().copy(providerType = io.github.mangi.eta.data.model.ProviderTypes.ANTHROPIC)
+        assertEquals(native, AgentCompressionEndpoint.apply(native, io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES))
+        val session = config().copy(openAiEndpointMode = io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES)
+        assertEquals(io.github.mangi.eta.data.model.OpenAiEndpointMode.CHAT_COMPLETIONS,
+            AgentCompressionEndpoint.apply(session, null).openAiEndpointMode)
+        assertEquals(io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES, session.openAiEndpointMode)
     }
 
     private fun config(window: Int = 9000) = AgentModelClient.ModelConfig(

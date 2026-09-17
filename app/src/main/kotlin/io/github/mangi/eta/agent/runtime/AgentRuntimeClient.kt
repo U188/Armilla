@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.runtime
 
+import io.github.mangi.eta.agent.model.AgentModelClient
+
 import android.content.Context
 import android.os.Handler
 import android.os.IBinder
@@ -156,13 +158,12 @@ internal class AgentRuntimeClient(
     fun compactRun(
         runId: String,
         keepRecent: Int,
-        allowCurrentTurn: Boolean = false,
-        strategy: String? = null,
+        compressModelConfig: AgentModelClient.ModelConfig? = null,
     ): Boolean {
         if (runId.isBlank()) return false
         return withRuntimeMessenger(false) { serviceMessenger ->
             val msg = Message.obtain(null, AgentRuntimeWire.MSG_COMPACT_RUN)
-            msg.data = AgentRuntimeWire.compactBundle(runId, keepRecent, allowCurrentTurn, strategy)
+            msg.data = AgentRuntimeWire.compactBundle(runId, keepRecent, compressModelConfig)
             serviceMessenger.send(msg)
             true
         }

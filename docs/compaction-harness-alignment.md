@@ -14,7 +14,7 @@ Reference inspected: deepseek-ai/deepseek-harness commit
   A truncated response is never committed. Eta retains one bounded generation
   retry, up to 16384 subject to available input room, plus reasoning compatibility
   fallback and a request deadline.
-- Automatic pressure at 90% (user-selected Eta adaptation), owned by Runtime rather than stream UI callbacks.
+- Automatic pressure at 80% (DeepSeek harness thresholdRatio), owned by Runtime rather than stream UI callbacks.
   Re-evaluate the full request after actual shrink, with at most one additional
   pressure pass. Confirmed overflow recovery remains bounded and fail-closed.
 - Queue manual compaction without cancelling SSE. Finish the response and the
@@ -31,10 +31,11 @@ Reference inspected: deepseek-ai/deepseek-harness commit
 
 ## Intentional Eta adaptations
 
-- Default continuation tail for <=32k windows: max(1000, window/10).
-  Larger windows: clamp(window/16, 4000, 12000). Thus 128k -> 8k, 500k -> 12k.
+- Continuation tail uses retainRatio 0.16 (DeepSeek harness). 128k -> 20.5k, 500k -> 80k.
   These are selection budgets, not permission to split tool batches or truncate a
   large newest unit. Explicit full-turn protection remains available.
+- Summary sections follow harness fact-density headings. Archive checkpoint IDs stay
+  in model footnotes for read_compacted_history and are stripped from the user-facing sheet.
 - Keep raw checkpoint archives/references, full retained tail, same turn IDs,
   format validation, prefix-budget splitting (up to 32 chunks), timeout and
   cancellation propagation. This is not a wholesale TypeScript backend port.
@@ -45,7 +46,7 @@ Reference inspected: deepseek-ai/deepseek-harness commit
 
 Unit tests updated/added for queueing during streamed text, no extra reply,
 unchanged turn/visible deltas, failed summary fallback, cancellation/sealed inlet,
-90% pressure and bounded extra pass, internal tail selection, old IPC target
+80% pressure and bounded extra pass, 16% tail selection, old IPC target
 ignored, normal long checkpoint acceptance vs non-shrinking rejection, and large
 escaped JPEG / nested-media projection without mutating original data.
 

@@ -279,7 +279,9 @@ fun ConversationSidePaneScaffold(
                     state = state,
                     width = paneWidth,
                     drawerShape = drawerShape,
-                    enableSearchFocus = visible,
+                    enableSearchFocus = visible &&
+                        drawerState.currentValue == DrawerValue.Open &&
+                        !drawerState.isAnimationRunning,
                     onSearchChange = onSearchChange,
                     onConversationSelected = onConversationSelected,
                     onConversationRename = onConversationRename,
@@ -523,7 +525,7 @@ private fun PaneSearchRow(
             BasicTextField(
                 value = query,
                 onValueChange = onSearchChange,
-                enabled = enableSearchFocus,
+                enabled = enableSearchFocus && searchActive,
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(searchFocusRequester)

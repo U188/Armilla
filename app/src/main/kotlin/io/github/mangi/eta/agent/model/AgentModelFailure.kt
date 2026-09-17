@@ -171,13 +171,27 @@ internal class AgentModelFailure(
             return unexpectedResponse(status = null, contentType = contentType, body = "", cause = failure)
         }
 
-        private fun htmlTitle(body: String): String? =
-            Regex("""(?is)<title[^>]*>(.*?)</title>""").find(body)
-                ?.groupValues?.getOrNull(1)
-                ?.replace(Regex("""\s+"""), " ")
-                ?.trim()
-                ?.take(80)
-                ?.ifBlank { null }
+        private fun htmlTitle(body: String): String? {
+            val start = body.indexOf("<title", ignoreCase = true).takeIf { it >= 0 } ?: return null
+            val openEnd = body.indexOf('>', start).takeIf { it >= 0 } ?: return null
+            val close = body.indexOf("</title>", openEnd + 1, ignoreCase = true).takeIf { it >= 0 } ?: return null
+            val title = body.substring(openEnd + 1, close)
+            val collapsed = buildString(title.length) {
+                var gap = false
+                title.forEach { ch ->
+                    if (ch.isWhitespace()) {
+                        if (!gap) {
+                            append(' ')
+                            gap = true
+                        }
+                    } else {
+                        append(ch)
+                        gap = false
+                    }
+                }
+            }.trim()
+            return collapsed.take(80).ifBlank { null }
+        }
 
         internal fun extractGoogleValidationUrl(error: JSONObject?, body: String): String? {
             val details = error?.optJSONArray("details")

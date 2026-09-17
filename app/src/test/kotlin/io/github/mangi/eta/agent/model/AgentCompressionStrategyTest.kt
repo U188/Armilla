@@ -20,10 +20,10 @@ class AgentCompressionStrategyTest {
     private fun message(role: String, text: String = "", id: String = "", calls: String = "") =
         AgentModelClient.ConversationMessage(role, content = text, toolCallId = id, toolCallsJson = calls)
 
-    @Test fun defaultPressureStartsAtNinetyPercent() {
+    @Test fun defaultPressureStartsAtEightyPercent() {
         val history = listOf(message("user", "old"), message("assistant", "result"), message("user", "current"))
-        assertFalse(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 89_999))
-        assertTrue(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 90_000))
+        assertFalse(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 79_999))
+        assertTrue(AgentContextCompactor.shouldCompress(history, 100_000, 1, estimatedTokens = 80_000))
     }
 
     @Test fun missingStrategyDefaultsToContinueTask() {
@@ -54,11 +54,11 @@ class AgentCompressionStrategyTest {
         assertEquals(1, AgentCompressionBoundary.continuationStart(history.dropLast(1), 1))
     }
 
-    @Test fun continuationRetentionIsBoundedForLargeContextWindows() {
-        assertEquals(2_000, AgentCompressionBoundary.continuationRetentionBudget(20_000))
-        assertEquals(4_000, AgentCompressionBoundary.continuationRetentionBudget(50_000))
-        assertEquals(8_000, AgentCompressionBoundary.continuationRetentionBudget(128_000))
-        assertEquals(12_000, AgentCompressionBoundary.continuationRetentionBudget(500_000))
+    @Test fun continuationRetentionMatchesHarnessRatio() {
+        assertEquals(3_200, AgentCompressionBoundary.continuationRetentionBudget(20_000))
+        assertEquals(8_000, AgentCompressionBoundary.continuationRetentionBudget(50_000))
+        assertEquals(20_480, AgentCompressionBoundary.continuationRetentionBudget(128_000))
+        assertEquals(80_000, AgentCompressionBoundary.continuationRetentionBudget(500_000))
         assertEquals(1, AgentCompressionBoundary.continuationRetentionBudget(500_000, overflow = true))
     }
 
@@ -307,8 +307,14 @@ class AgentCompressionStrategyTest {
                 assertFalse(encoded.contains(secret))
                 assertFalse(encoded.contains("/secret.jpg"))
                 assertEquals(tail, history.last().content)
-                val cut = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 20_000)
-                listOf(message("user", "[Conversation summary]\nlooked at an image")) + history.drop(cut)
+                val lastBulk = history.indexOfLast { it.content == tail }
+                val keepFrom = if (lastBulk > 0 && history[lastBulk - 1].toolCallsJson.contains("get_current_context")) {
+                    lastBulk - 1
+                } else {
+                    lastBulk.coerceAtLeast(0)
+                }
+                assertFalse(history.take(keepFrom).joinToString { it.content + it.toolCallsJson }.contains(secret))
+                listOf(message("user", "[Conversation summary]\nlooked at an image")) + history.drop(keepFrom)
             },
         ).run()
         assertEquals("done", result.content)

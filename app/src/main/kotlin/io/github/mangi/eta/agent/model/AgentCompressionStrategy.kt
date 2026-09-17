@@ -87,18 +87,14 @@ internal object AgentCompressionBoundary {
     }
 
     /**
-     * Keep a bounded working tail for CONTINUE_TASK. The previous 16% rule made
-     * a 500k window retain about 80k tokens before the summary, which is too much
-     * for a compacted context. Use an internal 4k–12k tail for larger windows, rather than reserving 80k
-     * in a 500k window. Small windows retain 10% (at least 1k).
+     * Keep a priced recent tail for CONTINUE_TASK, matching DeepSeek harness
+     * retainRatio=0.16. Overflow recovery may shrink this to a single token so
+     * the newest complete tool batch can still be selected.
      */
     internal fun continuationRetentionBudget(contextWindow: Int, overflow: Boolean = false): Int {
         if (overflow) return 1
-        return when {
-            contextWindow <= 0 -> 1
-            contextWindow <= 32_000 -> maxOf(1_000, contextWindow / 10)
-            else -> minOf(12_000, maxOf(4_000, contextWindow / 16))
-        }
+        if (contextWindow <= 0) return 1
+        return maxOf(1, (contextWindow.toLong() * 16 / 100).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
     }
 
     /** Never summarize the newest complete unit; walk backward to the next balanced cut. */

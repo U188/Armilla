@@ -72,7 +72,7 @@ class AgentSummaryPipelineTest {
         assertEquals(1, calls)
         assertEquals("user", result.first().role)
         assertEquals(history().last(), result.last())
-        assertTrue(result.first().content.contains("## Verified evidence"))
+        assertTrue(result.first().content.contains("## Critical Context"))
     }
 
     @Test fun truncatedEmptyMalformedAndToolCallingSummariesAreRejected() {
@@ -343,28 +343,28 @@ class AgentSummaryPipelineTest {
         val raw = """```markdown
 好的，下面是摘要。
 [对话摘要]
-## 目标
+## 主要请求与意图
 - 修压缩
-## 约束
-- 不要丢原文
-## 已验证证据
-- 存档 failed
-## 文件和标识符
+## 关键技术概念
+- compaction
+## 文件与代码
 - /workspace/Eta
-## 错误和待解决问题
-- 格式不对
-## 当前状态
-- 已回滚
+## 错误与修复
+- 存档 failed
 ## 待办工作
 - 重试
+## 当前工作
+- 已回滚
 ## 下一步
 - 修校验
+## 关键上下文
+- 不要丢原文
 ```""".trimIndent()
         val coerced = AgentContextCompactor.coerceSummary(raw)
         assertNotNull(coerced)
         AgentContextCompactor.validateSummary(coerced!!)
         assertTrue(coerced.startsWith(AgentContextCompactor.SUMMARY_PREFIX_ZH))
-        assertTrue(coerced.contains("## Verified evidence"))
+        assertTrue(coerced.contains("## Critical Context"))
         assertTrue(coerced.contains("存档 failed"))
         assertFalse(coerced.contains("```"))
     }
@@ -382,7 +382,7 @@ class AgentSummaryPipelineTest {
         }))
         assertEquals(2, calls)
         assertEquals("user", result.first().role)
-        assertTrue(result.first().content.contains("## Next step"))
+        assertTrue(result.first().content.contains("## Next Step"))
     }
 
     @Test fun compressionProbesReasoningFromOffThenRemembersWorkingEffort() {

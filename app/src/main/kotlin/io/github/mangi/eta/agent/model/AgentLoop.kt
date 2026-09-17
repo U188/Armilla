@@ -367,7 +367,7 @@ internal class AgentLoop(
         val window = config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow
         val charPressure = storedHistoryChars() > persistenceCharLimit() * 7 / 10
         if (!forced && !pressureRetry && skipIneffectiveAutoCompact && !charPressure && !requestOverBudget()) return
-        if (!forced && !charPressure && estimatedRequestTokens() < window * 0.9) return
+        if (!forced && !charPressure && estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window)) return
         val strategy = override?.strategy ?: if (pressureRetry) budgetStrategy else compactPolicy.strategy
         val keep = AgentContextCompactor.coerceKeepRecent(
             override?.keepRecentMessages ?: compactPolicy.keepRecentMessages,
@@ -388,7 +388,7 @@ internal class AgentLoop(
             history = historyForCompaction()
             cut = compactionStart(history)
             if (!forced && storedHistoryChars() <= persistenceCharLimit() * 7 / 10 &&
-                estimatedRequestTokens() < window * 0.9 && !requestOverBudget()) return
+                estimatedRequestTokens() < AgentContextCompactor.autoPressureTokens(window) && !requestOverBudget()) return
         }
         val reduced = cut > 0 && applyCompaction(round, history, cut)
         if (reduced || pruned) {
@@ -396,7 +396,7 @@ internal class AgentLoop(
             skipIneffectiveAutoCompact = false
             // Re-evaluate the whole request, not a desired summary length. At most
             // one additional pressure pass, and only after measurable progress.
-            if (reduced && !pressureRetry && estimatedRequestTokens() >= window * 0.9) {
+            if (reduced && !pressureRetry && estimatedRequestTokens() >= AgentContextCompactor.autoPressureTokens(window)) {
                 maybeCompactBeforeRound(round, pressureRetry = true)
             }
         } else if (!forced) {

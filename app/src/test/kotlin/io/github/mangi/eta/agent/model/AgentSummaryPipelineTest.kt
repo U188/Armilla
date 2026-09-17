@@ -63,7 +63,7 @@ class AgentSummaryPipelineTest {
         var calls = 0
         val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
             calls++
-            assertEquals(16384, it.config.summaryOutputLimit)
+            assertEquals(16000, it.config.summaryOutputLimit)
             assertEquals(0, it.tools.length())
             assertFalse(it.config.hostedWebSearchEnabled)
             assertTrue(it.messages.toString().contains("historical"))
@@ -234,7 +234,7 @@ class AgentSummaryPipelineTest {
             }))
         }
         assertEquals(1, calls)
-        assertTrue(error.message.orEmpty().contains("生成上限=16384"))
+        assertTrue(error.message.orEmpty().contains("生成上限=16000"))
         assertTrue(error.message.orEmpty().contains("已重试=0"))
         assertEquals(snapshot, source)
     }
@@ -291,7 +291,7 @@ class AgentSummaryPipelineTest {
         val source = history()
         val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider {
             calls++
-            assertEquals(16384, it.config.summaryOutputLimit)
+            assertEquals(16000, it.config.summaryOutputLimit)
             assertFalse(it.messages.toString().contains("Target approximately"))
             assertFalse(it.messages.toString().contains("characters in TOTAL"))
             response(longer)

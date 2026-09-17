@@ -610,6 +610,12 @@ internal fun SettingsScreen(
                 SmallTitle(stringResource(R.string.settings_general))
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                     ArrowPreference(
+                        title = stringResource(R.string.speech_title),
+                        startAction = { PreferenceIcon(icon = Icons.Rounded.Mic) },
+                        onClick = { onNavigate(AppRoute.SpeechSettings) },
+                    )
+
+                    ArrowPreference(
                         title = stringResource(R.string.appearance_title),
                         startAction = {
                             PreferenceIcon(

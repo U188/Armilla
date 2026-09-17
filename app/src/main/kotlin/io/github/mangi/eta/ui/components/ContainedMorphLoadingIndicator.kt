@@ -44,6 +44,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal fun ContainedMorphLoadingIndicator(
     modifier: Modifier = Modifier,
     indicatorSize: Dp = 28.dp,
+    animate: Boolean = true,
     containerColor: Color = MiuixTheme.colorScheme.primaryContainer,
     indicatorColor: Color = MiuixTheme.colorScheme.onPrimaryContainer,
 ) {
@@ -52,7 +53,8 @@ internal fun ContainedMorphLoadingIndicator(
     var currentShape by remember { mutableIntStateOf(0) }
     var morphRotationTarget by remember { mutableFloatStateOf(90f) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(animate) {
+        if (!animate) return@LaunchedEffect
         launch {
             globalRotation.animateTo(
                 targetValue = 360f,

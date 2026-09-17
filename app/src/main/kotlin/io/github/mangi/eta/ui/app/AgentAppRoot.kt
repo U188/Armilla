@@ -774,6 +774,9 @@ fun AgentAppRoot(
                     currentModelId = agentState.homeState.modelId,
                 )
             }
+            entry<AppRoute.SpeechSettings>(swipeDismiss = swipeDismiss) {
+                io.github.mangi.eta.ui.SpeechSettingsScreen(onBack = ::popRoute)
+            }
             entry<AppRoute.AppearanceSettings>(swipeDismiss = swipeDismiss) {
                 AppearanceSettingsScreen(onBack = ::popRoute)
             }

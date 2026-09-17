@@ -412,13 +412,12 @@ internal fun AgentChatInputBar(
                             modifier = Modifier.weight(1f),
                             contentAlignment = Alignment.Center,
                         ) {
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = showMorphLoading,
-                                enter = fadeIn(tween(160)) + scaleIn(tween(180), initialScale = 0.82f),
-                                exit = fadeOut(tween(120)) + scaleOut(tween(140), targetScale = 0.82f),
-                            ) {
-                                ContainedMorphLoadingIndicator(indicatorSize = 24.dp)
-                            }
+                            ChatSpeechIndicator(
+                                textFieldState = textFieldState,
+                                showGeneration = showMorphLoading,
+                                interactionBlocked = drawerBlocksIme,
+                                resetKey = isStreaming to isEditingMessage,
+                            )
                         }
 
                         if (shouldShowLiveContextUsage(showContextUsage, contextSendBlocked, liveUsage)) {

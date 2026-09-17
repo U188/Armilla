@@ -164,3 +164,14 @@ dependencies {
     testImplementation(libs.room.testing)
     testImplementation(libs.robolectric)
 }
+
+// Pin and verify the small JNI runtime; speech model is opt-in at runtime, never bundled.
+val speechJniDir = layout.buildDirectory.dir("generated/speech/jniLibs")
+val prepareSpeechRuntime by tasks.registering(Exec::class) {
+    inputs.file(rootProject.file("scripts/prepare-speech-runtime.py"))
+    outputs.dir(speechJniDir)
+    commandLine("python3", rootProject.file("scripts/prepare-speech-runtime.py").absolutePath,
+        speechJniDir.get().asFile.absolutePath)
+}
+android.sourceSets.getByName("main").jniLibs.srcDir(speechJniDir)
+tasks.named("preBuild").configure { dependsOn(prepareSpeechRuntime) }

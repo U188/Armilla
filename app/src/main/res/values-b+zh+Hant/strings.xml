@@ -65,9 +65,9 @@
   <string name="context_budget_stop">結束任務</string>
   <string name="context_budget_stop_summary">停止後可改用更大視窗的模型</string>
   <string name="ui_custom_compress_model_title">自訂壓縮模型</string>
-  <string name="ui_custom_compress_model_summary">關閉後使用目前對話所選模型</string>
+  <string name="ui_custom_compress_model_summary">關閉時沿用對話模型。</string>
   <string name="ui_compress_endpoint_title">Endpoint 模式</string>
-  <string name="ui_compress_endpoint_description">僅對壓縮摘要請求生效，不修改會話供應商或正常對話的 Endpoint。部分中轉站兩種 API 的延遲不同，可單獨選擇相容且更快的介面。預設 Chat Completions；僅支援 Responses 的模型請選 Responses。原生 Anthropic 和 Codex介面保持原協定。</string>
+  <string name="ui_compress_endpoint_description">僅用於摘要。預設 Chat Completions；模型需要時選 Responses。Anthropic / Codex 不受此項影響。</string>
   <string name="compress_model_missing_window_title">未設定上下文視窗</string>
   <string name="compress_model_missing_window_summary">這個壓縮模型還沒有上下文視窗，壓縮時無法估算輸入預算。請先到該模型編輯頁填寫後再用。</string>
   <plurals name="context_compacted_messages">
@@ -1413,4 +1413,9 @@
     <string name="provider_oauth_sign_in_ok">登入成功</string>
     <string name="provider_oauth_sign_in_failed">登入失敗</string>
     <string name="provider_oauth_need_sign_in">請先使用 OpenAI Codex 登入</string>
+  <string name="ui_compress_request_api">請求介面</string>
+  <string name="ui_compress_endpoint_hint">僅用於摘要，不影響正常對話。</string>
+  <string name="ui_compress_endpoint_help">如何選擇介面</string>
+  <string name="ui_compress_models_loading">正在載入模型…</string>
+  <string name="ui_auto_compress_context_summary">達到門檻時，自動摘要較早對話。</string>
 </resources>

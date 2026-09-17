@@ -1,5 +1,20 @@
 package io.github.mangi.eta.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.RadioButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -7,6 +22,7 @@ import android.content.SharedPreferences
 import android.view.ViewTreeObserver
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -121,17 +137,22 @@ internal fun CompressionEndpointPreference(
     onSelect: (String) -> Unit,
     compact: Boolean = false,
 ) {
+    if (compact) {
+        CompactCompressionEndpointPreference(selected, enabled, onSelect)
+        return
+    }
     val items = listOf(
         DropdownItem(text = "Chat Completions API"),
         DropdownItem(text = "Responses API"),
     )
     val index = if (selected == OpenAiEndpointMode.RESPONSES) 1 else 0
-    val horizontal = if (compact) 0.dp else 16.dp
+    val horizontal = 16.dp
     Column(modifier = Modifier.fillMaxWidth()) {
         WindowSpinnerPreference(
             items = items,
             selectedIndex = index,
-            title = stringResource(R.string.ui_compress_endpoint_title),
+            title = stringResource(R.string.ui_compress_request_api),
+            insideMargin = PaddingValues(horizontal = horizontal, vertical = 12.dp),
             enabled = enabled,
             onSelectedIndexChange = { selectedIndex ->
                 onSelect(
@@ -144,8 +165,103 @@ internal fun CompressionEndpointPreference(
             stringResource(R.string.ui_compress_endpoint_description),
             modifier = Modifier.fillMaxWidth().padding(start = horizontal, end = horizontal, bottom = 12.dp),
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Start,
         )
+    }
+}
+
+/** Dialog layout intentionally avoids a setting-row spinner: long API names get a full row. */
+@Composable
+private fun CompactCompressionEndpointPreference(
+    selected: String,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    var detailsExpanded by remember { mutableStateOf(false) }
+    val view = LocalView.current
+    val detailsState = stringResource(if (detailsExpanded) R.string.work_collapse else R.string.work_expand)
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
+        Text(
+            text = stringResource(R.string.ui_compress_request_api),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(R.string.ui_compress_endpoint_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
+        )
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .selectableGroup(),
+        ) {
+            listOf(
+                OpenAiEndpointMode.CHAT_COMPLETIONS to "Chat Completions API",
+                OpenAiEndpointMode.RESPONSES to "Responses API",
+            ).forEach { (mode, label) ->
+                val checked = selected == mode
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                            else androidx.compose.ui.graphics.Color.Transparent)
+                        .selectable(selected = checked, enabled = enabled, role = Role.RadioButton) {
+                            if (!checked) {
+                                TouchHaptics.click(view)
+                                onSelect(mode)
+                            }
+                        }
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    RadioButton(selected = checked, onClick = null, enabled = enabled)
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .semantics { stateDescription = detailsState }
+                .clickable(enabled = enabled, role = Role.Button) {
+                    TouchHaptics.click(view)
+                    detailsExpanded = !detailsExpanded
+                }
+                .heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.ui_compress_endpoint_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = if (detailsExpanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        AnimatedVisibility(visible = detailsExpanded) {
+            Text(
+                text = stringResource(R.string.ui_compress_endpoint_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+        }
     }
 }
 
@@ -220,61 +336,83 @@ internal fun CompressConversationDialog(
                     .verticalScroll(scrollState)
                     .alpha(if (isCompressing) 0.42f else 1f),
             ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.ui_custom_compress_model_title),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = customModelEnabled,
-                    enabled = !isCompressing,
-                    onCheckedChange = { value ->
-                        TouchHaptics.click(view)
-                        customModelEnabled = value
-                        Prefs.putBoolean(Prefs.Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED, value)
-                        if (value && selectedModel == null) {
-                            selectedModel = modelPickerState.selectedModel
-                        }
-                        if (value && !selectedModel.hasCompressContextWindow() && selectedModel != null) {
-                            showMissingWindowDialog = true
-                        }
-                    },
-                )
-            }
-            if (customModelEnabled) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !isCompressing && !isLoadingModels) {
-                            TouchHaptics.click(view)
-                            showModelDialog = true
-                        }
-                        .padding(vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = selectedModel?.displayName
-                            ?: stringResource(R.string.model_not_selected),
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f),
+                        text = stringResource(R.string.ui_custom_compress_model_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    )
+                    val customModelLabel = stringResource(R.string.ui_custom_compress_model_title)
+                    Switch(
+                        checked = customModelEnabled,
+                        modifier = Modifier.semantics { contentDescription = customModelLabel },
+                        enabled = !isCompressing && !isLoadingModels,
+                        onCheckedChange = { value ->
+                            TouchHaptics.click(view)
+                            customModelEnabled = value
+                            Prefs.putBoolean(Prefs.Keys.AGENT_COMPRESS_CUSTOM_MODEL_ENABLED, value)
+                            if (value && selectedModel == null) {
+                                selectedModel = modelPickerState.selectedModel
+                            }
+                            if (value && !selectedModel.hasCompressContextWindow() && selectedModel != null) {
+                                showMissingWindowDialog = true
+                            }
+                        },
                     )
                 }
-            }
+                if (customModelEnabled) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .clickable(enabled = !isCompressing && !isLoadingModels, role = Role.Button) {
+                                TouchHaptics.click(view)
+                                showModelDialog = true
+                            }
+                            .heightIn(min = 52.dp)
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = if (isLoadingModels) stringResource(R.string.ui_compress_models_loading)
+                                else selectedModel?.displayName ?: stringResource(R.string.model_not_selected),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            imageVector = Icons.Rounded.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                } else {
+                    Text(
+                        text = stringResource(R.string.ui_custom_compress_model_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
 
-            CompressionEndpointPreference(
-                selected = endpointMode,
-                enabled = !isCompressing,
-                compact = true,
-                onSelect = { option ->
-                    endpointMode = option
-                    Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, option)
-                },
-            )
+                CompressionEndpointPreference(
+                    selected = endpointMode,
+                    enabled = !isCompressing,
+                    compact = true,
+                    onSelect = { option ->
+                        endpointMode = option
+                        Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, option)
+                    },
+                )
 
             }
             if (isCompressing) {
@@ -297,7 +435,7 @@ internal fun CompressConversationDialog(
             MiuixDialogActions(
                 confirmText = stringResource(R.string.compress_conversation_confirm),
                 cancelText = stringResource(R.string.action_cancel),
-                confirmEnabled = !isCompressing,
+                confirmEnabled = !isCompressing && !isLoadingModels,
                 cancelEnabled = !isCompressing,
                 modifier = Modifier
                     .padding(top = 16.dp)

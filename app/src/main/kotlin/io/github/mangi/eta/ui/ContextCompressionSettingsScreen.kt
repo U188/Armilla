@@ -2,6 +2,7 @@ package io.github.mangi.eta.ui
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.model.AgentCompressionEndpoint
@@ -105,9 +107,15 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(stringResource(R.string.ui_auto_compress_context_title), style = MaterialTheme.typography.bodyLarge)
-                        Text(stringResource(R.string.ui_auto_compress_context_summary), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = stringResource(R.string.ui_auto_compress_context_summary),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
                     }
                     Switch(
                         checked = enabled,
@@ -138,6 +146,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                 SwitchPreference(
                     title = stringResource(R.string.ui_custom_compress_model_title),
+                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     summary = stringResource(R.string.ui_custom_compress_model_summary),
                     checked = customModelEnabled,
                     onCheckedChange = { value ->
@@ -157,6 +166,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                 if (customModelEnabled) {
                     ArrowPreference(
                         title = stringResource(R.string.ui_compress_model_title),
+                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         summary = selectedCompressModel?.displayName
                             ?: stringResource(R.string.model_not_selected),
                         onClick = {

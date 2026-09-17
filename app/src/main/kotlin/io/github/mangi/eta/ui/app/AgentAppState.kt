@@ -2405,6 +2405,26 @@ internal class AgentAppState(
             billedOverheadTokens = null
         }
         persistConversations()
+        showCompressionCompletedToast(conversationId, originalHistory, compressedHistory, compressorLabel)
+    }
+
+    /** Called on Main only after an accepted history update, never from replay/projection. */
+    private fun showCompressionCompletedToast(
+        conversationId: String?,
+        originalHistory: List<AgentModelClient.ConversationMessage>,
+        compressedHistory: List<AgentModelClient.ConversationMessage>,
+        compressorLabel: String,
+    ) {
+        if (conversationId != selectedConversationId) return
+        val count = AgentContextCompactionUi.completedMessageCount(
+            originalHistory, compressedHistory, compressorLabel,
+        )
+        if (count <= 0) return
+        Toast.makeText(
+            appContext,
+            appContext.resources.getQuantityString(R.plurals.context_compacted_messages, count, count),
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 
     private fun showCompactedRevisionNotice() {
@@ -3143,7 +3163,7 @@ internal class AgentAppState(
                         .mapTo(mutableSetOf()) { it.index },
                 )
             }
-            events.forEach { event -> applyRunEvent(runId, event, persistSupplement = false) }
+            events.forEach { event -> applyRunEvent(runId, event, persistSupplement = false, replaying = true) }
         }
     }
 
@@ -3341,6 +3361,7 @@ internal class AgentAppState(
         runId: String,
         event: AgentEvent,
         persistSupplement: Boolean = true,
+        replaying: Boolean = false,
     ) {
         when (event) {
             is AgentEvent.AssistantBlockStart -> {
@@ -3501,7 +3522,7 @@ internal class AgentAppState(
             }
 
             is AgentEvent.ContextCompacted -> {
-                applyRuntimeCompactedHistory(runId, event)
+                applyRuntimeCompactedHistory(runId, event, notifyCompletion = !replaying)
             }
 
             is AgentEvent.ProviderRequestStarted -> {
@@ -3519,7 +3540,11 @@ internal class AgentAppState(
         }
     }
 
-    private fun applyRuntimeCompactedHistory(runId: String, event: AgentEvent.ContextCompacted) {
+    private fun applyRuntimeCompactedHistory(
+        runId: String,
+        event: AgentEvent.ContextCompacted,
+        notifyCompletion: Boolean,
+    ) {
         val conversationId = conversationIdForRun(runId) ?: return
         if (!event.applied || event.history.isEmpty()) {
             setConversationCompressing(conversationId, false)
@@ -3566,6 +3591,9 @@ internal class AgentAppState(
         billedOverheadConversationId = conversationId
         billedOverheadTokens = null
         persistConversations()
+        if (notifyCompletion) {
+            showCompressionCompletedToast(conversationId, current.history, event.history, event.compressorLabel)
+        }
     }
 
     /**
@@ -3648,6 +3676,7 @@ internal class AgentAppState(
             billedOverheadConversationId = conversationId
             billedOverheadTokens = null
             persistConversations()
+            showCompressionCompletedToast(conversationId, originalHistory, compressed, compressorLabel(compressModelConfig))
         }
     }
 
@@ -4585,10 +4614,13 @@ internal class AgentAppState(
                     compressorLabel = compressorLabel,
                 ),
             )
+        } else {
+            return // No accepted update: do not persist or announce a stale result.
         }
         billedOverheadConversationId = conversationId
         billedOverheadTokens = null
         persistConversations()
+        showCompressionCompletedToast(conversationId, originalHistory, compressedHistory, compressorLabel)
     }
 }
 

@@ -18,14 +18,7 @@ internal object AgentContextCompactionUi {
         if (compressedHistory == originalHistory) return messages
         val pruningOnly = isPruningOnly(originalHistory, compressedHistory, compressorLabel)
         val keptHistory = compressedHistory.filterNot(AgentContextCompactor::isCompressionSummary)
-        val keepStart = if (pruningOnly) 0 else (originalHistory.size - keptHistory.size).coerceIn(0, originalHistory.size)
-        val compactedVisible = if (keepStart > 0) {
-            originalHistory.subList(0, keepStart)
-                .count(AgentContextCompactor::isVisibleConversationMessage)
-        } else {
-            0
-        }
-        val compactedCount = if (pruningOnly) 0 else compactedVisible.takeIf { it > 0 } ?: keepStart.coerceAtLeast(1)
+        val compactedCount = completedMessageCount(originalHistory, compressedHistory, compressorLabel)
         val summary = if (pruningOnly) "" else compressedHistory
             .filter(AgentContextCompactor::isCompressionSummary)
             .joinToString("\n\n") { AgentContextCompactor.displaySummary(it.content) }
@@ -55,6 +48,22 @@ internal object AgentContextCompactionUi {
             ),
             keptUserCount = keptUserCount,
         ).let(::clearBilledTokenUsage)
+    }
+
+    /** Shared by the timeline marker and completion Toast; maintenance is never success. */
+    internal fun completedMessageCount(
+        originalHistory: List<AgentModelClient.ConversationMessage>,
+        compressedHistory: List<AgentModelClient.ConversationMessage>,
+        compressorLabel: String = "",
+    ): Int {
+        if (compressedHistory.isEmpty() || compressedHistory == originalHistory ||
+            isPruningOnly(originalHistory, compressedHistory, compressorLabel) ||
+            compressedHistory.none(AgentContextCompactor::isCompressionSummary)) return 0
+        val keptCount = compressedHistory.count { !AgentContextCompactor.isCompressionSummary(it) }
+        val keepStart = (originalHistory.size - keptCount).coerceIn(0, originalHistory.size)
+        val visible = originalHistory.take(keepStart)
+            .count(AgentContextCompactor::isVisibleConversationMessage)
+        return visible.takeIf { it > 0 } ?: keepStart.coerceAtLeast(1)
     }
 
     internal fun isPruningOnly(

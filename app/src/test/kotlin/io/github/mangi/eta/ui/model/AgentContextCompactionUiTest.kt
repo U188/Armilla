@@ -193,6 +193,43 @@ class AgentContextCompactionUiTest {
         assertEquals(70L, usage.cachedTokens)
     }
 
+    @Test
+    fun completionToastCountMatchesTimelineVisibleMessageCount() {
+        val original = listOf(msg("user", "old"), msg("assistant", "answer"),
+            msg("tool", "tool output"), msg("user", "keep"))
+        val compressed = listOf(msg("user", "${AgentContextCompactor.SUMMARY_PREFIX_ZH}\nsummary"), original.last())
+        val count = AgentContextCompactionUi.completedMessageCount(original, compressed)
+        val marker = AgentContextCompactionUi.applyMarker(
+            messages = listOf(UserMessageUi("old", "old"), UserMessageUi("keep", "keep")),
+            originalHistory = original, compressedHistory = compressed,
+        ).filterIsInstance<ContextCompactedMessageUi>().single()
+        assertEquals(2, count)
+        assertEquals(marker.compactedCount, count)
+    }
+
+    @Test
+    fun unchangedDuplicateAndEmptyResultsDoNotAnnounceSuccess() {
+        val summary = listOf(msg("user", "${AgentContextCompactor.SUMMARY_PREFIX_ZH}\nsummary"))
+        assertEquals(0, AgentContextCompactionUi.completedMessageCount(summary, summary))
+        assertEquals(0, AgentContextCompactionUi.completedMessageCount(summary, emptyList()))
+    }
+
+    @Test
+    fun maintenanceWithOldSummaryDoesNotAnnounceSuccess() {
+        val original = listOf(msg("user", "${AgentContextCompactor.SUMMARY_PREFIX_ZH}\nold"),
+            msg("tool", "long"))
+        val pruned = original.dropLast(1) + msg("tool", "[Eta tool output pruned; archive]")
+        assertEquals(0, AgentContextCompactionUi.completedMessageCount(original, pruned))
+        assertEquals(0, AgentContextCompactionUi.completedMessageCount(original,
+            pruned + msg("tool", "new"), "工具输出预算修剪（原文可回读）"))
+    }
+
+    @Test
+    fun nonSummaryHistoryChangesDoNotAnnounceSuccess() {
+        assertEquals(0, AgentContextCompactionUi.completedMessageCount(
+            listOf(msg("user", "old")), listOf(msg("user", "new"))))
+    }
+
     private fun msg(role: String, content: String) =
         AgentModelClient.ConversationMessage(role = role, content = content)
 }

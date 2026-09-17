@@ -34,6 +34,14 @@ class AgentContinuationTextTest {
         assertEquals("那是我第一次觉得自己离故乡那么远。", filter.normalize(resumed))
     }
 
+    @Test fun threeCharacterChineseSeamWithoutPunctuationIsRemoved() {
+        val filter = AgentContinuationText("我的旧衣，我的命。那些暖")
+        val resumed = "那些暖一针一线地缝进我的鞋底。"
+        val visible = resumed.map { filter.append(it.toString()) }.joinToString("") + filter.finish()
+        assertEquals("一针一线地缝进我的鞋底。", visible)
+        assertEquals("一针一线地缝进我的鞋底。", filter.normalize(resumed))
+    }
+
     @Test fun pausedBeforeOverlapDecisionNeverLosesIncompleteNewText() {
         val filter = AgentContinuationText("他打开邮箱。")
         assertEquals("", filter.append("他打开"))

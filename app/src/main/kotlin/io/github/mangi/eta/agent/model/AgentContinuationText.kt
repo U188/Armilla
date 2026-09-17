@@ -7,10 +7,9 @@ internal class AgentContinuationText(prefix: String) {
     private val tail = prefix.takeLast(2048)
     private val candidates = tail.indices.map { tail.substring(it) }.filter { candidate ->
         val visible = candidate.count { !it.isWhitespace() }
-        visible >= 2 && (
-            (visible >= 4 && candidate.last() in ".!?。！？；;、，,\n") ||
-                visible >= 6 ||
-                candidate.length >= 8
+        visible >= 3 && (
+            candidate.last() in ".!?。！？；;、，,\n" ||
+                visible >= 3
         )
     }
     private var opening = StringBuilder()

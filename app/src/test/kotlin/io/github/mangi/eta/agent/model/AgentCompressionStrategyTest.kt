@@ -235,6 +235,92 @@ class AgentCompressionStrategyTest {
         assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompacted>().count { it.applied })
     }
 
+    @Test fun continuationCompactionRedactsSensitiveToolsInsteadOfFailing() {
+        val controller = AgentRunController()
+        val model = config(20_000)
+        val events = mutableListOf<AgentEvent>()
+        val tail = "L".repeat(16_000)
+        val secret = "visible-pixels-secret"
+        var requests = 0
+        var toolRuns = 0
+        var summaries = 0
+        val tools = JSONArray(
+            """[{"type":"function","function":{"name":"read_image","parameters":{"type":"object","properties":{}}}},""" +
+                """{"type":"function","function":{"name":"get_current_context","parameters":{"type":"object","properties":{}}}}]"""
+        )
+        val result = AgentLoop(
+            model,
+            JSONArray().put(AgentConversationCodec.userTextMessage("one long task")),
+            tools,
+            provider { request ->
+                requests++
+                when (requests) {
+                    1 -> JSONObject().put("role", "assistant").put("content", "")
+                        .put("finish_reason", "tool_calls").put(
+                            "tool_calls",
+                            JSONArray().put(
+                                JSONObject().put("id", "call-image").put("type", "function").put(
+                                    "function",
+                                    JSONObject().put("name", "read_image").put("arguments", """{"path":"/secret.jpg"}"""),
+                                ),
+                            ),
+                        )
+                    2 -> JSONObject().put("role", "assistant").put("content", "")
+                        .put("finish_reason", "tool_calls").put(
+                            "tool_calls",
+                            JSONArray().put(
+                                JSONObject().put("id", "call-live").put("type", "function").put(
+                                    "function",
+                                    JSONObject().put("name", "get_current_context").put("arguments", "{}"),
+                                ),
+                            ),
+                        )
+                    else -> {
+                        assertEquals(1, summaries)
+                        assertFalse(request.messages.toString().contains(secret))
+                        JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop")
+                    }
+                }
+            },
+            AgentModelClient.ToolExecutor { call ->
+                toolRuns++
+                if (call.name == "read_image") AgentModelClient.ToolResult(secret, sensitive = true)
+                else {
+                    controller.requestCompact(0, strategy = AgentCompressionStrategy.CONTINUE_TASK)
+                    AgentModelClient.ToolResult(tail)
+                }
+            },
+            controller,
+            AgentTraceFormatter(),
+            onEvent = {
+                if (it is AgentEvent.ContextCompacted) {
+                    assertFalse(it.reason, it.blocked)
+                    assertFalse(it.reason.contains("不允许持久化"))
+                }
+                events += it
+            },
+            compactPolicy = AgentLoop.CompactPolicy(false, 20_000, 0, model, AgentCompressionStrategy.CONTINUE_TASK),
+            compactionArchive = AgentCompactionArchive(temporary.root, "sensitive-run"),
+            compactHistory = { history, _ ->
+                summaries++
+                val encoded = history.joinToString { it.content + it.toolCallsJson }
+                assertFalse(encoded.contains(secret))
+                assertFalse(encoded.contains("/secret.jpg"))
+                assertEquals(tail, history.last().content)
+                val cut = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 20_000)
+                listOf(message("user", "[Conversation summary]\nlooked at an image")) + history.drop(cut)
+            },
+        ).run()
+        assertEquals("done", result.content)
+        assertEquals(3, requests)
+        assertEquals(2, toolRuns)
+        assertEquals(1, summaries)
+        assertTrue(events.filterIsInstance<AgentEvent.ContextCompacted>().any { it.applied })
+        val archived = temporary.root.walkTopDown().filter { it.isFile }.joinToString("\n") { it.readText() }
+        assertFalse(archived.contains(secret))
+        assertFalse(archived.contains("/secret.jpg"))
+    }
+
     @Test fun providerOverflowDoesNotBlindlyRetryAnUnchangedRequest() {
         var calls = 0
         val controller = AgentRunController()

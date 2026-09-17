@@ -484,16 +484,16 @@ internal class AgentLoop(
             "运行中压缩开始：round=$round，选中=$cut，保留=${history.size - cut}，保留预算=${AgentCompressionBoundary.continuationRetentionBudget(compactPolicy.contextWindow)}") }
         val rewritten = try {
             val prefix = history.take(cut)
-            require(prefix.none { message ->
-                message.toolCallId in sensitiveToolCallIds || sensitiveToolCallIds.any { id -> message.toolCallsJson.contains(id) }
-            }) { "待压缩范围包含不允许持久化的工具内容；已保留原文，请先完成或结束本轮。" }
-            savedCheckpoint = compactionArchive?.save(prefix)
+            val tail = history.drop(cut)
+            val durablePrefix = AgentConversationCodec.redactSensitiveMessages(prefix, sensitiveToolCallIds)
+            savedCheckpoint = compactionArchive?.save(durablePrefix)
             savedCheckpoint?.let { compactionArchive?.record(it, "started") }
             compactionStage = "summary"
+            val summarySource = durablePrefix + tail
             val compressed = if (compactHistory != null) {
-                compactHistory.invoke(history, compactPolicy.copy(keepRecentMessages = budgetKeepRecent))
+                compactHistory.invoke(summarySource, compactPolicy.copy(keepRecentMessages = budgetKeepRecent))
             } else AgentContextCompactor.compress(
-                history, AgentContextCompactor.Config(
+                summarySource, AgentContextCompactor.Config(
                     budgetKeepRecent,
                     compressConfig,
                     compactionArchive = compactionArchive,
@@ -503,18 +503,17 @@ internal class AgentLoop(
                     compressConfig.model == config.model && compressConfig.openAiEndpointMode == config.openAiEndpointMode)
                     AgentContextCompactor.ReplayContext(
                         JSONArray().also { a -> for (i in 0 until systemCount) a.put(messages.getJSONObject(i)) },
-                        JSONArray().also { a -> for (i in systemCount until systemCount + cut) a.put(messages.getJSONObject(i)) },
+                        JSONArray().also { a -> durablePrefix.forEach { a.put(AgentConversationCodec.toJsonObject(it)) } },
                         currentRoundTools, sessionId,
                     ) else null,
             )
             compactionStage = "validate"
-            val tail = history.drop(cut)
             require(compressed.size >= tail.size && compressed.takeLast(tail.size) == tail) { "摘要后受保护尾部发生变化" }
             require(compressed != history) { "没有可压缩历史" }
             runController.throwIfCancelled()
             require(messages.toString() == original) { "摘要生成期间上下文已变化，未应用摘要" }
             val withPointers = savedCheckpoint?.let {
-                requireNotNull(compactionArchive).attachReferences(prefix, it, compressed, tail.size)
+                requireNotNull(compactionArchive).attachReferences(durablePrefix, it, compressed, tail.size)
             } ?: compressed
             require(withPointers.sumOf { AgentContextBudget.countMessage(it).toLong() } < history.sumOf { AgentContextBudget.countMessage(it).toLong() }) {
                 "摘要及索引未减少上下文，已保留原文"

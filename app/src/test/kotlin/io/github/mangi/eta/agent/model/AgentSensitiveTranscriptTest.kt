@@ -2,6 +2,7 @@ package io.github.mangi.eta.agent.model
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,4 +64,27 @@ class AgentSensitiveTranscriptTest {
         assertTrue(encoded.contains("redacted"))
         assertTrue(encoded.contains("未写入持久会话"))
     }
+
+    @Test
+    fun redactSensitiveMessagesLeavesUnrelatedTurnsIntact() {
+        val callId = "call_image"
+        val messages = listOf(
+            AgentModelClient.ConversationMessage("user", "old task"),
+            AgentModelClient.ConversationMessage(
+                role = "assistant",
+                content = "",
+                toolCallsJson = """[{"id":"$callId","type":"function","function":{"name":"read_image","arguments":"{\"path\":\"/secret.jpg\"}"}}]""",
+            ),
+            AgentModelClient.ConversationMessage("tool", "visible-pixels", toolCallId = callId),
+            AgentModelClient.ConversationMessage("user", "keep me"),
+        )
+        val redacted = AgentConversationCodec.redactSensitiveMessages(messages, setOf(callId))
+        assertEquals("old task", redacted[0].content)
+        assertEquals("keep me", redacted[3].content)
+        val encoded = redacted.joinToString { it.content + it.toolCallsJson }
+        assertFalse(encoded.contains("/secret.jpg"))
+        assertFalse(redacted[2].content.contains("visible-pixels"))
+        assertTrue(redacted[2].content.contains("未写入持久会话"))
+    }
+
 }

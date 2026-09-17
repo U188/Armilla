@@ -329,6 +329,18 @@ internal object AgentConversationCodec {
             }
         }
 
+    fun redactSensitiveMessages(
+        messages: List<AgentModelClient.ConversationMessage>,
+        sensitiveToolCallIds: Set<String>,
+    ): List<AgentModelClient.ConversationMessage> {
+        if (sensitiveToolCallIds.isEmpty()) return messages
+        return transcript(
+            JSONArray().also { array -> messages.forEach { array.put(toJsonObject(it)) } },
+            0,
+            sensitiveToolCallIds,
+        )
+    }
+
     private fun redactSensitiveToolData(
         source: JSONObject,
         sensitiveToolCallIds: Set<String>,

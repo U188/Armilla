@@ -2,11 +2,10 @@ package io.github.mangi.eta.hook.system
 
 import android.Manifest
 import android.content.ComponentName
-import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import androidx.test.core.app.ApplicationProvider
+import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,7 +31,7 @@ class AccessibilityProtectionServiceValidationTest {
     }
 
     @Test fun nonExportedManifestServiceIsAccepted() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+        val context = RuntimeEnvironment.getApplication()
         val info = context.packageManager.getServiceInfo(
             expected,
             PackageManager.ComponentInfoFlags.of(0L),

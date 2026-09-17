@@ -22,7 +22,7 @@ class AnthropicMessagesProviderTest {
                 .put("name", "terminal").put("input", JSONObject()))) +
             event("content_block_delta", JSONObject().put("type", "content_block_delta").put("index", 0)
                 .put("delta", JSONObject().put("type", "input_json_delta").put("partial_json", "{}")))
-        withAnthropicServer(body) { baseUrl ->
+        withAnthropicServer(body, onRequest = {}) { baseUrl ->
             val result = AnthropicMessagesProvider.complete(ProviderRequest(
                 AgentModelClient.ModelConfig(providerType = ProviderTypes.ANTHROPIC,
                     baseUrl = baseUrl, apiKey = "test", model = "test", systemPrompt = ""),

@@ -19,4 +19,38 @@ class AgentModelFailureTest {
             ),
         )
     }
+
+    @Test
+    fun classifiesHtmlContentTypeInsteadOfLeakingOkHttpMessage() {
+        val failure = AgentModelFailure.transport(
+            IllegalStateException("Invalid content-type: text/html; charset=utf-8"),
+        )
+        assertTrue(failure is AgentModelFailure)
+        assertTrue(failure!!.message!!.contains("网页"))
+        assertTrue(!failure.message!!.startsWith("Invalid content-type"))
+        assertEquals("HTTP_200", failure.code)
+    }
+
+    @Test
+    fun htmlErrorPageUsesTitle() {
+        val failure = AgentModelFailure.unexpectedResponse(
+            status = 502,
+            contentType = "text/html; charset=utf-8",
+            body = "<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>",
+        )
+        assertTrue(failure.message!!.contains("502 Bad Gateway"))
+        assertTrue(failure.message!!.contains("网页"))
+        assertTrue(failure.retryable)
+    }
+
+    @Test
+    fun responsesEventStreamOnChatEndpointAsksToSwitchMode() {
+        val failure = AgentModelFailure.unexpectedResponse(
+            status = 200,
+            contentType = "text/plain",
+            body = "event: response.created\ndata: {\"type\":\"response.created\"}\n\n",
+        )
+        assertTrue(failure.message!!.contains("Responses API"))
+        assertTrue(!failure.retryable)
+    }
 }

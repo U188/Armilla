@@ -117,20 +117,19 @@ internal object AgentSseClient {
                             )
                         }
                         t != null &&
-                            t.message.orEmpty().startsWith("Invalid content-type") &&
-                            response != null -> {
-                            val body = runCatching { response.body?.string() }.getOrNull().orEmpty()
+                            t.message.orEmpty().startsWith("Invalid content-type") -> {
+                            val body = response?.let {
+                                runCatching { it.body?.string() }.getOrNull()
+                            }.orEmpty()
                             failure.compareAndSet(
                                 null,
-                                if (!response.isSuccessful) {
-                                    AgentModelFailure.http(response.code, body)
-                                } else {
-                                    AgentModelFailure(
-                                        "HTTP_${response.code}",
-                                        false,
-                                        "模型接口返回了无法解析的响应（HTTP ${response.code}）${body.take(300).let { if (it.isBlank()) "" else "：$it" }}",
-                                    )
-                                },
+                                AgentModelFailure.unexpectedResponse(
+                                    status = response?.code,
+                                    contentType = response?.header("Content-Type")
+                                        ?: t.message?.substringAfter("Invalid content-type:")?.trim(),
+                                    body = body,
+                                    cause = t,
+                                ),
                             )
                         }
                         t != null &&

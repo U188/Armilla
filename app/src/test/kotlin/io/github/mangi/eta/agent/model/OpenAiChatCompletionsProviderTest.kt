@@ -182,6 +182,34 @@ class OpenAiChatCompletionsProviderTest {
     }
 
     @Test
+    fun completeMapsHtmlPageToClassifiedFailure() {
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        server.executor = executor
+        server.createContext("/chat/completions") { exchange ->
+            val bytes = "<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            val thrown = runCatching {
+                OpenAiChatCompletionsProvider.complete(
+                    request = providerRequest("http://127.0.0.1:${server.address.port}"),
+                    runController = AgentRunController(),
+                )
+            }.exceptionOrNull()
+            assertTrue(thrown is AgentModelFailure)
+            assertTrue(thrown?.message.orEmpty().contains("网页"))
+            assertTrue(!thrown?.message.orEmpty().startsWith("Invalid content-type"))
+        } finally {
+            server.stop(0)
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun requestMergesSystemMessagesAtTheBeginningForStrictChatTemplates() {
         val requestBody = AtomicReference<String>()
         val body = buildString {

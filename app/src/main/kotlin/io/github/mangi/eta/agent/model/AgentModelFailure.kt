@@ -80,7 +80,16 @@ internal class AgentModelFailure(
                     }
                     404 -> "模型接口或模型不存在（HTTP 404），请检查接口地址与模型名称。"
                     429 -> "模型接口暂时限流（HTTP 429）。"
-                    else -> "模型接口返回 HTTP $status"
+                    else -> {
+                        val title = htmlTitle(body)
+                        if (title != null || body.contains("<html", ignoreCase = true) ||
+                            body.contains("<!DOCTYPE", ignoreCase = true)
+                        ) {
+                            "模型接口返回了错误网页（HTTP $status${title?.let { "：$it" } ?: ""}）"
+                        } else {
+                            "模型接口返回 HTTP $status"
+                        }
+                    }
                 },
             )
         }
@@ -114,8 +123,61 @@ internal class AgentModelFailure(
             is IOException -> AgentModelFailure(
                 "MODEL_CONNECTION_FAILED", true, "模型连接中断或暂时无法建立，请检查网络与服务商状态。", failure,
             )
-            else -> null
+            else -> unexpectedMediaType(failure)
         }
+
+        fun unexpectedResponse(
+            status: Int?,
+            contentType: String?,
+            body: String,
+            cause: Throwable? = null,
+        ): AgentModelFailure {
+            val trimmed = body.trim()
+            val type = contentType.orEmpty()
+            if (trimmed.startsWith("{")) {
+                return http(status ?: 200, trimmed)
+            }
+            if (trimmed.contains("event: response.") || trimmed.contains("response.created")) {
+                return AgentModelFailure(
+                    "HTTP_${status ?: 200}",
+                    false,
+                    "接口返回了 Responses API 事件流。请把该提供商的 Endpoint 模式改为 Responses API。",
+                    cause,
+                )
+            }
+            val html = type.contains("html", ignoreCase = true) ||
+                trimmed.startsWith("<!doctype", ignoreCase = true) ||
+                trimmed.startsWith("<html", ignoreCase = true)
+            val title = htmlTitle(trimmed)
+            val statusLabel = status?.let { "HTTP $it" } ?: type.ifBlank { "未知类型" }
+            val detail = title
+                ?: trimmed.replace('\n', ' ').replace('\r', ' ').trim().take(120).ifBlank { null }
+            return AgentModelFailure(
+                code = "HTTP_${status ?: 200}",
+                retryable = status == null || status in transientStatus,
+                message = if (html) {
+                    "模型接口返回了网页而不是数据流（$statusLabel${detail?.let { "：$it" } ?: ""}）。Chat Completions 可能被反代拦截，可改用 Responses API 或检查隧道/上游。"
+                } else {
+                    "模型接口返回了无法解析的响应（$statusLabel）${detail?.let { "：$it" } ?: ""}"
+                },
+                cause = cause,
+            )
+        }
+
+        private fun unexpectedMediaType(failure: Exception): AgentModelFailure? {
+            val message = failure.message.orEmpty()
+            if (!message.startsWith("Invalid content-type")) return null
+            val contentType = message.substringAfter("Invalid content-type:", "").trim().ifBlank { null }
+            return unexpectedResponse(status = null, contentType = contentType, body = "", cause = failure)
+        }
+
+        private fun htmlTitle(body: String): String? =
+            Regex("(?is)<title[^>]*>(.*?)</title>").find(body)
+                ?.groupValues?.getOrNull(1)
+                ?.replace(Regex("\s+"), " ")
+                ?.trim()
+                ?.take(80)
+                ?.ifBlank { null }
 
         internal fun extractGoogleValidationUrl(error: JSONObject?, body: String): String? {
             val details = error?.optJSONArray("details")

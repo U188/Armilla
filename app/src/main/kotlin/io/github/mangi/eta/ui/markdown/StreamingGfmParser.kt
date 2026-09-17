@@ -54,6 +54,23 @@ internal data class StreamingGfmSnapshot(
     val state: State.Success,
 )
 
+/** Returns a snapshot to publish, or null when the visible AST would not change. */
+internal fun nextStreamingSnapshot(
+    current: StreamingGfmSnapshot?,
+    parsed: StreamingGfmSnapshot,
+): StreamingGfmSnapshot? {
+    if (current == null) return parsed
+    if (current.originalSource != parsed.originalSource ||
+        current.renderedSource != parsed.renderedSource
+    ) {
+        return parsed
+    }
+    if (current.isComplete != parsed.isComplete) {
+        return current.copy(isComplete = parsed.isComplete)
+    }
+    return null
+}
+
 /**
  * 为真实 EOF 和“暂时没有更多字符”的流式 EOF 建立不同语义。
  *

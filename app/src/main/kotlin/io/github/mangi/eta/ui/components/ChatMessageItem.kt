@@ -150,6 +150,7 @@ import io.github.mangi.eta.agent.overlay.toolDisplayName
 import io.github.mangi.eta.ui.markdown.NumericCitationMarkup
 import io.github.mangi.eta.ui.markdown.StreamingGfmParserSession
 import io.github.mangi.eta.ui.markdown.StreamingGfmSnapshot
+import io.github.mangi.eta.ui.markdown.nextStreamingSnapshot
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.ContextCompactedMessageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
@@ -827,7 +828,9 @@ private fun AgentMessageBlock(
         } else {
             HapticSelectionContainer {
                 when {
-                    streamingState != null && (message.isStreaming || isPaused || !streamingRevealComplete) -> {
+                    // 流式会话一旦建立就不要切到 StableMarkdown：暂停继续和生成结束
+                    // 都会让 isStreaming 翻转，整棵 Markdown 重挂会闪一帧。
+                    streamingState != null -> {
                         StreamingMarkdown(
                             state = streamingState,
                             content = displayContent,
@@ -837,7 +840,7 @@ private fun AgentMessageBlock(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    keepStreamingMarkdown || message.renderMarkdown -> {
+                    message.renderMarkdown -> {
                         StableMarkdown(
                             content = displayContent,
                             modifier = Modifier.fillMaxWidth(),
@@ -1028,10 +1031,10 @@ private fun StreamingMarkdown(
 ) {
     val parserSession = state.parserSession
     val revealCoordinator = state.revealCoordinator
-    val components = remember(revealCoordinator, isStreaming) {
+    val components = remember(revealCoordinator) {
         chatMarkdownComponents(
             revealCoordinator = revealCoordinator,
-            suppressEmptyListMarkers = isStreaming,
+            suppressEmptyListMarkers = true,
         )
     }
     val parseTargets = state.parseTargets
@@ -1041,7 +1044,8 @@ private fun StreamingMarkdown(
     val currentContent by rememberUpdatedState(content)
     // Pausing is not a terminal parser target. Lifecycle restore and user pause
     // share a single animation gate; parent effects must not resume before layout.
-    val currentIsStreaming by rememberUpdatedState(isStreaming || isPaused)
+    val parseAsStreaming = isStreaming || isPaused
+    val currentIsStreaming by rememberUpdatedState(parseAsStreaming)
     val currentPaused by rememberUpdatedState(isPaused)
     val restoreGeneration = state.restoreState.generation
     val view = LocalView.current
@@ -1070,7 +1074,7 @@ private fun StreamingMarkdown(
         }
     }
 
-    LaunchedEffect(content, isStreaming, isPaused) {
+    LaunchedEffect(content, parseAsStreaming) {
         val previousContent = acceptedContent[0]
         if (!content.startsWith(previousContent)) {
             // 会话恢复或上游纠正内容时，让解析会话重新建立文档基线。
@@ -1080,10 +1084,10 @@ private fun StreamingMarkdown(
         parseTargets.trySend(
             StreamingMarkdownTarget(
                 content = content,
-                isStreaming = isStreaming || isPaused,
+                isStreaming = parseAsStreaming,
             )
         )
-        if (isStreaming || isPaused) {
+        if (parseAsStreaming) {
             currentRevealCompleteCallback(false)
         }
     }
@@ -1109,16 +1113,18 @@ private fun StreamingMarkdown(
                 continue
             }
 
-            state.snapshot = parsed
+            nextStreamingSnapshot(state.snapshot, parsed)?.let { published ->
+                state.snapshot = published
+            }
             target = parseTargets.receive()
         }
     }
 
-    LaunchedEffect(content, isStreaming, isPaused, snapshot?.originalSource, snapshot?.isComplete, revealCoordinator) {
+    LaunchedEffect(content, parseAsStreaming, snapshot?.originalSource, snapshot?.isComplete, revealCoordinator) {
         val currentSnapshot = snapshot
         if (!isStreamingMarkdownTargetComplete(
                 content = content,
-                isStreaming = isStreaming || isPaused,
+                isStreaming = parseAsStreaming,
                 snapshotContent = currentSnapshot?.originalSource,
                 snapshotComplete = currentSnapshot?.isComplete == true,
             )

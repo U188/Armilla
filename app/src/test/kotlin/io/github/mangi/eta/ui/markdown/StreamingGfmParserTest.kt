@@ -129,6 +129,19 @@ class StreamingGfmParserTest {
         assertTrue(snapshot.isComplete)
     }
 
+    @Test
+    fun identicalStreamingParseKeepsAstIdentity() {
+        val session = StreamingGfmParserSession()
+        val first = session.parse("正文", isComplete = false)
+        assertEquals(null, nextStreamingSnapshot(first, session.parse("正文", isComplete = false)))
+        val completed = nextStreamingSnapshot(first, session.parse("正文", isComplete = true))
+        assertEquals(true, completed?.isComplete)
+        assertTrue(completed?.state === first.state)
+        val grown = nextStreamingSnapshot(first, session.parse("正文和增量", isComplete = false))
+        assertEquals("正文和增量", grown?.originalSource)
+        assertEquals(first, nextStreamingSnapshot(null, first))
+    }
+
     private fun ASTNode.findRecursively(type: IElementType): ASTNode? {
         if (this.type == type) return this
         return children.firstNotNullOfOrNull { child -> child.findRecursively(type) }

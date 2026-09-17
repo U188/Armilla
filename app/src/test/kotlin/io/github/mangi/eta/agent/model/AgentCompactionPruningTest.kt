@@ -40,7 +40,7 @@ class AgentCompactionPruningTest {
     @Test fun prefixPruningNeverChangesProtectedLongToolResult() {
         val source = history()
         val archive = AgentCompactionArchive(temporary.root, "strict")
-        val cut = AgentCompressionBoundary.selectStart(source, AgentCompressionStrategy.PRESERVE_TURN, 1, 20_000)
+        val cut = AgentCompressionBoundary.selectStart(source, AgentCompressionStrategy.CONTINUE_TASK, 0, 20_000)
         assertEquals(3, cut)
         val working = AgentContextCompactor.pruneOversizedToolResults(source, archive, cut)
         assertTrue(working[2].content.contains("[Eta tool output pruned;"))

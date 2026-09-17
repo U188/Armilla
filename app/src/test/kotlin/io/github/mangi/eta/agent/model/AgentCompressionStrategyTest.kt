@@ -30,11 +30,8 @@ class AgentCompressionStrategyTest {
         assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(null))
         assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse(""))
         assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse("continue_task"))
-        assertEquals(AgentCompressionStrategy.PRESERVE_TURN, AgentCompressionStrategy.parse("preserve_turn"))
-    }
-
-    @Test fun unknownStrategyFailsClosedToPreserveTurn() {
-        assertEquals(AgentCompressionStrategy.PRESERVE_TURN, AgentCompressionStrategy.parse("unexpected"))
+        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse("preserve_turn"))
+        assertEquals(AgentCompressionStrategy.CONTINUE_TASK, AgentCompressionStrategy.parse("unexpected"))
     }
 
     @Test fun strictBoundaryIncludesEntireActiveTurnEvenIfANewUserMessageAppears() {
@@ -72,11 +69,8 @@ class AgentCompressionStrategyTest {
         val active = AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, 0, 10_000, activeStart = 0)
         assertEquals(3, idle)
         assertEquals(idle, active)
-        assertEquals(0, AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.PRESERVE_TURN, 1, 10_000, activeStart = 0))
         assertTrue(AgentContextCompactor.shouldCompress(history, 10_000, 0,
             estimatedTokens = 9500, strategy = AgentCompressionStrategy.CONTINUE_TASK))
-        assertFalse(AgentContextCompactor.shouldCompress(history, 10_000, 1,
-            estimatedTokens = 9500, strategy = AgentCompressionStrategy.PRESERVE_TURN))
     }
 
     @Test fun overflowCanReduceRetentionButNeverSplitsTheLatestParallelBatch() {
@@ -367,6 +361,27 @@ class AgentCompressionStrategyTest {
         assertEquals("CONTEXT_WINDOW_EXCEEDED", AgentModelFailure.http(400, "{\"error\":{\"code\":\"context_length_exceeded\"}}").code)
         assertEquals("HTTP_400", AgentModelFailure.http(400, "{\"error\":{\"message\":\"unknown parameter\"}}").code)
         assertEquals("HTTP_401", AgentModelFailure.http(401, "{\"error\":{\"code\":\"context_length_exceeded\"}}").code)
+    }
+
+    @Test fun compressionEndpointOverridesOpenAiCompatibleProviders() {
+        val responses = config().copy(openAiEndpointMode = io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES)
+        val chat = AgentCompressionEndpoint.apply(responses, io.github.mangi.eta.data.model.OpenAiEndpointMode.CHAT_COMPLETIONS)
+        assertEquals(io.github.mangi.eta.data.model.OpenAiEndpointMode.CHAT_COMPLETIONS, chat.openAiEndpointMode)
+        val back = AgentCompressionEndpoint.apply(chat, io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES)
+        assertEquals(io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES, back.openAiEndpointMode)
+    }
+
+    @Test fun compressionEndpointDoesNotOverrideCodexOrAntigravity() {
+        val codex = config().copy(
+            baseUrl = "https://chatgpt.com/backend-api/codex",
+            openAiEndpointMode = io.github.mangi.eta.data.model.OpenAiEndpointMode.RESPONSES,
+        )
+        assertEquals(codex, AgentCompressionEndpoint.apply(codex, io.github.mangi.eta.data.model.OpenAiEndpointMode.CHAT_COMPLETIONS))
+        val antigravity = config().copy(
+            baseUrl = "https://cloudcode-pa.googleapis.com",
+            openAiEndpointMode = io.github.mangi.eta.data.model.OpenAiEndpointMode.ANTIGRAVITY,
+        )
+        assertEquals(antigravity, AgentCompressionEndpoint.apply(antigravity, io.github.mangi.eta.data.model.OpenAiEndpointMode.CHAT_COMPLETIONS))
     }
 
     private fun config(window: Int = 9000) = AgentModelClient.ModelConfig(

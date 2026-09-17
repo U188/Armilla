@@ -367,11 +367,10 @@ fun AgentAppRoot(
             autoCompressEnabled = agentState.autoCompressEnabled,
             isCompressingContext = agentState.homeState.isCompressingContext,
             onToggleAutoCompress = { agentState.updateAutoCompressEnabled(it) },
-            onCompressConversation = { providerId, modelId, strategy, onFinished ->
+            onCompressConversation = { providerId, modelId, onFinished ->
                 agentState.compressCurrentConversation(
                     providerId,
                     modelId,
-                    strategy,
                     onFinished,
                 )
             },

@@ -34,7 +34,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.model.AgentCompressionStrategy
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.components.EtaDropdownMenu
 import io.github.mangi.eta.ui.components.rememberEtaMenuState
@@ -64,9 +63,8 @@ internal fun TopBarOverflowMenu(
     onCompressConversation: (
         providerId: String?,
         modelId: String?,
-        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
-    ) -> Unit = { _, _, _, done -> done(false) },
+    ) -> Unit = { _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
     onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
     tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),

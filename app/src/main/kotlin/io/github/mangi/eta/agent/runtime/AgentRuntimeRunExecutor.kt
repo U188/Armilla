@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.runtime
 import android.content.Context
 import io.github.mangi.eta.agent.accessibility.AgentAccessibilityKeeper
 import io.github.mangi.eta.agent.model.AgentContextCompactor
+import io.github.mangi.eta.agent.model.AgentCompressionEndpoint
 import io.github.mangi.eta.agent.model.AgentLoop
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.model.AgentModelExecutionException
@@ -423,6 +424,10 @@ internal class AgentRuntimeRunExecutor(
             }.getOrNull()?.copy(assistantId = fallback.assistantId, systemPrompt = fallback.systemPrompt)
                 ?: fallback
         }
-        return AgentRuntimePolicy.forCompression(resolved)
+        val compressed = AgentRuntimePolicy.forCompression(resolved)
+        return AgentCompressionEndpoint.apply(
+            compressed,
+            prefs?.getString(Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE, null),
+        )
     }
 }

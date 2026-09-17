@@ -51,8 +51,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.model.AgentCompressionStrategy
-import io.github.mangi.eta.agent.model.AgentContextCompactor
+import io.github.mangi.eta.agent.model.AgentCompressionEndpoint
+import io.github.mangi.eta.data.model.OpenAiEndpointMode
+import io.github.mangi.eta.ui.components.WindowSpinnerPreference
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.datastore.SettingsDataStore
 import io.github.mangi.eta.data.repository.ProviderRepository
@@ -107,73 +109,50 @@ private fun rememberActivityImeBottomDp(): Dp {
 }
 
 
-private fun currentCompressionStrategy(): AgentCompressionStrategy =
-    AgentCompressionStrategy.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY))
-
-private fun storedManualCompressionStrategy(): AgentCompressionStrategy {
-    val stored = Prefs.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY)
-    if (!stored.isNullOrBlank() &&
-        AgentCompressionStrategy.entries.any { it.wireValue == stored }
-    ) {
-        return AgentCompressionStrategy.parse(stored)
-    }
-    return currentCompressionStrategy()
+private fun storedManualCompressionEndpoint(): String {
+    val stored = Prefs.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, "")
+    if (stored.isNotBlank()) return AgentCompressionEndpoint.parse(stored)
+    return AgentCompressionEndpoint.parse(Prefs.getString(Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE, ""))
 }
 
 
 @Composable
-internal fun CompressionStrategyOptions(
-    selected: AgentCompressionStrategy,
+internal fun CompressionEndpointPreference(
+    selected: String,
     enabled: Boolean,
-    onSelect: (AgentCompressionStrategy) -> Unit,
-    showNote: Boolean = false,
+    onSelect: (String) -> Unit,
     compact: Boolean = false,
 ) {
-    val view = LocalView.current
+    val items = listOf(
+        DropdownItem(text = "Chat Completions API"),
+        DropdownItem(text = "Responses API"),
+    )
+    val index = if (selected == OpenAiEndpointMode.RESPONSES) 1 else 0
+    val summary = if (index == 1) {
+        stringResource(R.string.ui_compress_endpoint_responses_summary)
+    } else {
+        stringResource(R.string.ui_compress_endpoint_chat_summary)
+    }
     val horizontal = if (compact) 0.dp else 16.dp
     Column(modifier = Modifier.fillMaxWidth()) {
-        AgentCompressionStrategy.entries.forEach { option ->
-            val title = if (option == AgentCompressionStrategy.CONTINUE_TASK) {
-                stringResource(R.string.ui_compress_strategy_continue_title)
-            } else {
-                stringResource(R.string.ui_compress_strategy_preserve_title)
-            }
-            val summary = if (option == AgentCompressionStrategy.CONTINUE_TASK) {
-                stringResource(R.string.ui_compress_strategy_continue_summary)
-            } else {
-                stringResource(R.string.ui_compress_strategy_preserve_summary)
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = enabled) {
-                        TouchHaptics.click(view)
-                        onSelect(option)
-                    }
-                    .padding(horizontal = horizontal, vertical = if (compact) 6.dp else 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text(title, style = MaterialTheme.typography.bodyLarge)
-                    Text(summary, style = MaterialTheme.typography.bodySmall)
-                }
-                androidx.compose.material3.RadioButton(
-                    selected = selected == option,
-                    enabled = enabled,
-                    onClick = {
-                        TouchHaptics.click(view)
-                        onSelect(option)
-                    },
+        WindowSpinnerPreference(
+            items = items,
+            selectedIndex = index,
+            title = stringResource(R.string.ui_compress_endpoint_title),
+            summary = summary,
+            enabled = enabled,
+            onSelectedIndexChange = { selectedIndex ->
+                onSelect(
+                    if (selectedIndex == 1) OpenAiEndpointMode.RESPONSES
+                    else OpenAiEndpointMode.CHAT_COMPLETIONS,
                 )
-            }
-        }
-        if (showNote) {
-            Text(
-                stringResource(R.string.ui_compress_strategy_note),
-                modifier = Modifier.padding(start = horizontal, end = horizontal, bottom = 12.dp),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
+            },
+        )
+        Text(
+            stringResource(R.string.ui_compress_endpoint_description),
+            modifier = Modifier.padding(start = horizontal, end = horizontal, bottom = 12.dp),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
@@ -186,13 +165,12 @@ internal fun CompressConversationDialog(
     onConfirm: (
         providerId: String?,
         modelId: String?,
-        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) -> Unit,
 ) {
     val prefs = remember { Prefs.localAgentPreferences() }
     val scope = rememberCoroutineScope()
-    var strategy by remember { mutableStateOf(AgentCompressionStrategy.DEFAULT) }
+    var endpointMode by remember { mutableStateOf(OpenAiEndpointMode.CHAT_COMPLETIONS) }
     var selectedModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
     var customModelEnabled by remember { mutableStateOf(false) }
     var modelPickerState by remember { mutableStateOf(AgentModelPickerUiState()) }
@@ -213,7 +191,7 @@ internal fun CompressConversationDialog(
             showModelDialog = false
             return@LaunchedEffect
         }
-        strategy = storedManualCompressionStrategy()
+        endpointMode = storedManualCompressionEndpoint()
         isLoadingModels = true
         customModelEnabled = Prefs.isCustomCompressModelEnabled(prefs)
         val pickerState = withContext(Dispatchers.IO) {
@@ -295,23 +273,13 @@ internal fun CompressConversationDialog(
                 }
             }
 
-            Text(
-                text = stringResource(R.string.ui_compress_strategy_title),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-            )
-            CompressionStrategyOptions(
-                selected = strategy,
+            CompressionEndpointPreference(
+                selected = endpointMode,
                 enabled = !isCompressing,
                 compact = true,
                 onSelect = { option ->
-                    strategy = option
-                    Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY, option.wireValue)
-                    Prefs.putInt(
-                        Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
-                        AgentContextCompactor.keepRecentFor(option),
-                    )
+                    endpointMode = option
+                    Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, option)
                 },
             )
 
@@ -346,10 +314,10 @@ internal fun CompressConversationDialog(
                     if (isCompressing) return@MiuixDialogActions
                     focusManager.clearFocus()
                     keyboard?.hide()
+                    Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, endpointMode)
                     onConfirm(
                         selectedModel?.providerId.takeIf { customModelEnabled },
                         selectedModel?.id.takeIf { customModelEnabled },
-                        strategy,
                     ) { ok ->
                         if (ok) onDismiss()
                     }

@@ -42,7 +42,7 @@ internal class AgentLoop(
         val contextWindow: Int,
         val keepRecentMessages: Int,
         val compressModelConfig: AgentModelClient.ModelConfig?,
-        val strategy: AgentCompressionStrategy = AgentCompressionStrategy.PRESERVE_TURN,
+        val strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK,
     ) {
         companion object {
             val Disabled = CompactPolicy(
@@ -405,12 +405,8 @@ internal class AgentLoop(
     }
 
     private fun compactionStart(history: List<AgentModelClient.ConversationMessage>): Int {
-        val mayRelax = budgetStrategy == AgentCompressionStrategy.CONTINUE_TASK || runController.allowCurrentTurnCompaction
-        // Without an archive, fail closed to the original full-turn boundary.
-        val strategy = if (mayRelax && compactionArchive != null) AgentCompressionStrategy.CONTINUE_TASK
-            else AgentCompressionStrategy.PRESERVE_TURN
         return runCatching {
-            AgentCompressionBoundary.selectStart(history, strategy, budgetKeepRecent,
+            AgentCompressionBoundary.selectStart(history, AgentCompressionStrategy.CONTINUE_TASK, budgetKeepRecent,
                 config.contextWindow?.takeIf { it > 0 } ?: compactPolicy.contextWindow,
                 activeTurnStart, overflowPending)
         }.getOrDefault(0)

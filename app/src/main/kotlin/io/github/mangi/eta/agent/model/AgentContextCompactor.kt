@@ -53,12 +53,13 @@ internal object AgentContextCompactor {
         val compactionArchive: AgentCompactionArchive? = null,
     )
 
-    fun keepRecentFor(strategy: AgentCompressionStrategy): Int =
-        if (strategy == AgentCompressionStrategy.CONTINUE_TASK) MIN_KEEP_RECENT_CONTINUE else MIN_KEEP_RECENT
+    @Suppress("UNUSED_PARAMETER")
+    fun keepRecentFor(strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK): Int =
+        MIN_KEEP_RECENT_CONTINUE
 
     fun coerceKeepRecent(
         value: Int,
-        strategy: AgentCompressionStrategy = AgentCompressionStrategy.PRESERVE_TURN,
+        strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK,
     ): Int = value.coerceIn(keepRecentFor(strategy), MAX_KEEP_RECENT)
 
     fun configuredContextWindow(value: Int?): Int? = value?.takeIf { it > 0 }
@@ -77,7 +78,7 @@ internal object AgentContextCompactor {
         keepRecentMessages: Int = DEFAULT_KEEP_RECENT,
         thresholdPercent: Int = AUTO_PRESSURE_PERCENT,
         estimatedTokens: Int? = null,
-        strategy: AgentCompressionStrategy = AgentCompressionStrategy.PRESERVE_TURN,
+        strategy: AgentCompressionStrategy = AgentCompressionStrategy.CONTINUE_TASK,
     ): Boolean {
         if (contextWindow <= 0) return false
         val cut = AgentCompressionBoundary.selectStart(history, strategy, keepRecentMessages, contextWindow)

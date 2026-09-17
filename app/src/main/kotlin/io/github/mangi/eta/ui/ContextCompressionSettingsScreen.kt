@@ -27,7 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.model.AgentCompressionStrategy
+import io.github.mangi.eta.agent.model.AgentCompressionEndpoint
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
@@ -47,7 +47,11 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Unit) {
     val prefs = remember(context) { Prefs.localAgentPreferences() }
     var enabled by remember { mutableStateOf(prefs?.getBoolean(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED, false) ?: false) }
-    var strategy by remember { mutableStateOf(AgentCompressionStrategy.parse(prefs?.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, null))) }
+    var endpointMode by remember {
+        mutableStateOf(
+            AgentCompressionEndpoint.parse(prefs?.getString(Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE, null)),
+        )
+    }
 
     val scope = rememberCoroutineScope()
     var selectedCompressModel by remember { mutableStateOf<AgentModelOptionUi?>(null) }
@@ -60,13 +64,13 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
 
     LaunchedEffect(prefs) {
         prefs?.let { currentPrefs ->
-            val selected = AgentCompressionStrategy.parse(
-                currentPrefs.getString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, null),
-            )
-            val keep = AgentContextCompactor.keepRecentFor(selected)
+            val keep = AgentContextCompactor.keepRecentFor()
             if (currentPrefs.getInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, -1) != keep) {
                 currentPrefs.edit().putInt(Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT, keep).apply()
             }
+            endpointMode = AgentCompressionEndpoint.parse(
+                currentPrefs.getString(Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE, null),
+            )
             isLoadingModels = true
             selectedCompressModel = withContext(Dispatchers.IO) { readCompressModelSelection(currentPrefs) }
             modelPickerState = withContext(Dispatchers.IO) { buildCompressModelPickerState(currentPrefs) }
@@ -78,7 +82,7 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
-                Prefs.Keys.AGENT_COMPRESSION_STRATEGY -> strategy = AgentCompressionStrategy.parse(prefs?.getString(key, null))
+                Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE -> endpointMode = AgentCompressionEndpoint.parse(prefs?.getString(key, null))
                 Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED -> enabled = prefs?.getBoolean(key, false) ?: false
                 Prefs.Keys.AGENT_COMPRESS_MODEL_PROVIDER_ID,
                 Prefs.Keys.AGENT_COMPRESS_MODEL_ID -> {
@@ -122,22 +126,14 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
             }
         }
 
-        item(key = "compression_strategy") {
-            SmallTitle(stringResource(R.string.ui_compress_strategy_title))
+        item(key = "compress_endpoint") {
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                CompressionStrategyOptions(
-                    selected = strategy,
+                CompressionEndpointPreference(
+                    selected = endpointMode,
                     enabled = prefs != null,
-                    showNote = true,
                     onSelect = { option ->
-                        strategy = option
-                        prefs?.edit()?.apply {
-                            putString(Prefs.Keys.AGENT_COMPRESSION_STRATEGY, option.wireValue)
-                            putInt(
-                                Prefs.Keys.AGENT_COMPRESS_KEEP_RECENT,
-                                AgentContextCompactor.keepRecentFor(option),
-                            )
-                        }?.apply()
+                        endpointMode = option
+                        prefs?.edit()?.putString(Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE, option)?.apply()
                     },
                 )
             }

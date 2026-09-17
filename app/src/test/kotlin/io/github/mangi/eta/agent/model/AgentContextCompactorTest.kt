@@ -105,23 +105,14 @@ class AgentContextCompactorTest {
     }
 
     @Test
-    fun keepRecentFollowsStrategyDefaults() {
-
+    fun keepRecentFollowsContinueTaskDefault() {
+        assertEquals(0, AgentContextCompactor.keepRecentFor())
         assertEquals(0, AgentContextCompactor.keepRecentFor(AgentCompressionStrategy.CONTINUE_TASK))
-        assertEquals(1, AgentContextCompactor.keepRecentFor(AgentCompressionStrategy.PRESERVE_TURN))
     }
 
     @Test
-    fun keepZeroIsCoercedToKeepOneForPreserveTurn() {
-        val history = (1..3).flatMap { turn(it) }
-        assertEquals(1, AgentContextCompactor.coerceKeepRecent(0))
-        assertEquals(
-            AgentContextCompactor.recentKeepStartIndex(history, 1),
-            AgentContextCompactor.recentKeepStartIndex(
-                history,
-                AgentContextCompactor.coerceKeepRecent(0),
-            ),
-        )
+    fun keepZeroIsAllowedByDefault() {
+        assertEquals(0, AgentContextCompactor.coerceKeepRecent(0))
     }
 
     @Test

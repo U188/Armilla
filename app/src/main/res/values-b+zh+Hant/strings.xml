@@ -71,6 +71,10 @@
   <string name="ui_compress_strategy_continue_title">優先持續執行（預設）</string>
   <string name="ui_compress_strategy_continue_summary">空間不夠時可壓縮更早的步驟</string>
   <string name="ui_compress_strategy_note">自動壓縮使用此處策略，下次任務生效。手動壓縮可另選策略。原文只留在本機，刪除對話時一併清理。</string>
+  <string name="ui_compress_endpoint_title">Endpoint 模式</string>
+  <string name="ui_compress_endpoint_chat_summary">壓縮時使用 Chat Completions API</string>
+  <string name="ui_compress_endpoint_responses_summary">壓縮時使用 Responses API</string>
+  <string name="ui_compress_endpoint_description">只改壓縮請求走哪條 API，與目前會話的供應商設定無關。部分中轉站的 Responses 排隊更久；摘要只要一段文字，Chat Completions 通常更快。</string>
   <string name="compress_model_missing_window_title">未設定上下文視窗</string>
   <string name="compress_model_missing_window_summary">這個壓縮模型還沒有上下文視窗，壓縮時無法估算輸入預算。請先到該模型編輯頁填寫後再用。</string>
   <plurals name="context_compacted_messages">

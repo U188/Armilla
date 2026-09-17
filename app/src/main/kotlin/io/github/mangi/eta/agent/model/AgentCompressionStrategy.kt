@@ -1,17 +1,38 @@
 package io.github.mangi.eta.agent.model
 
-/** Persisted values must remain stable. Unknown values fail closed to full-turn protection. */
+import io.github.mangi.eta.agent.model.oauth.GoogleAntigravityOAuth
+import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
+import io.github.mangi.eta.data.model.OpenAiEndpointMode
+
+/** Persisted values must remain stable. Unknown values map to continue-task. */
 internal enum class AgentCompressionStrategy(val wireValue: String) {
-    CONTINUE_TASK("continue_task"),
-    PRESERVE_TURN("preserve_turn");
+    CONTINUE_TASK("continue_task");
 
     companion object {
         val DEFAULT = CONTINUE_TASK
 
-        fun parse(value: String?): AgentCompressionStrategy {
-            if (value.isNullOrBlank()) return DEFAULT
-            return entries.firstOrNull { it.wireValue == value } ?: PRESERVE_TURN
-        }
+        fun parse(@Suppress("UNUSED_PARAMETER") value: String?): AgentCompressionStrategy = DEFAULT
+    }
+}
+
+/** Compression-only Chat Completions / Responses override. Independent of the session provider. */
+internal object AgentCompressionEndpoint {
+    fun parse(value: String?): String =
+        if (value == OpenAiEndpointMode.RESPONSES) OpenAiEndpointMode.RESPONSES
+        else OpenAiEndpointMode.CHAT_COMPLETIONS
+
+    fun canOverride(config: AgentModelClient.ModelConfig): Boolean {
+        if (OpenAiCodexOAuth.isCodexEndpoint(config.baseUrl)) return false
+        if (GoogleAntigravityOAuth.isAntigravityEndpoint(config.baseUrl)) return false
+        return config.openAiEndpointMode == OpenAiEndpointMode.CHAT_COMPLETIONS ||
+            config.openAiEndpointMode == OpenAiEndpointMode.RESPONSES
+    }
+
+    fun apply(config: AgentModelClient.ModelConfig, endpointMode: String?): AgentModelClient.ModelConfig {
+        if (!canOverride(config)) return config
+        val resolved = parse(endpointMode)
+        return if (config.openAiEndpointMode == resolved) config
+        else config.copy(openAiEndpointMode = resolved)
     }
 }
 
@@ -71,8 +92,8 @@ internal object AgentCompressionBoundary {
 
     /** Shared selection for idle/manual, pre-request pressure and overflow recovery.
      * Continuation retains a token-priced tail, not the entire latest user turn.
-     * Strict protection continues to honor both recent turns and the active run.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun selectStart(
         history: List<AgentModelClient.ConversationMessage>,
         strategy: AgentCompressionStrategy,
@@ -80,7 +101,7 @@ internal object AgentCompressionBoundary {
         contextWindow: Int,
         activeStart: Int = history.size,
         overflow: Boolean = false,
-    ): Int = if (strategy == AgentCompressionStrategy.CONTINUE_TASK && contextWindow > 0) {
+    ): Int = if (contextWindow > 0) {
         continuationStart(history, continuationRetentionBudget(contextWindow, overflow))
     } else {
         protectedStart(history, keep, activeStart)

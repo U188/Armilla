@@ -34,6 +34,7 @@ import io.github.mangi.eta.agent.model.AgentFileReferencePolicy
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.AgentContextBudget
 import io.github.mangi.eta.agent.model.AgentCompressionStrategy
+import io.github.mangi.eta.agent.model.AgentCompressionEndpoint
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.agent.model.AgentRequestOverhead
 import io.github.mangi.eta.agent.model.AgentConversationCodec
@@ -1898,6 +1899,7 @@ internal class AgentAppState(
         fallback: AgentModelClient.ModelConfig?,
         providerId: String? = null,
         modelId: String? = null,
+        manual: Boolean = false,
     ): AgentModelClient.ModelConfig? {
         val prefs = Prefs.localAgentPreferences()
         val customEnabled = Prefs.isCustomCompressModelEnabled(prefs)
@@ -1921,7 +1923,13 @@ internal class AgentAppState(
                 }
                 ?: fallback
         }
-        return resolved?.let(AgentRuntimePolicy::forCompression)
+        val compressed = resolved?.let(AgentRuntimePolicy::forCompression) ?: return null
+        val endpointKey = if (manual) {
+            Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE
+        } else {
+            Prefs.Keys.AGENT_COMPRESS_ENDPOINT_MODE
+        }
+        return AgentCompressionEndpoint.apply(compressed, prefs?.getString(endpointKey, null))
     }
 
     private fun launchConversationRun(
@@ -4253,14 +4261,14 @@ internal class AgentAppState(
     fun compressCurrentConversation(
         providerId: String?,
         modelId: String?,
-        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
     ) {
         if (rejectConversationArchiveMutation()) {
             onFinished(false)
             return
         }
-        persistCompressPreferences(providerId, modelId, strategy)
+        val strategy = AgentCompressionStrategy.CONTINUE_TASK
+        persistCompressPreferences(providerId, modelId)
         val runInFlight = homeState.isStreaming || homeState.isPaused
         if (compressionJob?.isActive == true) {
             onFinished(true)
@@ -4319,7 +4327,7 @@ internal class AgentAppState(
             val sent = AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(
                 runId = runId,
                 keepRecent = keepRecent,
-                allowCurrentTurn = strategy == AgentCompressionStrategy.CONTINUE_TASK,
+                allowCurrentTurn = true,
                 strategy = strategy.wireValue,
             )
             if (!sent) withContext(Dispatchers.Main) {
@@ -4397,6 +4405,7 @@ internal class AgentAppState(
                     fallback = fallback,
                     providerId = request.providerId,
                     modelId = request.modelId,
+                    manual = true,
                 )
                 if (modelConfig == null) {
                     withContext(Dispatchers.Main) {
@@ -4515,12 +4524,11 @@ internal class AgentAppState(
     private fun persistCompressPreferences(
         providerId: String?,
         modelId: String?,
-        strategy: AgentCompressionStrategy,
     ) {
-        Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY, strategy.wireValue)
+        Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_STRATEGY, AgentCompressionStrategy.CONTINUE_TASK.wireValue)
         Prefs.putInt(
             Prefs.Keys.AGENT_MANUAL_COMPRESS_KEEP_RECENT,
-            keepRecentFor(strategy),
+            keepRecentFor(AgentCompressionStrategy.CONTINUE_TASK),
         )
         if (!providerId.isNullOrBlank() && !modelId.isNullOrBlank()) {
             Prefs.putString(Prefs.Keys.AGENT_MANUAL_COMPRESS_MODEL_PROVIDER_ID, providerId)

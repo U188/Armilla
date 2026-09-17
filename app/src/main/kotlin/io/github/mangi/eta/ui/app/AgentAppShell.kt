@@ -23,7 +23,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.model.AgentCompressionStrategy
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import io.github.mangi.eta.ui.components.AdaptiveTopAppBar
@@ -79,9 +78,8 @@ internal fun AgentAppShell(
     onCompressConversation: (
         providerId: String?,
         modelId: String?,
-        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
-    ) -> Unit = { _, _, _, done -> done(false) },
+    ) -> Unit = { _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
     onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
     tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),
@@ -221,9 +219,8 @@ private fun AgentTopBar(
     onCompressConversation: (
         providerId: String?,
         modelId: String?,
-        strategy: AgentCompressionStrategy,
         onFinished: (Boolean) -> Unit,
-    ) -> Unit = { _, _, _, done -> done(false) },
+    ) -> Unit = { _, _, done -> done(false) },
     onSearchHistory: (String) -> List<MessageSearchHit> = { emptyList() },
     onOpenHistoryHit: (MessageSearchHit) -> Unit = {},
     tokenUsage: ConversationTokenUsageUi = ConversationTokenUsageUi(),

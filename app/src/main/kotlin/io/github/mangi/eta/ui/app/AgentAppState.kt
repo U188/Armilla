@@ -1848,6 +1848,7 @@ internal class AgentAppState(
                 val prefix = working.take(cut)
                 val id = boundArchive.save(prefix)
                 boundArchive.record(id, "started")
+                boundArchive.canAttach(id, prefix.size.coerceAtLeast(working.size - cut + 1), working.size - cut)
                 try {
                     val summary = AgentContextCompactor.compress(
                         working,

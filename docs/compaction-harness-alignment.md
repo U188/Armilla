@@ -10,10 +10,13 @@ Reference inspected: deepseek-ai/deepseek-harness commit
 - Remove summary target tokens from both dialogs, preferences consumers, callbacks,
   IPC and loop policy. Old persisted target values are ignored, not migrated into
   output limits. No goal-length validation or length-only rewrite request.
-- Summary generation ceiling defaults to 8192 (lower for a small model window).
-  A truncated response is never committed. Eta retains one bounded generation
-  retry, up to 16384 subject to available input room, plus reasoning compatibility
-  fallback and a request deadline.
+- Summary generation ceiling defaults to 16384 on large windows so a long
+  checkpoint is not thrown away at 8192 and retried. Small windows still reserve
+  input room. A truncated response is never committed. One bounded generation
+  retry remains when the first ceiling is below 16384.
+- Split only when the selected prefix cannot fit one summarizer request. Chunk
+  budgeting reserves 8192 output tokens so a higher generation cap does not
+  force extra chunks. Archive attach is validated before the summary request.
 - Automatic pressure at 80% (DeepSeek harness thresholdRatio), owned by Runtime rather than stream UI callbacks.
   Re-evaluate the full request after actual shrink, with at most one additional
   pressure pass. Confirmed overflow recovery remains bounded and fail-closed.

@@ -63,7 +63,7 @@ class AgentSummaryPipelineTest {
         var calls = 0
         val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
             calls++
-            assertEquals(8192, it.config.summaryOutputLimit)
+            assertEquals(16384, it.config.summaryOutputLimit)
             assertEquals(0, it.tools.length())
             assertFalse(it.config.hostedWebSearchEnabled)
             assertTrue(it.messages.toString().contains("historical"))
@@ -203,21 +203,24 @@ class AgentSummaryPipelineTest {
         assertTrue(failure.message.orEmpty().contains("OUTPUT_LIMIT"))
     }
 
-    @Test fun truncatedSummaryRetriesOnceWithLargerGenerationBudgetAndSameInput() {
+    @Test fun truncatedSummaryOnASmallWindowRetriesOnceWithLargerGenerationBudget() {
         val limits = mutableListOf<Int>()
-        val inputs = mutableListOf<String>()
-        val sessions = mutableListOf<String>()
-        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(1, config(), provider {
-            limits += requireNotNull(it.config.summaryOutputLimit)
-            inputs += it.messages.toString()
-            sessions += it.sessionId
-            if (limits.size == 1) response("INCOMPLETE_MUST_NOT_SURVIVE", "length") else response(validSummary())
-        }))
+        val result = AgentContextCompactor.compress(history(), AgentContextCompactor.Config(
+            1, config().copy(contextWindow = 40_000), provider {
+                limits += requireNotNull(it.config.summaryOutputLimit)
+                if (limits.size == 1) response("INCOMPLETE_MUST_NOT_SURVIVE", "length") else response(validSummary())
+            },
+        ))
         assertEquals(listOf(8192, 16384), limits)
-        assertEquals(inputs.first(), inputs.last())
-        assertEquals(sessions.first(), sessions.last())
         assertFalse(result.first().content.contains("INCOMPLETE_MUST_NOT_SURVIVE"))
         assertEquals(history().last(), result.last())
+    }
+
+    @Test fun largeWindowSummariesStartAtTheGenerationCap() {
+        assertEquals(16384, AgentContextCompactor.summaryGenerationLimit(200_000))
+        assertEquals(16000, AgentContextCompactor.summaryGenerationLimit(128_000))
+        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(64_000))
+        assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(8192))
     }
 
     @Test fun repeatedOutputLimitStopsAfterOneRetryAndPreservesHistory() {
@@ -230,15 +233,15 @@ class AgentSummaryPipelineTest {
                 response(validSummary(), "length")
             }))
         }
-        assertEquals(2, calls)
+        assertEquals(1, calls)
         assertTrue(error.message.orEmpty().contains("生成上限=16384"))
-        assertTrue(error.message.orEmpty().contains("已重试=1"))
+        assertTrue(error.message.orEmpty().contains("已重试=0"))
         assertEquals(snapshot, source)
     }
 
     @Test fun outputRetryRespectsWindowRoomAndHardCap() {
-        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(200_000))
-        assertEquals(8192, AgentContextCompactor.summaryGenerationLimit(200_000))
+        assertEquals(16384, AgentContextCompactor.summaryGenerationLimit(200_000))
+        assertEquals(16384, AgentContextCompactor.summaryGenerationLimit(200_000))
         assertEquals(2048, AgentContextCompactor.summaryGenerationLimit(8192))
         assertEquals(16384, AgentContextCompactor.summaryRetryLimit(12_000, 200_000, 1000))
         // window=10000 leaves 9488 total after the minimum 512-token safety reserve.
@@ -288,7 +291,7 @@ class AgentSummaryPipelineTest {
         val source = history()
         val result = AgentContextCompactor.compress(source, AgentContextCompactor.Config(1, config(), provider {
             calls++
-            assertEquals(8192, it.config.summaryOutputLimit)
+            assertEquals(16384, it.config.summaryOutputLimit)
             assertFalse(it.messages.toString().contains("Target approximately"))
             assertFalse(it.messages.toString().contains("characters in TOTAL"))
             response(longer)

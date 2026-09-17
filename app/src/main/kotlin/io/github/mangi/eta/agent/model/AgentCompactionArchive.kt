@@ -62,12 +62,16 @@ internal class AgentCompactionArchive(filesDir: File, sessionId: String) {
      * Older originals stay in this session's archive files and inside the saved
      * prefix JSON; they are not copied into the live summary as a growing ID list.
      */
+    fun canAttach(checkpoint: String, compressedSize: Int, tailSize: Int) {
+        require(ID.matches(checkpoint) && File(root, "$checkpoint.json").isFile) { "摘要缺少检查点" }
+        require(compressedSize > tailSize) { "摘要缺少检查点" }
+    }
+
     fun attachReferences(
         prefix: List<AgentModelClient.ConversationMessage>, checkpoint: String,
         compressed: List<AgentModelClient.ConversationMessage>, tailSize: Int,
     ): List<AgentModelClient.ConversationMessage> {
-        require(ID.matches(checkpoint) && File(root, "$checkpoint.json").isFile) { "摘要缺少检查点" }
-        require(compressed.size > tailSize) { "摘要缺少检查点" }
+        canAttach(checkpoint, compressed.size, tailSize)
         val pointer = Regex("context-checkpoint:[0-9a-f-]{36}")
         return compressed.toMutableList().also { output ->
             for (i in 0 until output.size - tailSize) {

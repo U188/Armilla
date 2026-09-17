@@ -14,9 +14,10 @@ internal object AgentContextCompactor {
     internal const val SUMMARY_GENERATION_FLOOR = 8_192
     internal const val SUMMARY_GENERATION_CAP = 16_384
 
-    // Generation ceiling, NOT a desired or accepted checkpoint length.
+    // Prefer the larger ceiling first so a long checkpoint is not thrown away
+    // and retried. Small windows still reserve room for the summarizer input.
     internal fun summaryGenerationLimit(window: Int): Int =
-        minOf(SUMMARY_GENERATION_FLOOR, maxOf(1024, window / 4))
+        minOf(SUMMARY_GENERATION_CAP, maxOf(SUMMARY_GENERATION_FLOOR, window / 8), maxOf(1024, window / 4))
 
     internal fun summaryRetryLimit(current: Int, window: Int, inputTokens: Int): Int? {
         val available = AgentCompressionBoundary.inputLimit(window, 0).toLong() - inputTokens
@@ -363,7 +364,9 @@ internal object AgentContextCompactor {
         val summarizerWindow = minOf(window, SUMMARIZER_INPUT_CAP)
         val overhead = if (replay == null) 1024 else AgentContextBudget.estimate(replay.systemMessages) +
             AgentContextBudget.countTokens(replay.tools.toString()) + 1024
-        val budget = AgentCompressionBoundary.inputLimit(summarizerWindow, summaryGenerationLimit(summarizerWindow)) - overhead
+        val generation = summaryGenerationLimit(summarizerWindow)
+        val splitReserve = minOf(generation, SUMMARY_GENERATION_FLOOR)
+        val budget = AgentCompressionBoundary.inputLimit(summarizerWindow, splitReserve) - overhead
         require(budget > 0) { "摘要模型窗口太小" }
         val cuts = AgentCompressionBoundary.balancedCuts(messages)
         val result = mutableListOf<List<AgentModelClient.ConversationMessage>>()

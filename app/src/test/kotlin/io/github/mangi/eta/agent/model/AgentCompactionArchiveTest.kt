@@ -98,6 +98,16 @@ class AgentCompactionArchiveTest {
         historical.forEach { id -> assertFalse(rewritten.first().content.contains(id)) }
     }
 
+    @Test fun canAttachRejectsMissingCheckpointBeforeSummarization() {
+        val archive = AgentCompactionArchive(temporary.root, "conversation")
+        val id = archive.save(listOf(AgentModelClient.ConversationMessage("user", "prefix")))
+        archive.canAttach(id, compressedSize = 2, tailSize = 1)
+        assertTrue(runCatching { archive.canAttach(id, compressedSize = 1, tailSize = 1) }.isFailure)
+        assertTrue(runCatching {
+            archive.canAttach("00000000-0000-0000-0000-000000000000", compressedSize = 2, tailSize = 1)
+        }.isFailure)
+    }
+
     @Test fun displaySummaryStripsArchiveFootnotes() {
         val raw = """[对话摘要]
 ## Current Work

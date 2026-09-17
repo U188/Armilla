@@ -205,7 +205,7 @@ internal class AgentLoop(
                             toolCalls = emptyList(),
                         ).put(AgentTurnIdentity.JSON_KEY, turnId),
                     )
-                    appendCompactContinueIfNeeded()
+                    appendCompactContinueIfNeeded(suppressOptionalThinking = false)
                 }
                 appendPendingSteeringMessage()
                 continue
@@ -577,7 +577,7 @@ internal class AgentLoop(
     private fun steeringPrompt(supplement: String): String =
         AgentContextCompactor.steeringUserContent(supplement)
 
-    private fun appendCompactContinueIfNeeded() {
+    private fun appendCompactContinueIfNeeded(suppressOptionalThinking: Boolean = true) {
         val last = messages.optJSONObject(messages.length() - 1) ?: return
         if (!last.optString("role").equals("assistant", ignoreCase = true)) return
         messages.put(
@@ -585,7 +585,7 @@ internal class AgentLoop(
                 AgentContextCompactor.SEAMLESS_CONTINUE_PROMPT,
             ).put(AgentTurnIdentity.JSON_KEY, turnId),
         )
-        suppressThinkingForNextRequest = true
+        suppressThinkingForNextRequest = suppressOptionalThinking
     }
 
     private fun executeTool(

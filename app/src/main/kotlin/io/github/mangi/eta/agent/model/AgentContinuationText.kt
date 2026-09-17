@@ -5,13 +5,7 @@ package io.github.mangi.eta.agent.model
  */
 internal class AgentContinuationText(prefix: String) {
     private val tail = prefix.takeLast(2048)
-    private val candidates = tail.indices.map { tail.substring(it) }.filter { candidate ->
-        val visible = candidate.count { !it.isWhitespace() }
-        visible >= 3 && (
-            candidate.last() in ".!?。！？；;、，,\n" ||
-                visible >= 3
-        )
-    }
+    private val candidates = tail.indices.map { tail.substring(it) }.filter(::isSeamCandidate)
     private var opening = StringBuilder()
     private var decided = candidates.isEmpty()
 
@@ -37,9 +31,22 @@ internal class AgentContinuationText(prefix: String) {
         val overlap = candidates.filter { text.startsWith(it) }.maxOfOrNull { it.length } ?: 0
         return text.drop(overlap)
     }
+
+    private fun isSeamCandidate(candidate: String): Boolean {
+        val visibleChars = candidate.filterNot { it.isWhitespace() }
+        if (visibleChars.isEmpty()) return false
+        // Lone CJK glyph: pause on "这", resume "这世上" -> drop one 这.
+        // "好。" stays because it is one glyph plus punctuation, not a repeated clause.
+        if (visibleChars.length == 1) {
+            return candidate.length == 1 && visibleChars[0].isIdeograph()
+        }
+        return true
+    }
+
+    private fun Char.isIdeograph(): Boolean =
+        this in '\u4e00'..'\u9fff' || this in '\u3400'..'\u4dbf'
 }
 
-/** Streaming and final response share the same seam policy. Thinking/tools are untouched. */
 internal class AgentContinuationTextEvents(private val prefix: String) {
     private var filter = AgentContinuationText(prefix)
     private var firstIndex: Int? = null

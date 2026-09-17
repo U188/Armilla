@@ -42,6 +42,16 @@ class AgentContinuationTextTest {
         assertEquals("一针一线地缝进我的鞋底。", filter.normalize(resumed))
     }
 
+    @Test fun singleIdeographSeamIsRemovedWithoutEatingShortAcknowledgements() {
+        val filter = AgentContinuationText("本身都是在跟这")
+        val resumed = "这这世上对得起“还有个你可回”这句话。"
+        val visible = resumed.map { filter.append(it.toString()) }.joinToString("") + filter.finish()
+        assertEquals("这世上对得起“还有个你可回”这句话。", visible)
+        assertEquals("这世上对得起“还有个你可回”这句话。", filter.normalize(resumed))
+        val ack = AgentContinuationText("好。")
+        assertEquals("好。没问题。", ack.append("好。没问题。") + ack.finish())
+    }
+
     @Test fun pausedBeforeOverlapDecisionNeverLosesIncompleteNewText() {
         val filter = AgentContinuationText("他打开邮箱。")
         assertEquals("", filter.append("他打开"))

@@ -250,7 +250,7 @@ class AgentCompressionStrategyTest {
         )
         val result = AgentLoop(
             model,
-            JSONArray().put(AgentConversationCodec.userTextMessage("one long task")),
+            JSONArray().put(AgentConversationCodec.userTextMessage("one long task " + "x".repeat(20_000))),
             tools,
             provider { request ->
                 requests++

@@ -42,6 +42,7 @@ import io.github.mangi.eta.agent.terminal.terminalEnvironment
 import io.github.mangi.eta.agent.terminal.RootShellTerminalController
 import io.github.mangi.eta.agent.terminal.SharedFolderMounts
 import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.agent.voice.tts.SpeechPlayback
 import io.github.mangi.eta.core.AgentLogger
 import io.github.mangi.eta.core.HookSupport
 import io.github.mangi.eta.data.model.AssistantPrompt
@@ -210,6 +211,7 @@ internal class AgentLocalTools(
             }
             when (toolCall.name) {
                 "get_current_context" -> textResult(DeviceContextTool.current(context))
+                "text_to_speech" -> textResult(textToSpeech(args))
                 "search_apps" -> textResult(searchApps(args))
                 "launch_app" -> textResult(launchApp(args))
                 "open_uri" -> textResult(openUri(args))
@@ -1383,6 +1385,23 @@ internal class AgentLocalTools(
         block()
     } catch (failure: GitHubSkillSourceException) {
         errorResult(failure.code, failure.message ?: "GitHub Skill 请求失败")
+    }
+
+    private fun textToSpeech(args: JSONObject): String {
+        val text = args.optString("text").trim()
+        if (text.isBlank()) {
+            throw InvalidToolArgumentException("text is required")
+        }
+        if (text.length > 8_000) {
+            throw InvalidToolArgumentException("text is too long")
+        }
+        if (SpeechPlayback.state.value.recording) {
+            return errorResult("SPEECH_BUSY", "正在录音，无法朗读")
+        }
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            SpeechPlayback.speak(context, "agent-tts", text)
+        }
+        return JSONObject().put("ok", true).put("playing", true).toString()
     }
 
     private fun errorResult(code: String, message: String): String =

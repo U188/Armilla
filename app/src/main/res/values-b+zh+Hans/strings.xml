@@ -925,6 +925,8 @@
   <string name="tool_ui_set_timer_aee60c">设置计时器</string>
   <string name="tool_ui_set_alarm_25ca3c">设置闹钟</string>
   <string name="tool_ui_set_volume_85a691">设置音量</string>
+  <string name="tool_ui_text_to_speech">语音朗读</string>
+  <string name="tool_ui_text_to_speech_summary">用已配置的朗读引擎把文字说出来。</string>
   <string name="tool_ui_read_pictures_ae993b">读取图片或视频</string>
   <string name="tool_ui_read_pictures_of_known_paths_and_hand_them_over__7f9569">读取已知路径的图片或视频；视频会抽取封面帧交给视觉模型</string>
   <string name="tool_ui_read_the_current_node_and_attach_the_original_im_df1fec">读取当前节点，必要时附原图</string>

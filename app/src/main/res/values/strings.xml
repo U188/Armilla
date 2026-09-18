@@ -903,6 +903,8 @@
   <string name="tool_ui_set_timer_aee60c">Set timer</string>
   <string name="tool_ui_set_alarm_25ca3c">Set alarm</string>
   <string name="tool_ui_set_volume_85a691">Set volume</string>
+  <string name="tool_ui_text_to_speech">Speak aloud</string>
+  <string name="tool_ui_text_to_speech_summary">Have the assistant speak text with the configured TTS engine.</string>
   <string name="tool_ui_read_pictures_ae993b">Read pictures or videos</string>
   <string name="tool_ui_read_pictures_of_known_paths_and_hand_them_over__7f9569">Read a picture or video at a known path; videos attach a preview frame for the vision model</string>
   <string name="tool_ui_read_the_current_node_and_attach_the_original_im_df1fec">Read the current node and attach the original image if necessary</string>

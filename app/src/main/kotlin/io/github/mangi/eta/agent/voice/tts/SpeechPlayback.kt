@@ -80,9 +80,19 @@ internal object SpeechPlayback {
         }
     }
 
+    fun speak(context: Context, owner: String, markdown: String) {
+        if (recordingToken != null) return
+        stop()
+        start(context, owner, markdown)
+    }
+
     fun toggle(context: Context, owner: String, markdown: String) {
         if (recordingToken != null) return
         if (state.value.owner == owner) { stop(); return }
+        start(context, owner, markdown)
+    }
+
+    private fun start(context: Context, owner: String, markdown: String) {
         stop()
         val token = epoch.next()
         val app = context.applicationContext

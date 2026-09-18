@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.ScreenshotMonitor
 import androidx.compose.material.icons.rounded.Search
@@ -96,6 +97,7 @@ internal fun iconForTool(toolId: String): ImageVector = when (toolId) {
         Icons.Rounded.Smartphone
     "network_info", "wifi_credentials" -> Icons.Rounded.Wifi
     "media_control" -> Icons.Rounded.PlayArrow
+    "text_to_speech" -> Icons.Rounded.RecordVoiceOver
     "set_volume" -> Icons.AutoMirrored.Rounded.VolumeUp
     "top_memory_apps", "top_storage_apps" -> Icons.Rounded.Layers
     "read_sms_code" -> Icons.Rounded.Key

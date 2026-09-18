@@ -45,7 +45,12 @@ internal class AgentRuntimeClient(
     fun run(
         request: AgentRuntimeWire.RunRequest,
         onEvent: (AgentEvent) -> Unit,
-        isStopRequested: () -> Boolean = { false },
+    ): AgentRuntimeWire.RunResult = run(request, onEvent, isStopRequested = { false })
+
+    fun run(
+        request: AgentRuntimeWire.RunRequest,
+        onEvent: (AgentEvent) -> Unit,
+        isStopRequested: () -> Boolean,
     ): AgentRuntimeWire.RunResult {
         if (isStopRequested()) return AgentRuntimeWire.RunResult(request.runId, false, "", "已停止")
         val resultLatch = CountDownLatch(1)

@@ -3,6 +3,7 @@ package io.github.mangi.eta.ui.app
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.runtime.AgentRuntimeWire
 import io.github.mangi.eta.agent.runtime.AgentUiHandoffPayload
+import io.github.mangi.eta.ui.model.UserMessageUi
 import io.github.mangi.eta.ui.model.AgentChatUiState
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeCode
@@ -15,6 +16,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentPendingResultRecoveryTest {
+    @Test fun stoppedRecoveryKeepsPartialAndFullTranscriptAndIsIdempotent() {
+        val initial = AgentModelClient.ConversationMessage("user", "task", turnId = "run-stop")
+        val additions = listOf(
+            AgentModelClient.ConversationMessage("assistant", "completed work", turnId = "run-stop"),
+            AgentModelClient.ConversationMessage("user", "accepted supplement", turnId = "run-stop"),
+        )
+        val state = AgentChatUiState(messages = listOf(
+            UserMessageUi("user-run-stop", "task"),
+            AgentMessageUi("assistant-run-stop-1", "completed work", isStreaming = true),
+        ), input = "", isStreaming = true, isPaused = true, thinkingEnabled = false, history = listOf(initial))
+        val result = AgentRuntimeWire.RunResult("run-stop", false, "", "已停止", transcript = additions)
+        val first = AgentPendingResultRecovery.apply(state, "run-stop", result, supplements = emptyList())
+        assertEquals(listOf(initial) + additions, first.state.history)
+        assertEquals("completed work", first.state.messages.filterIsInstance<AgentMessageUi>().single().content)
+        assertEquals(SystemNoticeCode.Stopped, first.state.messages.filterIsInstance<SystemNoticeMessageUi>().single().code)
+        org.junit.Assert.assertFalse(first.state.isPaused)
+        org.junit.Assert.assertFalse(first.state.isStreaming)
+        val repeated = AgentPendingResultRecovery.apply(first.state, "run-stop", result, supplements = emptyList())
+        org.junit.Assert.assertTrue(repeated.alreadyApplied)
+        assertEquals(first.state, repeated.state)
+    }
+
     @Test
     fun recoveryDoesNotReplaceFailedAttemptOrRetryNotice() {
         val partial = AgentMessageUi(id = "assistant-retry-run-1-0", content = "半截回答")

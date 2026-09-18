@@ -2026,7 +2026,7 @@ internal class AgentAppState(
                 }
                 return@launch
             }
-            if (runId in stoppingRuns) {
+            if (stoppingRuns.containsKey(runId)) {
                 withContext(Dispatchers.Main) {
                     applyRunResult(runId, AgentRuntimeWire.RunResult(runId, false, "", "已停止"))
                 }
@@ -2141,7 +2141,7 @@ internal class AgentAppState(
                         ),
                     ),
                     onEvent = { event -> enqueueRunEvent(runId, event) },
-                    isStopRequested = { runId in stoppingRuns },
+                    isStopRequested = { stoppingRuns.containsKey(runId) },
                 )
             }
             withContext(Dispatchers.Main) {
@@ -2695,7 +2695,7 @@ internal class AgentAppState(
     }
 
     private fun stopRun(runId: String) {
-        if (runId in stoppingRuns) return
+        if (stoppingRuns.containsKey(runId)) return
         val imageGen = imageGenerationRunIds.remove(runId)
         flushPendingRunDelta(runId)
         val retrying = modelRetryState.isWaiting(runId)
@@ -2732,7 +2732,7 @@ internal class AgentAppState(
 
     fun pauseCurrentRun() {
         val runId = activeRunIdForSelectedConversation() ?: return
-        if (runId in stoppingRuns) return
+        if (stoppingRuns.containsKey(runId)) return
         if (runId in imageGenerationRunIds) return
         if (homeState.isPaused) return
         scope.launch(Dispatchers.IO) {
@@ -3229,7 +3229,7 @@ internal class AgentAppState(
     }
 
     private fun enqueueRunEvent(runId: String, event: AgentEvent) {
-        if (runId in stoppingRuns && event !is AgentEvent.ContextCompacted &&
+        if (stoppingRuns.containsKey(runId) && event !is AgentEvent.ContextCompacted &&
             event !is AgentEvent.UserSupplementReceived && event !is AgentEvent.UsageReceived) return
         if (runMessageProjector.isSealed(runId) && !event.allowedAfterSeal()) {
             runEventFlushJobs.remove(runId)?.cancel()

@@ -10,6 +10,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentChatMorphLoadingTest {
+    @Test fun retryWaitsForItsOwnFirstOutputNotTheFailedTurnsOutput() {
+        val messages = listOf(
+            UserMessageUi("user-old", "task"),
+            AgentMessageUi("assistant-old", "partial output"),
+            io.github.mangi.eta.ui.model.SystemNoticeMessageUi("failed",
+                io.github.mangi.eta.ui.model.SystemNoticeCode.RuntimeFailed),
+        )
+        assertTrue(isWaitingForFirstModelOutput(messages))
+    }
+
 
     @Test
     fun waitingAfterSendBeforeAnyOutput() {

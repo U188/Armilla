@@ -200,7 +200,7 @@ internal class AgentLoop(
             round = completedRound.round
             val providerResponse = completedRound.response
 
-            if (!runController.isCancelled) runController.throwIfCancelled()
+            // Keep a fully returned response before observing a concurrent user stop.
             continuationText.finish().forEach { textEvent ->
                 continuationBlocks.map(round, textEvent).toAgentEvent(round)?.let(onEvent)
             }
@@ -245,8 +245,9 @@ internal class AgentLoop(
                         ).put(AgentTurnIdentity.JSON_KEY, turnId),
                     )
                     responseStored = true
-                    appendCompactContinueIfNeeded(suppressOptionalThinking = false)
+                    if (!runController.isCancelled) appendCompactContinueIfNeeded(suppressOptionalThinking = false)
                 }
+                runController.throwIfCancelled()
                 appendPendingSteeringMessage()
                 continue
             }

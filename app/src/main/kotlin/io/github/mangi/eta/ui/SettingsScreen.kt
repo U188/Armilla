@@ -357,6 +357,58 @@ internal fun SettingsScreen(
                 }
             }
 
+            // ── 通用 ────────────────────────────────────────────────────
+            item(key = "section_general") {
+                SmallTitle(stringResource(R.string.settings_general))
+                Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                    ArrowPreference(
+                        title = stringResource(R.string.voice_mode_title),
+                        startAction = { PreferenceIcon(icon = Icons.Rounded.RecordVoiceOver) },
+                        onClick = { onNavigate(AppRoute.VoiceModeSettings) },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.tts_title),
+                        startAction = { PreferenceIcon(icon = Icons.Rounded.VolumeUp) },
+                        onClick = { onNavigate(AppRoute.TtsSettings) },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.speech_title),
+                        startAction = { PreferenceIcon(icon = Icons.Rounded.Mic) },
+                        onClick = { onNavigate(AppRoute.SpeechSettings) },
+                    )
+
+                    ArrowPreference(
+                        title = stringResource(R.string.appearance_title),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.Palette,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.AppearanceSettings) },
+                    )
+
+                    ArrowPreference(
+                        title = stringResource(R.string.stats_page_title),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.BarChart,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.UsageStats) },
+                    )
+
+                    ArrowPreference(
+                        title = stringResource(R.string.data_backup_title),
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.Description,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.DataBackup) },
+                    )
+                }
+            }
+
             // ── 工具 ───────────────────────────────────────────────────
             item(key = "section_tools") {
                 SmallTitle(stringResource(R.string.ui_tool_a72ef1))
@@ -604,58 +656,6 @@ internal fun SettingsScreen(
                             icon = Icons.Rounded.TouchApp,
                         )
                     }
-                }
-            }
-
-            // ── 通用 ────────────────────────────────────────────────────
-            item(key = "section_general") {
-                SmallTitle(stringResource(R.string.settings_general))
-                Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                    ArrowPreference(
-                        title = stringResource(R.string.voice_mode_title),
-                        startAction = { PreferenceIcon(icon = Icons.Rounded.RecordVoiceOver) },
-                        onClick = { onNavigate(AppRoute.VoiceModeSettings) },
-                    )
-                    ArrowPreference(
-                        title = stringResource(R.string.tts_title),
-                        startAction = { PreferenceIcon(icon = Icons.Rounded.VolumeUp) },
-                        onClick = { onNavigate(AppRoute.TtsSettings) },
-                    )
-                    ArrowPreference(
-                        title = stringResource(R.string.speech_title),
-                        startAction = { PreferenceIcon(icon = Icons.Rounded.Mic) },
-                        onClick = { onNavigate(AppRoute.SpeechSettings) },
-                    )
-
-                    ArrowPreference(
-                        title = stringResource(R.string.appearance_title),
-                        startAction = {
-                            PreferenceIcon(
-                                icon = Icons.Rounded.Palette,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.AppearanceSettings) },
-                    )
-
-                    ArrowPreference(
-                        title = stringResource(R.string.stats_page_title),
-                        startAction = {
-                            PreferenceIcon(
-                                icon = Icons.Rounded.BarChart,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.UsageStats) },
-                    )
-
-                    ArrowPreference(
-                        title = stringResource(R.string.data_backup_title),
-                        startAction = {
-                            PreferenceIcon(
-                                icon = Icons.Rounded.Description,
-                            )
-                        },
-                        onClick = { onNavigate(AppRoute.DataBackup) },
-                    )
                 }
             }
 

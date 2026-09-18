@@ -37,4 +37,31 @@ class VisibleTurnSpeechPrefaceTest {
         )
         assertFalse(preface.contains("内部推理"))
     }
+    @Test fun doesNotLeakVisibleTextFromThePreviousTurn() {
+        val messages = listOf(
+            UserMessageUi(id = "u1", content = "第一问"),
+            AgentMessageUi(id = "a1", content = "第一轮可见正文"),
+            UserMessageUi(id = "u2", content = "第二问"),
+            AgentMessageUi(id = "mid2", content = "第二轮前置正文"),
+            AgentMessageUi(id = "final2", content = "第二轮最终正文"),
+        )
+
+        assertEquals("第二轮前置正文", visibleTurnSpeechPreface(messages, "final2"))
+    }
+
+    @Test fun keepsVisibleTextAcrossSteeringSupplement() {
+        val messages = listOf(
+            UserMessageUi(id = "u", content = "开始任务"),
+            AgentMessageUi(id = "mid1", content = "第一段可见正文"),
+            UserMessageUi(id = "u-supplement-1", content = "补充要求"),
+            AgentMessageUi(id = "mid2", content = "第二段可见正文"),
+            AgentMessageUi(id = "final", content = "最终正文"),
+        )
+
+        assertEquals(
+            "第一段可见正文\n\n第二段可见正文",
+            visibleTurnSpeechPreface(messages, "final"),
+        )
+    }
+
 }

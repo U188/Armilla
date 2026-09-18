@@ -807,8 +807,11 @@ private fun AgentMessageBlock(
     var copied by remember(message.id) { mutableStateOf(false) }
     val keepStreamingMarkdown = message.isStreaming || retainedStreamingState != null
     val displayContent = remember(message.content) { NumericCitationMarkup.strip(message.content) }
-    val speechContent = remember(speechPreface, displayContent) {
-        listOf(speechPreface.trim(), displayContent).filter { it.isNotBlank() }.joinToString("\n\n")
+    val displaySpeechPreface = remember(speechPreface) { NumericCitationMarkup.strip(speechPreface) }
+    val speechContent = remember(displaySpeechPreface, displayContent) {
+        listOf(displaySpeechPreface.trim(), displayContent)
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
     }
     var streamingRevealComplete by remember(message.id) {
         mutableStateOf(!keepStreamingMarkdown)

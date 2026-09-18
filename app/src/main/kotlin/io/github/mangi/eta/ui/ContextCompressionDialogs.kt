@@ -527,6 +527,7 @@ internal fun CompressModelPickerDialog(
     isLoading: Boolean = false,
     onDismiss: () -> Unit,
     onModelSelected: (String, String) -> Unit,
+    title: String? = null,
 ) {
     val view = LocalView.current
     var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
@@ -538,7 +539,7 @@ internal fun CompressModelPickerDialog(
     }
     WindowDialog(
         show = show,
-        title = stringResource(R.string.ui_compress_model_title),
+        title = title ?: stringResource(R.string.ui_compress_model_title),
         onDismissRequest = onDismiss,
     ) {
         Column(

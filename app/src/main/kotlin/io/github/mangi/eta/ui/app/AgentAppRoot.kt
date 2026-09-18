@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -134,6 +135,13 @@ fun AgentAppRoot(
     val navigator = remember(backStack) { AgentNavigator(backStack) }
     val appViewModel = viewModel<AgentAppViewModel>()
     val agentState = appViewModel.state
+    DisposableEffect(backStack.lastOrNull(), agentState.conversationPaneState.selectedConversationId) {
+        onDispose { io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop() }
+    }
+    val speechPlayback by io.github.mangi.eta.agent.voice.tts.SpeechPlayback.state.collectAsState()
+    LaunchedEffect(speechPlayback.error) {
+        speechPlayback.error?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show() }
+    }
     val streamingMarkdownCache = remember { StreamingMarkdownCache() }
     val requestExecutionNotifications = rememberExecutionNotificationRequest()
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -150,6 +158,7 @@ fun AgentAppRoot(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
+                    io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop()
                     keyboard?.hide()
                     focusManager.clearFocus(force = true)
                 }
@@ -787,6 +796,9 @@ fun AgentAppRoot(
                     currentProviderId = agentState.homeState.providerId,
                     currentModelId = agentState.homeState.modelId,
                 )
+            }
+            entry<AppRoute.TtsSettings>(swipeDismiss = swipeDismiss) {
+                io.github.mangi.eta.ui.TtsSettingsScreen(onBack = ::popRoute)
             }
             entry<AppRoute.SpeechSettings>(swipeDismiss = swipeDismiss) {
                 io.github.mangi.eta.ui.SpeechSettingsScreen(onBack = ::popRoute)

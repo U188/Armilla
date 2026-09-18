@@ -76,7 +76,9 @@ internal fun ChatSpeechIndicator(
         active = true
         listening = false
         job = scope.launch {
+            var speechToken: Long? = null
             try {
+                speechToken = io.github.mangi.eta.agent.voice.tts.SpeechPlayback.beginInput()
                 val heard = OfflineSpeechSession.recognize(context.applicationContext,
                     onListening = { listening = true },
                     onText = { text ->
@@ -96,6 +98,7 @@ internal fun ChatSpeechIndicator(
             } catch (_: LinkageError) {
                 Toast.makeText(context, R.string.speech_failed, Toast.LENGTH_LONG).show()
             } finally {
+                speechToken?.let { io.github.mangi.eta.agent.voice.tts.SpeechPlayback.endInput(it) }
                 active = false
                 listening = false
                 draft = null

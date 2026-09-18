@@ -1978,6 +1978,10 @@ internal class AgentAppState(
             Toast.makeText(appContext, "绑定模型已不可用，未发送。请重新选择。", Toast.LENGTH_LONG).show()
             return
         }
+        if (runModel.supportsSpeechSynthesis) {
+            Toast.makeText(appContext, "语音合成模型请在朗读设置中使用，不能执行对话任务", Toast.LENGTH_LONG).show()
+            return
+        }
         val runAssistant = AssistantRepository.active()
         val runConfig = RuntimeConfigRepository.buildRuntimeConfig(runProvider, runModel, runAssistant)
         val runModelOption = AgentModelPickerProjector.project(listOf(runProvider), runProvider.id, runModel.id).selectedModel
@@ -2745,6 +2749,7 @@ internal class AgentAppState(
     }
 
     private fun stopRun(runId: String) {
+        if (activeRunIdForSelectedConversation() == runId) io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop()
         if (stoppingRuns.containsKey(runId)) return
         val imageGen = imageGenerationRunIds.remove(runId)
         flushPendingRunDelta(runId)

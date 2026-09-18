@@ -306,6 +306,7 @@ internal fun ChatMessageItem(
         )
         is AgentMessageUi -> AgentMessageBlock(
             message = message,
+            allowSpeech = true,
             retainedStreamingState = retainedStreamingState,
             showCopyAction = showCopyAction,
             showMessageActions = showMessageActions,
@@ -785,6 +786,7 @@ private fun UserMessageBubble(
 @Composable
 private fun AgentMessageBlock(
     message: AgentMessageUi,
+    allowSpeech: Boolean = false,
     retainedStreamingState: StreamingMarkdownState?,
     showCopyAction: Boolean,
     showMessageActions: Boolean,
@@ -901,6 +903,9 @@ private fun AgentMessageBlock(
                             MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f)
                         },
                     )
+                }
+                if (allowSpeech) {
+                    SpeechPlaybackButton(message.id, displayContent)
                 }
                 if (showMessageActions) {
                     TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = branchEnabled) {

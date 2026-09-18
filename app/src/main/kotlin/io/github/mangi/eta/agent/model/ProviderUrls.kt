@@ -21,6 +21,9 @@ internal object ProviderUrls {
         }
     }
 
+    fun openAiAudioSpeechUrl(baseUrl: String): String =
+        appendPath(baseUrl, "audio/speech")
+
     fun openAiImagesGenerationsUrl(baseUrl: String): String =
         appendPath(baseUrl, "images/generations")
 

@@ -204,6 +204,14 @@ internal fun AgentChatBody(
             message is AgentMessageUi && message.content.isBlank()
         }
     }
+    val speechPlayback by io.github.mangi.eta.agent.voice.tts.SpeechPlayback.state.collectAsState()
+    LaunchedEffect(visibleMessages, messageEdit?.targetMessageId, speechPlayback.owner) {
+        val owner = speechPlayback.owner
+        if (owner != null && owner != "tts-preview" &&
+            (messageEdit != null || visibleMessages.none { it is AgentMessageUi && it.id == owner && !it.isStreaming })) {
+            io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop()
+        }
+    }
     val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression) {
         visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression) 1 else 0
     }

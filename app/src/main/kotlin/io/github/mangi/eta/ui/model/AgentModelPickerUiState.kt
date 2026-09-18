@@ -58,6 +58,7 @@ internal object AgentModelPickerProjector {
         providers: List<ProviderSetting>,
         selectedProviderId: String?,
         selectedModelId: String?,
+        includeSpeechModels: Boolean = false,
     ): AgentModelPickerUiState {
         val enabledProviders = providers
             .asSequence()
@@ -67,7 +68,7 @@ internal object AgentModelPickerProjector {
         val selectedProvider = enabledProviders.firstOrNull { it.id == selectedProviderId }
         val selectedModel = selectedProvider
             ?.models
-            ?.firstOrNull { it.id == selectedModelId && it.isEnabled }
+            ?.firstOrNull { it.id == selectedModelId && it.isEnabled && (includeSpeechModels || !it.supportsSpeechSynthesis) }
             ?.let { model -> selectedProvider.toOption(model) }
         val groups = enabledProviders
             .asSequence()
@@ -76,7 +77,7 @@ internal object AgentModelPickerProjector {
                 val sourceType = ProviderSourceRegistry.resolve(provider)
                 val models = provider.models
                     .asSequence()
-                    .filter { it.isEnabled }
+                    .filter { it.isEnabled && (includeSpeechModels || !it.supportsSpeechSynthesis) }
                     .sortedBy { it.sortOrder }
                     .map { model -> provider.toOption(model) }
                     .toList()

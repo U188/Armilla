@@ -56,6 +56,9 @@ data class Model(
     val supportsVideoGeneration: Boolean
         get() = VideoGenerationModels.matches(this)
 
+    val supportsSpeechSynthesis: Boolean
+        get() = SpeechSynthesisModels.matches(this)
+
     val supportsTools: Boolean
         get() = toolCall == true
 
@@ -66,6 +69,7 @@ data class Model(
         const val TEXT_MODALITY = "text"
         const val IMAGE_MODALITY = "image"
         const val VIDEO_MODALITY = "video"
+        const val AUDIO_MODALITY = "audio"
     }
 }
 

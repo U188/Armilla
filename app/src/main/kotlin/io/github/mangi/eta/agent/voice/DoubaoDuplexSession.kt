@@ -57,7 +57,11 @@ internal class DoubaoDuplexSession(
     suspend fun run(apiKey: String, voice: String, instructions: String) = coroutineScope {
         val request = Request.Builder()
             .url(ENDPOINT)
+            .header("X-Api-App-Key", APP_KEY)
+            .header("X-Api-Access-Key", apiKey)
             .header("X-Api-Key", apiKey)
+            .header("X-Api-Resource-Id", RESOURCE_ID)
+            .header("X-Api-Connect-Id", UUID.randomUUID().toString())
             .build()
         socket = client.newWebSocket(request, listener)
         val ws = withTimeout(15_000) { opened.await() }
@@ -199,7 +203,7 @@ internal class DoubaoDuplexSession(
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build(),
             )
@@ -290,6 +294,8 @@ internal class DoubaoDuplexSession(
 
     companion object {
         private const val ENDPOINT = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
+        private const val APP_KEY = "aGjiRDfUWi"
+        private const val RESOURCE_ID = "volc.seed.realtime"
         private const val INPUT_RATE = 16_000
         private const val OUTPUT_RATE = 24_000
         private const val INPUT_FRAME_BYTES = 640

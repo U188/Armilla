@@ -49,13 +49,20 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     val catalog = remember(engine, modelId) { SpeechVoices.catalog(engine, modelId) }
     val playback by SpeechPlayback.state.collectAsState()
     val sample = stringResource(R.string.tts_sample)
-    LaunchedEffect(engine, modelId) {
-        if (!cloud || catalog.isEmpty()) return@LaunchedEffect
-        if (voice.isBlank() || catalog.none { it.id == voice }) {
-            val fallback = catalog.first().id
-            voice = fallback
-            Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, fallback)
+    LaunchedEffect(cloud, providerId, selectedProvider?.id, engine, modelId, catalog, voice) {
+        if (!SpeechVoices.shouldReplaceStoredVoice(
+                cloud = cloud,
+                providerId = providerId,
+                providerReady = selectedProvider != null,
+                storedVoice = voice,
+                catalogIds = catalog.map { it.id },
+            )
+        ) {
+            return@LaunchedEffect
         }
+        val fallback = catalog.first().id
+        voice = fallback
+        Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, fallback)
     }
     MiuixScaffoldPage(title = stringResource(R.string.tts_title), onBack = onBack) {
         item(key = "tts_mode") {

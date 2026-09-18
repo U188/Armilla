@@ -1,6 +1,21 @@
 package io.github.mangi.eta.agent.voice.tts
 
 internal object SpeechVoices {
+    fun shouldReplaceStoredVoice(
+        cloud: Boolean,
+        providerId: String,
+        providerReady: Boolean,
+        storedVoice: String,
+        catalogIds: Collection<String>,
+    ): Boolean {
+        if (!cloud || catalogIds.isEmpty()) return false
+        // Providers load asynchronously. A transient OpenAI catalog must not overwrite
+        // a saved Xiaomi/Doubao voice with the first fallback, usually "默认".
+        if (providerId.isNotBlank() && !providerReady) return false
+        if (storedVoice.isBlank()) return true
+        return storedVoice !in catalogIds
+    }
+
     fun catalog(engine: SpeechEngine, model: String = ""): List<SpeechVoice> = when (engine) {
         SpeechEngine.DOUBAO -> DoubaoVoices.catalog
         SpeechEngine.OPENAI -> openai

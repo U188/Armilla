@@ -249,8 +249,10 @@ internal fun AgentChatBody(
     val speechPlayback by io.github.mangi.eta.agent.voice.tts.SpeechPlayback.state.collectAsState()
     LaunchedEffect(visibleMessages, messageEdit?.targetMessageId, speechPlayback.owner) {
         val owner = speechPlayback.owner
-        if (owner != null && owner != "tts-preview" &&
-            (messageEdit != null || visibleMessages.none { it is AgentMessageUi && it.id == owner && !it.isStreaming })) {
+        val visibleCompletedIds = visibleMessages.mapNotNull { message ->
+            (message as? AgentMessageUi)?.takeIf { !it.isStreaming }?.id
+        }.toSet()
+        if (shouldStopOrphanSpeechPlayback(owner, messageEdit != null, visibleCompletedIds)) {
             io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop()
         }
     }
@@ -1546,3 +1548,13 @@ private data class SuggestionItem(
     val icon: ImageVector,
     val prompt: String,
 )
+
+internal fun shouldStopOrphanSpeechPlayback(
+    owner: String?,
+    messageEditActive: Boolean,
+    visibleCompletedAgentIds: Set<String>,
+): Boolean {
+    if (owner.isNullOrBlank()) return false
+    if (owner == "tts-preview" || owner.startsWith("voice-mode-")) return false
+    return messageEditActive || owner !in visibleCompletedAgentIds
+}

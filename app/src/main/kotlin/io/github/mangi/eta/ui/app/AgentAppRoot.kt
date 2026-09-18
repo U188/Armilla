@@ -870,6 +870,8 @@ fun AgentAppRoot(
                     picker = route.picker,
                     onNavigate = { destination -> pushRoute(destination) },
                     onBack = ::popRoute,
+                    selectedAssistantId = agentState.homeState.assistantId.ifBlank { null },
+                    onSelectAssistant = agentState::selectAssistant,
                 )
             }
             entry<AppRoute.AssistantEdit>(swipeDismiss = swipeDismiss) { route ->

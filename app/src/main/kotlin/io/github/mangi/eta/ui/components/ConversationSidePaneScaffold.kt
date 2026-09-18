@@ -168,6 +168,7 @@ fun ConversationSidePaneScaffold(
     onCreateFolder: (String) -> Unit = {},
     onRenameFolder: (String, String) -> Unit = { _, _ -> },
     onDeleteFolder: (String) -> Unit = {},
+    selectedAssistantId: String = "",
     onSelectAssistant: (String) -> Unit,
     onEditAssistant: (String) -> Unit,
     onOpenAssistants: () -> Unit,
@@ -355,7 +356,8 @@ private fun ConversationPanePanel(
     }
     val groups = remember(visibleConversations) { visibleConversations.groupForDrawer() }
     val profiles by AssistantRepository.profiles.collectAsState()
-    val activeId by AssistantRepository.activeId.collectAsState()
+    val repositoryActiveId by AssistantRepository.activeId.collectAsState()
+    val activeId = selectedAssistantId.ifBlank { repositoryActiveId }
     val activeAssistant = remember(profiles, activeId) {
         profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
     }

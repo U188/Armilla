@@ -28,6 +28,8 @@ internal data class ConversationEntity(
     val providerId: String = "",
     @ColumnInfo(name = "model_id", defaultValue = "''")
     val modelId: String = "",
+    @ColumnInfo(name = "assistant_id", defaultValue = "''")
+    val assistantId: String = "",
 )
 
 internal data class ConversationMetadata(
@@ -42,6 +44,7 @@ internal data class ConversationMetadata(
     @ColumnInfo(name = "is_pinned") val isPinned: Boolean = false,
     @ColumnInfo(name = "provider_id") val providerId: String = "",
     @ColumnInfo(name = "model_id") val modelId: String = "",
+    @ColumnInfo(name = "assistant_id") val assistantId: String = "",
 )
 
 @Serializable

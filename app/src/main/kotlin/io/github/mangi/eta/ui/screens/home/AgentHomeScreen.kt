@@ -49,6 +49,7 @@ internal fun AgentHomeScreen(
             pendingImages = state.pendingImages,
             pendingFileReferences = state.pendingFileReferences,
             messageEdit = state.messageEdit,
+            assistantId = state.assistantId,
             onReasoningEffortChange = { onAction(AgentHomeAction.ReasoningEffortChanged(it)) },
             onModelSelected = { providerId, modelId -> onAction(AgentHomeAction.ModelSelected(modelId, providerId)) },
             onSubmit = { text -> onAction(AgentHomeAction.SubmitMessage(text)) },

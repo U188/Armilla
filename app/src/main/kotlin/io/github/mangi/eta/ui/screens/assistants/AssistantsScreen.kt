@@ -35,10 +35,13 @@ internal fun AssistantsScreen(
     picker: Boolean,
     onNavigate: (AppRoute) -> Unit,
     onBack: () -> Unit,
+    selectedAssistantId: String? = null,
+    onSelectAssistant: ((String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val profiles by AssistantRepository.profiles.collectAsState()
-    val activeId by AssistantRepository.activeId.collectAsState()
+    val repositoryActiveId by AssistantRepository.activeId.collectAsState()
+    val activeId = selectedAssistantId ?: repositoryActiveId
     var searchQuery by remember { mutableStateOf("") }
     var actionProfile by remember { mutableStateOf<AssistantProfile?>(null) }
     var deleteProfile by remember { mutableStateOf<AssistantProfile?>(null) }
@@ -92,12 +95,17 @@ internal fun AssistantsScreen(
                     selected = profile.id == activeId,
                     onClick = {
                         if (picker) {
-                            scope.launch {
-                                withContext(Dispatchers.IO) {
-                                    AssistantRepository.select(profile.id)
-                                    RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
-                                }
+                            if (onSelectAssistant != null) {
+                                onSelectAssistant(profile.id)
                                 onBack()
+                            } else {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        AssistantRepository.select(profile.id)
+                                        RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+                                    }
+                                    onBack()
+                                }
                             }
                         } else {
                             onNavigate(AppRoute.AssistantEdit(profile.id))

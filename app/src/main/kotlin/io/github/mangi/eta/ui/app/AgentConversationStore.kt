@@ -95,6 +95,7 @@ internal object AgentConversationStore {
                         isPinned = id in pinnedIds,
                         providerId = state.providerId,
                         modelId = state.modelId,
+                        assistantId = state.assistantId,
                     )
                 }
                 val messages = sorted.flatMap { (conversationId, state) ->
@@ -196,6 +197,7 @@ internal object AgentConversationStore {
                 reasoningEffort = conversation.reasoningEffortValue,
                 providerId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackProviderId else conversation.providerId,
                 modelId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackModelId else conversation.modelId,
+                assistantId = conversation.assistantId,
             )
             titles[conversation.id] = conversation.title.takeUnless { it == LEGACY_UNNAMED_TITLE }.orEmpty()
             updatedAt[conversation.id] = conversation.updatedAt

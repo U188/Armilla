@@ -50,10 +50,12 @@ internal fun AssistantPickerDialog(
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
     onEdit: (String) -> Unit,
+    selectedAssistantId: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val profiles by AssistantRepository.profiles.collectAsState()
-    val activeId by AssistantRepository.activeId.collectAsState()
+    val repositoryActiveId by AssistantRepository.activeId.collectAsState()
+    val activeId = selectedAssistantId ?: repositoryActiveId
     var searchQuery by remember { mutableStateOf("") }
     var actionProfile by remember { mutableStateOf<AssistantProfile?>(null) }
     var deleteProfile by remember { mutableStateOf<AssistantProfile?>(null) }

@@ -533,4 +533,27 @@ class AgentConversationStoreTest {
         assertEquals(700L, loaded.preservedUsage.cachedTokens)
     }
 
+    @Test
+    fun saveAndLoadPreservesAssistantBinding() {
+        runBlocking {
+            AgentConversationStore.save(
+                context = context,
+                selectedConversationId = "conv-assistant",
+                conversationsById = mapOf(
+                    "conv-assistant" to AgentChatHomeUiState(
+                        messages = emptyList(),
+                        input = "",
+                        isStreaming = false,
+                        thinkingEnabled = false,
+                        assistantId = "assistant-bound",
+                    ),
+                ),
+                titles = mapOf("conv-assistant" to "Bound"),
+                updatedAt = mapOf("conv-assistant" to 1L),
+            )
+        }
+        val restored = AgentConversationStore.load(context)
+        assertEquals("assistant-bound", restored.conversationsById.getValue("conv-assistant").assistantId)
+    }
+
 }

@@ -1212,7 +1212,7 @@ internal class AgentAppState(
         fileAttachmentOwnerVersion += 1
         selectedConversationId = null
         pendingNewConversationFolderId = selectedFolderId
-        homeState = emptyChatState(false).withPreferredReasoningEffort()
+        homeState = newDraftChatState()
         conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
         refreshConversationSummaries()
         val deletion = persistConversations()
@@ -1247,7 +1247,7 @@ internal class AgentAppState(
                 conversationsById = conversationsById + (nextId to homeState)
             } else {
                 selectedConversationId = null
-                homeState = emptyChatState(false).withPreferredReasoningEffort()
+                homeState = newDraftChatState()
             }
         }
         conversationPaneState = conversationPaneState.copy(selectedConversationId = selectedConversationId)
@@ -2743,21 +2743,14 @@ internal class AgentAppState(
     fun selectAssistant(id: String) {
         if (rejectConversationArchiveMutation()) return
         if (homeState.isStreaming && !homeState.isPaused) return
-        if (AssistantRepository.activeId.value == id) return
+        if (AssistantRepository.profile(id) == null) return
         if (homeState.isPaused) abandonPausedRun()
-        scope.launch(Dispatchers.IO) {
-            AssistantRepository.select(id)
-            RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
-            withContext(Dispatchers.Main) {
-                val discarded = memoryState.hasUnsavedChanges &&
-                    memoryState.assistantId.isNotBlank() &&
-                    memoryState.assistantId != id
-                refreshMemory()
-                if (discarded) {
-                    Toast.makeText(appContext, "已切换助手，未保存的记忆草稿未写入。", Toast.LENGTH_LONG).show()
-                }
-                refreshRequestOverhead()
-            }
+        val discarded = memoryState.hasUnsavedChanges &&
+            memoryState.assistantId.isNotBlank() &&
+            memoryState.assistantId != id
+        applyConversationAssistant(id, persist = true)
+        if (discarded) {
+            Toast.makeText(appContext, "已切换助手，未保存的记忆草稿未写入。", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -4029,6 +4022,7 @@ internal class AgentAppState(
             pendingFileReferences = draft.pendingFileReferences,
             providerId = currentBoundProviderId(),
             modelId = currentBoundModelId(),
+            assistantId = currentBoundAssistantId(),
         )
         conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
     }
@@ -4283,17 +4277,50 @@ internal class AgentAppState(
     private fun currentBoundModelId(): String =
         modelPickerState.selectedModel?.id.orEmpty()
 
+    private fun currentBoundAssistantId(): String =
+        AssistantRepository.active().id
+
+    private fun resolvedAssistantId(state: AgentChatHomeUiState): String {
+        val stored = state.assistantId
+        if (stored.isNotBlank() && AssistantRepository.profile(stored) != null) return stored
+        return currentBoundAssistantId()
+    }
+
+    private fun applyConversationAssistant(assistantId: String, persist: Boolean) {
+        if (homeState.assistantId != assistantId) {
+            updateCurrentConversation(homeState.copy(assistantId = assistantId))
+            if (persist) persistConversations()
+        }
+        if (AssistantRepository.activeId.value == assistantId) {
+            refreshMemory()
+            refreshRequestOverhead()
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            AssistantRepository.select(assistantId)
+            RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+            withContext(Dispatchers.Main) {
+                if (resolvedAssistantId(homeState) != assistantId) return@withContext
+                refreshMemory()
+                refreshRequestOverhead()
+            }
+        }
+    }
+
     private fun newDraftChatState(): AgentChatHomeUiState =
         emptyChatState(false)
             .copy(
                 providerId = currentBoundProviderId(),
                 modelId = currentBoundModelId(),
+                assistantId = currentBoundAssistantId(),
             )
             .withPreferredReasoningEffort()
 
     private fun restoreConversationRuntimeModel() {
         modelBindingGeneration++
         refreshBoundModelPicker()
+        val assistantId = resolvedAssistantId(homeState)
+        applyConversationAssistant(assistantId, persist = homeState.assistantId != assistantId)
     }
 
     private suspend fun runtimeConfigForBoundModel(

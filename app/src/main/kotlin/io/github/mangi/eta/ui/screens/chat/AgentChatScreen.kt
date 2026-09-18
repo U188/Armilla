@@ -46,6 +46,7 @@ internal fun AgentChatScreen(
             pendingImages = state.pendingImages,
             pendingFileReferences = state.pendingFileReferences,
             messageEdit = state.messageEdit,
+            assistantId = state.assistantId,
             onReasoningEffortChange = { onAction(AgentChatAction.ReasoningEffortChanged(it)) },
             onModelSelected = { providerId, modelId -> onAction(AgentChatAction.ModelSelected(modelId, providerId)) },
             onSubmit = { text -> onAction(AgentChatAction.SubmitMessage(text)) },

@@ -138,6 +138,7 @@ internal fun AgentChatInputBar(
     pendingImages: List<PendingImageUi>,
     pendingFileReferences: List<PendingFileReferenceUi>,
     isEditingMessage: Boolean,
+    assistantId: String = "",
     editHasLaterTurns: Boolean,
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     onModelSelected: (String, String) -> Unit,
@@ -404,6 +405,7 @@ internal fun AgentChatInputBar(
 
                             AssistantPickerButton(
                                 enabled = !isStreaming || isPaused,
+                                selectedAssistantId = assistantId,
                                 onEditAssistant = onEditAssistant,
                                 onAssistantSelected = onAssistantSelected,
                             )
@@ -788,12 +790,14 @@ private fun PendingImageStrip(
 @Composable
 private fun AssistantPickerButton(
     enabled: Boolean,
+    selectedAssistantId: String = "",
     onEditAssistant: (String) -> Unit,
     onAssistantSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val profiles by AssistantRepository.profiles.collectAsState()
-    val activeId by AssistantRepository.activeId.collectAsState()
+    val repositoryActiveId by AssistantRepository.activeId.collectAsState()
+    val activeId = selectedAssistantId.ifBlank { repositoryActiveId }
     var showPicker by remember { mutableStateOf(false) }
     val assistant = profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
     LaunchedEffect(enabled) {
@@ -823,6 +827,7 @@ private fun AssistantPickerButton(
             showPicker = false
             onEditAssistant(id)
         },
+        selectedAssistantId = activeId,
     )
 }
 

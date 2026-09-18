@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SkillRegistryEntity::class,
         McpServerEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = false,
 )
 internal abstract class EtaDatabase : RoomDatabase() {
@@ -66,6 +66,7 @@ internal abstract class EtaDatabase : RoomDatabase() {
                         MIGRATION_22_23,
                         MIGRATION_23_24,
                         MIGRATION_24_25,
+                        MIGRATION_25_26,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
@@ -159,6 +160,14 @@ internal abstract class EtaDatabase : RoomDatabase() {
             if (!tableHasColumn(database, "model_providers", "auth_mode")) {
                 database.execSQL(
                     "ALTER TABLE model_providers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'api_key'",
+                )
+            }
+        }
+
+        internal val MIGRATION_25_26 = Migration(25, 26) { database ->
+            if (!tableHasColumn(database, "conversations", "assistant_id")) {
+                database.execSQL(
+                    "ALTER TABLE conversations ADD COLUMN assistant_id TEXT NOT NULL DEFAULT ''",
                 )
             }
         }

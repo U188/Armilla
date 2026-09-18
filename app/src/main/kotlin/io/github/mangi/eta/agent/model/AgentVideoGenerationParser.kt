@@ -152,6 +152,9 @@ internal object AgentVideoGenerationParser {
             isVideoKey(key) && isDirectVideoSource(value) -> {
                 videos += VideoRef(url = value, mimeType = mimeFromSource(value))
             }
+            key == "video_url" && (value.startsWith("http://") || value.startsWith("https://")) -> {
+                videos += VideoRef(url = value, mimeType = mimeFromSource(value))
+            }
             isVideoKey(key) -> decodeBase64Video(value)?.let(videos::add)
             key == "content" || key == "text" || key == "caption" || key == "revised_prompt" -> {
                 extractMarkdownVideos(value).forEach(videos::add)

@@ -52,4 +52,19 @@ class SpeechSpeakableTextTest {
         assertFalse(text.contains("隐藏"))
         assertFalse(text.contains("secret"))
     }
+
+    @Test fun firstUtteranceKeepsOpeningProseWithHeading() {
+        val parts = SpeechSpeakableText.sentences("# 标题\n\n你好，这是正文第一句。后面一句。")
+        assertTrue(parts.isNotEmpty())
+        assertTrue(parts.first().contains("你好"))
+        val joined = parts.joinToString("")
+        assertTrue(joined.contains("标题"))
+        assertTrue(joined.contains("后面一句"))
+    }
+    @Test fun firstUtteranceDoesNotStartAfterOpeningSentence() {
+        val source = "已经接到源码里了，还没提交。\n\n## 豆包语音\n\n支持云端朗读。"
+        val parts = SpeechSpeakableText.sentences(source)
+        assertTrue(parts.first().contains("已经接到"))
+        assertFalse(parts.first().startsWith("支持云端"))
+    }
 }

@@ -6,7 +6,7 @@
     <string name="tts_model">Speech model</string>
     <string name="tts_select_model">Choose a model supporting the Speech API</string>
     <string name="tts_voice">Voice ID</string>
-    <string name="tts_protocol_hint">Only OpenAI-compatible /audio/speech with MP3 is supported. Listing a model does not guarantee compatibility. Verify support and enter the provider-specific voice ID.</string>
+    <string name="tts_protocol_hint">OpenAI-compatible /audio/speech (MP3) or Doubao Voice HTTP. For Doubao pick seed-tts-2.0 or seed-audio-1.0 and enter voice_type. Doubao Voice API keys are not Ark chat keys.</string>
     <string name="tts_preview">Preview</string>
     <string name="tts_stop">Stop reading</string>
     <string name="tts_read">Read reply (synthetic voice)</string>

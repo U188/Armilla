@@ -6,7 +6,7 @@
     <string name="tts_model">朗讀模型</string>
     <string name="tts_select_model">選擇支援 Speech 介面的模型</string>
     <string name="tts_voice">音色 ID</string>
-    <string name="tts_protocol_hint">僅支援 OpenAI 相容 /audio/speech（MP3）。模型清單不代表介面相容；請確認服務商支援，並填寫其音色 ID。</string>
+    <string name="tts_protocol_hint">支援 OpenAI 相容 /audio/speech（MP3），以及豆包語音 HTTP。豆包請選 seed-tts-2.0 或 seed-audio-1.0，音色填 voice_type。豆包語音 Key 不是方舟聊天 Key。</string>
     <string name="tts_preview">試聽</string>
     <string name="tts_stop">停止朗讀</string>
     <string name="tts_read">朗讀回覆（合成語音）</string>

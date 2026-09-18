@@ -45,13 +45,14 @@ internal class AgentVideoGenerationClient(
         }
         val headers = requestHeaders(config)
         val inputImages = images.filter { it.bytes.isNotEmpty() }
-        val attempts = listOf(
-            Attempt.VideosMultipart,
-            Attempt.VideosJson,
-            Attempt.VideosGenerations,
-            Attempt.VideoGenerations,
-            Attempt.ChatCompletions,
-        )
+        val attempts = buildList {
+            if (ArkContentsGenerations.matches(config.baseUrl)) add(Attempt.ArkContents)
+            add(Attempt.VideosMultipart)
+            add(Attempt.VideosJson)
+            add(Attempt.VideosGenerations)
+            add(Attempt.VideoGenerations)
+            add(Attempt.ChatCompletions)
+        }
         var lastError: String? = null
         attempts.forEach { attempt ->
             currentCoroutineContext().ensureActive()
@@ -75,6 +76,7 @@ internal class AgentVideoGenerationClient(
     }
 
     private enum class Attempt {
+        ArkContents,
         VideosMultipart,
         VideosJson,
         VideosGenerations,
@@ -122,10 +124,11 @@ internal class AgentVideoGenerationClient(
         repeat(MAX_POLLS) { index ->
             currentCoroutineContext().ensureActive()
             if (index > 0) delay(POLL_INTERVAL_MS)
-            val responses = listOf(
-                get(ProviderUrls.openAiVideoUrl(config.baseUrl, taskId), headers),
-                get(ProviderUrls.openAiVideoGenerationUrl(config.baseUrl, taskId), headers),
-            )
+            val responses = buildList {
+                ArkContentsGenerations.taskUrl(config.baseUrl, taskId)?.let { add(get(it, headers)) }
+                add(get(ProviderUrls.openAiVideoUrl(config.baseUrl, taskId), headers))
+                add(get(ProviderUrls.openAiVideoGenerationUrl(config.baseUrl, taskId), headers))
+            }
             responses.forEach { response ->
                 if (!response.ok) return@forEach
                 sniffVideo(response.bytes, response.contentType)?.let { video ->
@@ -175,6 +178,11 @@ internal class AgentVideoGenerationClient(
         attempt: Attempt,
     ): RawResponse {
         val request = when (attempt) {
+            Attempt.ArkContents -> Request.Builder()
+                .url(ArkContentsGenerations.tasksUrl(config.baseUrl) ?: error("当前地址不是火山方舟内容生成接口"))
+                .headers(headers)
+                .post(ArkContentsGenerations.createBody(config.model, prompt, images).toRequestBody(JSON_MEDIA_TYPE))
+                .build()
             Attempt.VideosMultipart -> Request.Builder()
                 .url(ProviderUrls.openAiVideosUrl(config.baseUrl))
                 .headers(headers)

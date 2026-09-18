@@ -9,6 +9,7 @@ import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.model.ProviderSetting
+import io.github.mangi.eta.agent.voice.tts.DoubaoSpeech
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
 import java.text.NumberFormat
 import java.util.Locale
@@ -66,19 +67,19 @@ internal object AgentModelPickerProjector {
             .sortedBy(ProviderSetting::sortOrder)
             .toList()
         val selectedProvider = enabledProviders.firstOrNull { it.id == selectedProviderId }
-        val selectedModel = selectedProvider
-            ?.models
-            ?.firstOrNull { it.id == selectedModelId && it.isEnabled && (includeSpeechModels || !it.supportsSpeechSynthesis) }
-            ?.let { model -> selectedProvider.toOption(model) }
+        val selectedModel = selectedProvider?.let { provider ->
+            listedModels(provider, includeSpeechModels)
+                .firstOrNull { it.id == selectedModelId && it.isEnabled }
+                ?.let { model -> provider.toOption(model) }
+        }
         val groups = enabledProviders
             .asSequence()
             .filter { it.apiKey.isNotBlank() }
             .mapNotNull { provider ->
                 val sourceType = ProviderSourceRegistry.resolve(provider)
-                val models = provider.models
+                val models = listedModels(provider, includeSpeechModels)
                     .asSequence()
-                    .filter { it.isEnabled && (includeSpeechModels || !it.supportsSpeechSynthesis) }
-                    .sortedBy { it.sortOrder }
+                    .filter { it.isEnabled }
                     .map { model -> provider.toOption(model) }
                     .toList()
                 models.takeIf(List<*>::isNotEmpty)?.let {
@@ -95,6 +96,17 @@ internal object AgentModelPickerProjector {
             providerGroups = groups,
             selectedModel = selectedModel,
         )
+    }
+
+
+    private fun listedModels(provider: ProviderSetting, includeSpeechModels: Boolean): List<Model> {
+        val extras = if (includeSpeechModels) DoubaoSpeech.extraModels(provider) else emptyList()
+        val seen = HashSet<String>()
+        return (extras + provider.models).filter { model ->
+            if (!model.isEnabled) return@filter false
+            if (!includeSpeechModels && model.supportsSpeechSynthesis) return@filter false
+            seen.add(model.modelId.lowercase())
+        }
     }
 
     private fun ProviderSetting.toOption(model: Model): AgentModelOptionUi =

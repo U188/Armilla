@@ -26,4 +26,19 @@ class SpeechModelIsolationTest {
         val config = AgentModelClient.ModelConfig(baseUrl = "https://example.com/v1", apiKey = "", model = "tts-1", systemPrompt = "")
         assertThrows(IllegalArgumentException::class.java) { ProviderClientFactory.getClient(config) }
     }
+
+    @Test fun extraDoubaoSpeechModelsShowOnlyInSpeechPicker() {
+        val volc = OpenAiCompatibleProviderSetting(
+            id = "v", name = "火山", baseUrl = "https://ark.cn-beijing.volces.com/api/coding/v3", apiKey = "key",
+            models = listOf(Model("chat", "doubao-seed-2-1-pro-260915", "chat")),
+        )
+        val chat = AgentModelPickerProjector.project(listOf(volc), "v", "chat")
+        assertEquals(listOf("doubao-seed-2-1-pro-260915"), chat.providerGroups.single().models.map { it.modelId })
+        val speech = AgentModelPickerProjector.project(listOf(volc), "v", "seed-tts-2.0", includeSpeechModels = true)
+        val ids = speech.providerGroups.single().models.map { it.modelId }
+        assertTrue(ids.contains("seed-tts-2.0"))
+        assertTrue(ids.contains("seed-audio-1.0"))
+        assertTrue(ids.contains("doubao-seed-2-1-pro-260915"))
+        assertEquals("seed-tts-2.0", speech.selectedModel?.modelId)
+    }
 }

@@ -8,6 +8,7 @@ import org.intellij.markdown.parser.MarkdownParser
 internal object SpeechSpeakableText {
     const val MAX_SENTENCE_CHARS = 400
     const val MAX_SOURCE_CHARS = 100_000
+    const val MIN_NEWLINE_SENTENCE_CHARS = 24
 
     fun speakable(markdown: String): String {
         require(markdown.length <= MAX_SOURCE_CHARS) { "回复过长，请分段朗读" }
@@ -56,14 +57,27 @@ internal object SpeechSpeakableText {
             val cp = text.codePointAt(cursor)
             cursor += Character.charCount(cp)
             count++
-            val boundary = cp.toChar() in "。！？；!?\n" ||
+            val newline = cp == '\n'.code
+            val punct = cp.toChar() in "。！？；!?" ||
                 (cp == '.'.code && (cursor == text.length || text[cursor].isWhitespace()))
+            // Short heading lines would otherwise become the first utterance and get dropped by some engines.
+            val boundary = punct || (newline && count >= MIN_NEWLINE_SENTENCE_CHARS)
             if (count >= maxChars || boundary || cursor == text.length) {
                 text.substring(start, cursor).trim().takeIf(String::isNotEmpty)?.let(result::add)
                 start = cursor
                 count = 0
             }
         }
-        return result
+        return if (maxChars < MIN_NEWLINE_SENTENCE_CHARS) result else mergeShortLeading(result)
+    }
+
+    private fun mergeShortLeading(parts: List<String>): List<String> {
+        if (parts.size < 2) return parts
+        val out = parts.toMutableList()
+        while (out.size >= 2 && out[0].count { !it.isWhitespace() } < MIN_NEWLINE_SENTENCE_CHARS) {
+            out[1] = out[0] + " " + out[1]
+            out.removeAt(0)
+        }
+        return out
     }
 }

@@ -20,6 +20,7 @@ internal object SpeechSynthesisModels {
         "f5-tts",
         "openvoice",
         "bark-tts",
+        "seed-audio",
     )
     private val STT_MARKERS = listOf(
         "asr", "whisper", "paraformer", "sensevoice", "gummy", "transcribe", "stt",

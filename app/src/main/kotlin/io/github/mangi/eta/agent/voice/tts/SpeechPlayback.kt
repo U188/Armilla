@@ -111,16 +111,17 @@ internal object SpeechPlayback {
                         } else {
                             val config = withContext(Dispatchers.IO) {
                                 val provider = ProviderRepository.providerById(providerId)
-                                speechCheck(provider != null && SpeechSynthesisModels.allowsSpeechEndpoint(provider)) { "该提供商不支持此朗读接入方式" }
-                                RuntimeConfigRepository.configForProviderAndModel(
-                                    providerId,
-                                    modelId,
-                                )
+                                    ?.takeIf(SpeechSynthesisModels::allowsSpeechEndpoint)
+                                    ?: throw SpeechPlaybackFailure("该提供商不支持此朗读接入方式")
+                                val model = provider.models.firstOrNull { it.id == modelId && it.isEnabled }
+                                    ?: DoubaoSpeech.extraModels(provider).firstOrNull { it.id == modelId || it.modelId == modelId }
+                                    ?: throw SpeechPlaybackFailure("朗读模型已不可用，请重新配置或选择系统朗读")
+                                RuntimeConfigRepository.buildRuntimeConfig(provider, model)
                             }
-                            speechCheck(config != null) { "朗读模型已不可用，请重新配置或选择系统朗读" }
                             val voice = voiceId
                             speechCheck(voice.isNotEmpty()) { "请先设置云端音色 ID" }
                             val synth = CloudSpeechSynthesizer()
+                            val label = if (DoubaoSpeech.matchesModel(config.model) || DoubaoSpeech.isOpenspeech(config.baseUrl)) "豆包语音" else "云端 Speech"
                             supervisorScope {
                                 // At most current + next sentence buffered. Never restart from the beginning on failure.
                                 var next = async { synth.synthesize(config, sentences.first(), voice) }
@@ -128,7 +129,7 @@ internal object SpeechPlayback {
                                     val bytes = next.await()
                                     if (index < sentences.lastIndex) next = async { synth.synthesize(config, sentences[index + 1], voice) }
                                     currentCoroutineContext().ensureActive()
-                                    if (epoch.isCurrent(token)) mutableState.value = SpeechPlaybackState(owner, source = "云端 Speech · ${index + 1}/${sentences.size}")
+                                    if (epoch.isCurrent(token)) mutableState.value = SpeechPlaybackState(owner, source = "$label · ${index + 1}/${sentences.size}")
                                     playMp3(app, bytes)
                                 }
                             }

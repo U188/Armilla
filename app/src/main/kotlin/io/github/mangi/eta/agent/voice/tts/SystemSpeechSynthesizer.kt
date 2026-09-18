@@ -12,6 +12,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** One engine per playback session. No shared listeners, blocking latches or recycled utterance IDs. */
 internal class SystemSpeechSynthesizer {
@@ -40,15 +41,11 @@ internal class SystemSpeechSynthesizer {
                     id?.let { pending.remove(it)?.completeExceptionally(SpeechPlaybackFailure("系统朗读已中断或失败")) }
                 }
             })
+            warmup(engine, pending)
             onReady(voice.name)
             for (sentence in sentences) {
                 currentCoroutineContext().ensureActive()
-                val id = UUID.randomUUID().toString()
-                val done = CompletableDeferred<Unit>()
-                pending[id] = done
-                speechCheck(engine.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.SUCCESS) { "系统语音无法播放" }
-                withTimeout(90_000) { done.await() }
-                pending.remove(id)
+                awaitSpeak(engine, pending, sentence, TextToSpeech.QUEUE_ADD)
             }
         } finally {
             initialized.cancel()
@@ -57,5 +54,35 @@ internal class SystemSpeechSynthesizer {
             pending.values.forEach { it.cancel() }
             pending.clear()
         }
+    }
+
+    private suspend fun warmup(
+        engine: TextToSpeech,
+        pending: ConcurrentHashMap<String, CompletableDeferred<Unit>>,
+    ) {
+        val id = UUID.randomUUID().toString()
+        val done = CompletableDeferred<Unit>()
+        pending[id] = done
+        val queued = runCatching { engine.playSilentUtterance(120, TextToSpeech.QUEUE_FLUSH, id) }.getOrDefault(TextToSpeech.ERROR)
+        if (queued != TextToSpeech.SUCCESS) {
+            pending.remove(id)
+            return
+        }
+        runCatching { withTimeoutOrNull(3_000) { done.await() } }
+        pending.remove(id)
+    }
+
+    private suspend fun awaitSpeak(
+        engine: TextToSpeech,
+        pending: ConcurrentHashMap<String, CompletableDeferred<Unit>>,
+        sentence: String,
+        queueMode: Int,
+    ) {
+        val id = UUID.randomUUID().toString()
+        val done = CompletableDeferred<Unit>()
+        pending[id] = done
+        speechCheck(engine.speak(sentence, queueMode, null, id) == TextToSpeech.SUCCESS) { "系统语音无法播放" }
+        withTimeout(90_000) { done.await() }
+        pending.remove(id)
     }
 }

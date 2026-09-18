@@ -6,6 +6,7 @@ import io.github.mangi.eta.agent.model.ProviderRequestHeaders
 import io.github.mangi.eta.agent.model.ProviderUrls
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -24,9 +25,28 @@ internal class CloudSpeechSynthesizer(
     private val httpClient: OkHttpClient = AgentHttpClient.modelClient.newBuilder()
         .callTimeout(90, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build(),
 ) {
+    private val doubaoClient: OkHttpClient by lazy {
+        httpClient.newBuilder()
+            .callTimeout(210, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .build()
+    }
+
     suspend fun synthesize(config: AgentModelClient.ModelConfig, text: String, voice: String): ByteArray {
         speechCheck(text.isNotBlank()) { "没有可朗读的文字" }
         speechCheck(voice.isNotBlank()) { "请填写该接口支持的音色 ID" }
+        return if (DoubaoSpeech.matchesModel(config.model) || DoubaoSpeech.isOpenspeech(config.baseUrl)) {
+            synthesizeDoubao(config, text, voice)
+        } else {
+            synthesizeOpenAi(config, text, voice)
+        }
+    }
+
+    private suspend fun synthesizeOpenAi(
+        config: AgentModelClient.ModelConfig,
+        text: String,
+        voice: String,
+    ): ByteArray {
         val headers = Headers.Builder().add("Accept", "audio/mpeg")
             .apply { if (config.apiKey.isNotBlank()) add("Authorization", "Bearer ${config.apiKey}") }
             .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders) }.build()
@@ -34,8 +54,40 @@ internal class CloudSpeechSynthesizer(
             .put("voice", voice).put("response_format", "mp3").toString()
         val request = Request.Builder().url(ProviderUrls.openAiAudioSpeechUrl(config.baseUrl))
             .headers(headers).post(payload.toRequestBody("application/json".toMediaType())).build()
-        return suspendCancellableCoroutine { continuation ->
-            val call = httpClient.newCall(request)
+        return executeAudio(httpClient, request, rawMp3 = true)
+    }
+
+    private suspend fun synthesizeDoubao(
+        config: AgentModelClient.ModelConfig,
+        text: String,
+        voice: String,
+    ): ByteArray {
+        speechCheck(config.apiKey.isNotBlank()) { "请填写豆包语音 API Key" }
+        val create = DoubaoSpeech.usesCreate(config.model)
+        val headers = Headers.Builder()
+            .add("Content-Type", "application/json")
+            .add("Accept", if (create) "application/json" else "audio/mpeg")
+            .add("X-Api-Key", config.apiKey)
+            .add("X-Api-Request-Id", DoubaoSpeech.requestId())
+            .apply {
+                if (!create) add("X-Api-Resource-Id", DoubaoSpeech.resourceId(config.model))
+            }
+            .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders) }
+            .build()
+        val payload = if (create) {
+            DoubaoSpeech.createBody(config.model, text, voice)
+        } else {
+            DoubaoSpeech.unidirectionalBody(text, voice)
+        }
+        val url = if (create) DoubaoSpeech.CREATE_URL else DoubaoSpeech.UNIDIRECTIONAL_URL
+        val request = Request.Builder().url(url)
+            .headers(headers).post(payload.toRequestBody("application/json".toMediaType())).build()
+        return executeAudio(doubaoClient, request, rawMp3 = !create)
+    }
+
+    private suspend fun executeAudio(client: OkHttpClient, request: Request, rawMp3: Boolean): ByteArray =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -44,7 +96,6 @@ internal class CloudSpeechSynthesizer(
                 override fun onResponse(call: Call, response: Response) {
                     try {
                         val bytes = response.use {
-                            // Never echo upstream error bodies: they can contain credentials or the user's prose.
                             speechCheck(it.isSuccessful) { "朗读接口 HTTP ${it.code}，请核对 Speech 协议、模型与音色" }
                             val body = it.body
                             speechCheck(body.contentLength() <= MAX_AUDIO_BYTES) { "朗读音频超过大小限制" }
@@ -59,7 +110,13 @@ internal class CloudSpeechSynthesizer(
                                     out.write(buffer, 0, n)
                                 }
                             }
-                            out.toByteArray().also { bytes -> validateAudio(it.header("Content-Type"), bytes) }
+                            val payload = out.toByteArray()
+                            if (rawMp3) {
+                                validateAudio(it.header("Content-Type"), payload)
+                                payload
+                            } else {
+                                decodeDoubaoAudio(it.header("Content-Type"), payload)
+                            }
                         }
                         if (continuation.isActive) continuation.resume(bytes)
                     } catch (e: Exception) {
@@ -70,7 +127,6 @@ internal class CloudSpeechSynthesizer(
                 }
             })
         }
-    }
 
     companion object {
         const val MAX_AUDIO_BYTES = 8 * 1024 * 1024
@@ -81,6 +137,43 @@ internal class CloudSpeechSynthesizer(
             val frame = bytes.size >= 4 && (bytes[0].toInt() and 0xff) == 0xff &&
                 (bytes[1].toInt() and 0xe0) == 0xe0 && (bytes[1].toInt() and 0x06) != 0
             speechCheck(id3 || frame) { "朗读接口返回了无效音频，可能是错误网页或 JSON" }
+        }
+
+        internal fun decodeDoubaoAudio(contentType: String?, bytes: ByteArray): ByteArray {
+            if (looksLikeMp3(bytes)) {
+                validateAudio("audio/mpeg", bytes)
+                return bytes
+            }
+            val type = contentType.orEmpty().substringBefore(';').trim().lowercase()
+            speechCheck(type.isEmpty() || type == "application/json" || type == "text/plain" || type == "application/octet-stream") {
+                "朗读接口未返回音频或 JSON"
+            }
+            val text = runCatching { bytes.decodeToString() }.getOrDefault("")
+            speechCheck(text.isNotBlank()) { "朗读接口返回了空响应" }
+            val json = runCatching { JSONObject(text) }.getOrNull()
+            speechCheck(json != null) { "朗读接口返回了无效音频，可能是错误网页或 JSON" }
+            val code = json!!.opt("code")
+            if (code is Number) {
+                speechCheck(code.toInt() == 0 || code.toInt() == 20000000) { "朗读接口返回了错误状态" }
+            }
+            val audio = json.optString("audio").ifBlank { json.optString("data") }
+            speechCheck(audio.isNotBlank()) { "朗读接口没有返回音频数据" }
+            val decoded = runCatching {
+                Base64.getDecoder().decode(audio.filterNot { it.isWhitespace() })
+            }.getOrNull()?.takeIf { it.isNotEmpty() }
+            speechCheck(decoded != null) { "朗读接口返回了无效音频，可能是错误网页或 JSON" }
+            val audioBytes = requireNotNull(decoded)
+            speechCheck(audioBytes.size <= MAX_AUDIO_BYTES) { "朗读音频超过大小限制" }
+            validateAudio("audio/mpeg", audioBytes)
+            return audioBytes
+        }
+
+        private fun looksLikeMp3(bytes: ByteArray): Boolean {
+            if (bytes.size < 4) return false
+            val id3 = bytes.size >= 10 && bytes[0] == 73.toByte() && bytes[1] == 68.toByte() && bytes[2] == 51.toByte()
+            val frame = (bytes[0].toInt() and 0xff) == 0xff &&
+                (bytes[1].toInt() and 0xe0) == 0xe0 && (bytes[1].toInt() and 0x06) != 0
+            return id3 || frame
         }
     }
 }

@@ -87,4 +87,14 @@ class AgentVideoGenerationParserTest {
         assertEquals("webm", AgentVideoGenerationParser.extensionForMime("video/webm"))
         assertFalse(AgentVideoGenerationParser.isInProgress("completed"))
     }
+
+    @Test
+    fun parsesArkSeedanceVideoUrl() {
+        val parsed = AgentVideoGenerationParser.parse(
+            """{"id":"cgt-1","status":"succeeded","content":{"video_url":"https://tos.volces.com/obj/abc"}}""",
+        )
+        assertEquals("cgt-1", parsed.taskId)
+        assertTrue(AgentVideoGenerationParser.isTerminalSuccess(parsed.status))
+        assertEquals("https://tos.volces.com/obj/abc", parsed.videos.single().url)
+    }
 }

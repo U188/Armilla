@@ -112,4 +112,15 @@ class DoubaoSpeechTest {
         assertEquals('R'.code.toByte(), wav.bytes[0])
         assertTrue(wav.bytes.size > pcm.size)
     }
+
+    @Test
+    fun concatenatedJsonObjectsAreAllConsumed() {
+        val a = Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3))
+        val b = Base64.getEncoder().encodeToString(byteArrayOf(4, 5, 6))
+        val text = """{"code":0,"data":"$a"}{"code":0,"data":"$b"}{"code":20000000,"data":""}"""
+        val payloads = CloudSpeechSynthesizer.extractJsonPayloads(text)
+        assertEquals(3, payloads.size)
+        val joined = payloads.joinToString("") { it.optString("data") }
+        assertEquals(a + b, joined)
+    }
 }

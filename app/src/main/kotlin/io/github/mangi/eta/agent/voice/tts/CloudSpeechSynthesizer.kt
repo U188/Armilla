@@ -184,7 +184,6 @@ internal class CloudSpeechSynthesizer(
 
         internal fun extractJsonPayloads(text: String): List<JSONObject> {
             val stripped = text.replace(Regex("^data:", RegexOption.MULTILINE), "").trim()
-            runCatching { JSONObject(stripped) }.getOrNull()?.let { return listOf(it) }
             val out = ArrayList<JSONObject>()
             val tokener = org.json.JSONTokener(stripped)
             while (tokener.more()) {

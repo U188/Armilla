@@ -1,11 +1,14 @@
 package io.github.mangi.eta.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -13,15 +16,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.agent.voice.tts.DoubaoSpeech
+import io.github.mangi.eta.agent.voice.tts.DoubaoVoices
 import io.github.mangi.eta.agent.voice.tts.SpeechPlayback
+import io.github.mangi.eta.agent.voice.tts.SpeechVoice
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 internal fun TtsSettingsScreen(onBack: () -> Unit) {
@@ -31,12 +40,23 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     var modelId by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_ID)) }
     var voice by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_TTS_VOICE)) }
     var picker by remember { mutableStateOf(false) }
+    var voicePicker by remember { mutableStateOf(false) }
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
     val models = remember(providers, providerId, modelId) {
         AgentModelPickerProjector.project(providers.filter(SpeechSynthesisModels::allowsSpeechEndpoint), providerId, modelId, includeSpeechModels = true)
     }
+    val doubao = DoubaoSpeech.matchesModel(modelId)
+    val catalog = remember(doubao) { if (doubao) DoubaoVoices.catalog else OpenAiSpeechVoices.catalog }
     val playback by SpeechPlayback.state.collectAsState()
     val sample = stringResource(R.string.tts_sample)
+    LaunchedEffect(doubao, modelId) {
+        if (!cloud || catalog.isEmpty()) return@LaunchedEffect
+        if (voice.isBlank() || catalog.none { it.id == voice }) {
+            val fallback = catalog.first().id
+            voice = fallback
+            Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, fallback)
+        }
+    }
     MiuixScaffoldPage(title = stringResource(R.string.tts_title), onBack = onBack) {
         item(key = "tts_mode") {
             Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
@@ -62,21 +82,19 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
                         insideMargin = PaddingValues(16.dp),
                         onClick = { picker = true },
                     )
-                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                        OutlinedTextField(
-                            value = voice,
-                            onValueChange = {
-                                voice = it.take(128)
-                                SpeechPlayback.stop()
-                                Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, voice.trim())
-                            },
-                            label = { Text(stringResource(R.string.tts_voice)) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Text(stringResource(R.string.tts_protocol_hint), style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 10.dp))
-                    }
+                    ArrowPreference(
+                        title = stringResource(R.string.tts_voice),
+                        summary = catalog.firstOrNull { it.id == voice }?.name
+                            ?: voice.ifBlank { stringResource(R.string.tts_select_voice) },
+                        insideMargin = PaddingValues(16.dp),
+                        enabled = models.selectedModel != null && catalog.isNotEmpty(),
+                        onClick = { voicePicker = true },
+                    )
+                    Text(
+                        stringResource(R.string.tts_protocol_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
                 }
             }
         }
@@ -102,7 +120,6 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
         title = stringResource(R.string.tts_model),
         onModelSelected = { provider, model ->
             SpeechPlayback.stop()
-            // Voices are provider/model-specific. Do not carry one to an unrelated service.
             if (providerId != provider || modelId != model) {
                 voice = ""
                 Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, "")
@@ -113,5 +130,78 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
             Prefs.putString(Prefs.Keys.AGENT_TTS_MODEL_ID, model)
             picker = false
         },
+    )
+    TtsVoicePickerDialog(
+        show = voicePicker,
+        voices = catalog,
+        selectedId = voice,
+        onDismiss = { voicePicker = false },
+        onSelected = { id ->
+            SpeechPlayback.stop()
+            voice = id
+            Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, id)
+            voicePicker = false
+        },
+    )
+}
+
+@Composable
+private fun TtsVoicePickerDialog(
+    show: Boolean,
+    voices: List<SpeechVoice>,
+    selectedId: String,
+    onDismiss: () -> Unit,
+    onSelected: (String) -> Unit,
+) {
+    WindowDialog(
+        show = show,
+        title = stringResource(R.string.tts_voice),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            val female = voices.filter { "_female_" in it.id }
+            val male = voices.filter { "_male_" in it.id }
+            val other = voices.filter { voice -> voice !in female && voice !in male }
+            if (female.isNotEmpty()) {
+                SmallTitle(stringResource(R.string.tts_voice_female))
+                female.forEach { VoiceRow(it, selectedId, onSelected) }
+            }
+            if (male.isNotEmpty()) {
+                SmallTitle(stringResource(R.string.tts_voice_male))
+                male.forEach { VoiceRow(it, selectedId, onSelected) }
+            }
+            other.forEach { VoiceRow(it, selectedId, onSelected) }
+        }
+    }
+}
+
+@Composable
+private fun VoiceRow(voice: SpeechVoice, selectedId: String, onSelected: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelected(voice.id) }
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = voice.name,
+            color = if (voice.id == selectedId) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+private object OpenAiSpeechVoices {
+    val catalog: List<SpeechVoice> = listOf(
+        SpeechVoice("alloy", "Alloy"),
+        SpeechVoice("echo", "Echo"),
+        SpeechVoice("fable", "Fable"),
+        SpeechVoice("onyx", "Onyx"),
+        SpeechVoice("nova", "Nova"),
+        SpeechVoice("shimmer", "Shimmer"),
     )
 }

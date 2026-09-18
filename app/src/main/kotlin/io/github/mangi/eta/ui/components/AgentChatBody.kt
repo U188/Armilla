@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -67,16 +68,24 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.browser.AgentBrowserSession
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.voice.VoiceChatSnapshot
+import io.github.mangi.eta.agent.voice.VoiceEntryMode
+import io.github.mangi.eta.agent.voice.VoiceModeController
+import io.github.mangi.eta.agent.voice.VoiceModeState
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
 import io.github.mangi.eta.ui.app.LocalAppearanceSettings
@@ -186,6 +195,13 @@ internal fun AgentChatBody(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val view = LocalView.current
+    val context = LocalContext.current
+    val voiceScope = rememberCoroutineScope()
+    val latestSubmit by rememberUpdatedState(onSubmit)
+    val voiceController = remember(context) {
+        VoiceModeController(context, voiceScope) { text -> latestSubmit(text) }
+    }
+    val voiceState by voiceController.state.collectAsState()
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val isKeyboardVisible = imeBottomPx > 0
@@ -202,6 +218,32 @@ internal fun AgentChatBody(
             targetMessageId = messageEdit?.targetMessageId,
         ).filterNot { message ->
             message is AgentMessageUi && message.content.isBlank()
+        }
+    }
+    LaunchedEffect(visibleMessages, isStreaming) {
+        val last = visibleMessages.filterIsInstance<AgentMessageUi>().lastOrNull()
+        val speechText = last?.let { message ->
+            listOf(visibleTurnSpeechPreface(visibleMessages, message.id), message.content.trim())
+                .filter { it.isNotBlank() }
+                .joinToString("\n\n")
+        }.orEmpty()
+        voiceController.updateChat(
+            VoiceChatSnapshot(
+                isStreaming = isStreaming,
+                lastAgentId = last?.id,
+                lastAgentText = speechText,
+            )
+        )
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(voiceController, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) voiceController.stop()
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            voiceController.stop()
         }
     }
     val speechPlayback by io.github.mangi.eta.agent.voice.tts.SpeechPlayback.state.collectAsState()
@@ -433,6 +475,9 @@ private fun AgentChatScaffold(
             conversationMentions = conversationMentions,
                 messageEdit = messageEdit,
                 assistantId = assistantId,
+                voiceState = voiceState,
+                onStartVoiceMode = voiceController::start,
+                onStopVoiceMode = voiceController::stop,
                 onSubmit = onSubmit,
                 onReasoningEffortChange = onReasoningEffortChange,
                 onModelSelected = onModelSelected,
@@ -1069,6 +1114,9 @@ private fun AgentChatBottomBar(
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
     assistantId: String = "",
+    voiceState: VoiceModeState = VoiceModeState(),
+    onStartVoiceMode: (VoiceEntryMode) -> Unit = {},
+    onStopVoiceMode: () -> Unit = {},
     onSubmit: (String) -> Unit,
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     onModelSelected: (String, String) -> Unit,
@@ -1167,6 +1215,9 @@ private fun AgentChatBottomBar(
             conversationMentions = conversationMentions,
                 isEditingMessage = messageEdit != null,
                 assistantId = assistantId,
+                voiceState = voiceState,
+                onStartVoiceMode = onStartVoiceMode,
+                onStopVoiceMode = onStopVoiceMode,
                 editHasLaterTurns = messageEdit?.hasLaterTurns == true,
                 onSubmit = onSubmit,
                 onReasoningEffortChange = onReasoningEffortChange,

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="voice_mode_title">语音对话</string>
+    <string name="voice_mode_open">打开语音模式</string>
+    <string name="voice_mode_stop">结束语音对话</string>
+    <string name="voice_mode_choose">选择语音模式</string>
+    <string name="voice_mode_default">默认语音操作</string>
+    <string name="voice_mode_dictation">语音输入</string>
+    <string name="voice_mode_universal">语音对话</string>
+    <string name="voice_mode_doubao">豆包实时通话</string>
+    <string name="voice_mode_long_press_hint">短按启动默认操作，长按切换模式。</string>
+    <string name="voice_mode_connecting">正在连接…</string>
+    <string name="voice_mode_listening">正在听你说…</string>
+    <string name="voice_mode_transcribing">正在完成识别…</string>
+    <string name="voice_mode_thinking">代鱼正在思考…</string>
+    <string name="voice_mode_speaking">代鱼正在说话</string>
+    <string name="voice_mode_universal_settings_summary">离线识别 · 当前聊天模型 · 已配置朗读音色</string>
+    <string name="voice_mode_universal_settings_hint">语音识别和朗读继续在原有设置页配置。语音对话会把识别文字发给当前聊天模型，朗读完后继续聆听。</string>
+    <string name="voice_mode_doubao_provider">豆包语音提供商</string>
+    <string name="voice_mode_doubao_provider_missing">请先新增并配置豆包语音提供商</string>
+    <string name="voice_mode_doubao_voice">实时通话音色 ID</string>
+    <string name="voice_mode_doubao_instructions">实时助手提示词</string>
+    <string name="voice_mode_doubao_settings_hint">使用官方 SeedDuplex 实时 WebSocket 接口。所选提供商必须使用 openspeech.bytedance.com，并已填写 API Key。</string>
+</resources>

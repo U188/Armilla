@@ -1,6 +1,10 @@
 package io.github.mangi.eta.ui.components
 
-
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -44,6 +48,9 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.KeyboardVoice
+import androidx.compose.material.icons.rounded.RecordVoiceOver
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.runtime.Composable
@@ -75,6 +82,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -88,8 +96,16 @@ import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.agent.model.AgentContextBudget
+import io.github.mangi.eta.agent.voice.VoiceEntryMode
+import io.github.mangi.eta.agent.voice.VoiceModeState
+import io.github.mangi.eta.agent.voice.VoiceModePhase
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.ReasoningEffort
+import io.github.mangi.eta.config.Prefs
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
@@ -143,6 +159,9 @@ internal fun AgentChatInputBar(
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     isEditingMessage: Boolean,
     assistantId: String = "",
+    voiceState: VoiceModeState = VoiceModeState(),
+    onStartVoiceMode: (VoiceEntryMode) -> Unit = {},
+    onStopVoiceMode: () -> Unit = {},
     editHasLaterTurns: Boolean,
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     onModelSelected: (String, String) -> Unit,
@@ -353,38 +372,45 @@ internal fun AgentChatInputBar(
                     )
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 40.dp)
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                    contentAlignment = Alignment.TopStart,
-                ) {
-                    if (textFieldState.text.isBlank()) {
-                        Text(
-                            text = if (isStreaming) stringResource(R.string.chat_eta_working) else stringResource(R.string.chat_input_hint),
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                    BasicTextField(
-                        state = textFieldState,
+                if (voiceState.active || voiceState.error != null) {
+                    VoiceModeStatusPanel(
+                        state = voiceState,
+                        onStop = onStopVoiceMode,
+                    )
+                } else {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester)
-                            .focusProperties { canFocus = !drawerBlocksIme },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                        textStyle = TextStyle(
-                            color = MiuixTheme.colorScheme.onSurface,
-                            fontSize = 16.sp,
-                            lineHeight = 22.sp,
-                        ),
-                        cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-                        lineLimits = TextFieldLineLimits.MultiLine(
-                            minHeightInLines = 1,
-                            maxHeightInLines = 6,
-                        ),
-                    )
+                            .defaultMinSize(minHeight = 40.dp)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.TopStart,
+                    ) {
+                        if (textFieldState.text.isBlank()) {
+                            Text(
+                                text = if (isStreaming) stringResource(R.string.chat_eta_working) else stringResource(R.string.chat_input_hint),
+                                style = MiuixTheme.textStyles.body1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                        BasicTextField(
+                            state = textFieldState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                                .focusProperties { canFocus = !drawerBlocksIme },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                            textStyle = TextStyle(
+                                color = MiuixTheme.colorScheme.onSurface,
+                                fontSize = 16.sp,
+                                lineHeight = 22.sp,
+                            ),
+                            cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                            lineLimits = TextFieldLineLimits.MultiLine(
+                                minHeightInLines = 1,
+                                maxHeightInLines = 6,
+                            ),
+                        )
+                    }
                 }
 
                 // The speech target is 48dp, while action buttons are 40dp.
@@ -442,11 +468,14 @@ internal fun AgentChatInputBar(
 
                         Spacer(modifier = Modifier.weight(1f))
                         if (!isEditingMessage) {
-                            ChatSpeechIndicator(
+                            VoiceEntryButton(
                                 textFieldState = textFieldState,
                                 showGeneration = showMorphLoading,
                                 interactionBlocked = drawerBlocksIme,
                                 resetKey = isStreaming to isEditingMessage,
+                                voiceState = voiceState,
+                                onStartVoiceMode = onStartVoiceMode,
+                                onStopVoiceMode = onStopVoiceMode,
                             )
                             Spacer(modifier = Modifier.weight(1f))
                         }
@@ -893,4 +922,230 @@ internal fun resolveChatComposerSendMode(
     canContinueDisconnected -> "continue"
     canStartNewSend -> "send"
     else -> "idle"
+}
+
+@Composable
+private fun VoiceEntryButton(
+    textFieldState: androidx.compose.foundation.text.input.TextFieldState,
+    showGeneration: Boolean,
+    interactionBlocked: Boolean,
+    resetKey: Any?,
+    voiceState: VoiceModeState,
+    onStartVoiceMode: (VoiceEntryMode) -> Unit,
+    onStopVoiceMode: () -> Unit,
+) {
+    val view = LocalView.current
+    val context = LocalContext.current
+    var picker by remember { mutableStateOf(false) }
+    var pendingMode by remember { mutableStateOf<VoiceEntryMode?>(null) }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val mode = pendingMode
+        pendingMode = null
+        if (granted && mode != null) onStartVoiceMode(mode)
+        else if (!granted && mode != null) Toast.makeText(context, R.string.speech_permission_denied, Toast.LENGTH_LONG).show()
+    }
+    fun startMode(mode: VoiceEntryMode) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            onStartVoiceMode(mode)
+        } else {
+            pendingMode = mode
+            permission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    var defaultConfigured by remember {
+        mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE).isNotBlank())
+    }
+    var defaultMode by remember {
+        mutableStateOf(VoiceEntryMode.fromWireValue(Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE)))
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val persisted = Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE)
+                defaultConfigured = persisted.isNotBlank()
+                defaultMode = VoiceEntryMode.fromWireValue(persisted)
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val active = voiceState.active || voiceState.error != null
+    if (defaultConfigured && defaultMode == VoiceEntryMode.DICTATION && !active) {
+        ChatSpeechIndicator(
+            textFieldState = textFieldState,
+            showGeneration = showGeneration,
+            interactionBlocked = interactionBlocked,
+            resetKey = resetKey,
+            onLongClick = {
+                TouchHaptics.click(view)
+                picker = true
+            },
+            onUnavailableClick = { picker = true },
+            forceVisible = true,
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .combinedClickable(
+                    enabled = !interactionBlocked,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onLongClick = {
+                        TouchHaptics.click(view)
+                        if (active) onStopVoiceMode() else picker = true
+                    },
+                    onClick = {
+                        TouchHaptics.click(view)
+                        when {
+                            active -> onStopVoiceMode()
+                            !defaultConfigured -> picker = true
+                            else -> startMode(defaultMode)
+                        }
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            ContainedMorphLoadingIndicator(
+                indicatorSize = if (active) 40.dp else 24.dp,
+                animate = showGeneration || active,
+            )
+            Icon(
+                imageVector = when (defaultMode) {
+                    VoiceEntryMode.DICTATION -> Icons.Rounded.KeyboardVoice
+                    VoiceEntryMode.UNIVERSAL -> Icons.Rounded.RecordVoiceOver
+                    VoiceEntryMode.DOUBAO_DUPLEX -> Icons.Rounded.GraphicEq
+                },
+                contentDescription = stringResource(
+                    if (active) R.string.voice_mode_stop else R.string.voice_mode_open,
+                ),
+                modifier = Modifier.size(18.dp),
+                tint = MiuixTheme.colorScheme.onSurface,
+            )
+        }
+    }
+    VoiceEntryPickerDialog(
+        show = picker,
+        selected = defaultMode,
+        onDismiss = { picker = false },
+        onSelect = { mode ->
+            defaultMode = mode
+            defaultConfigured = true
+            Prefs.putString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE, mode.wireValue)
+            picker = false
+            if (mode != VoiceEntryMode.DICTATION) startMode(mode)
+        },
+    )
+}
+
+@Composable
+private fun VoiceEntryPickerDialog(
+    show: Boolean,
+    selected: VoiceEntryMode,
+    onDismiss: () -> Unit,
+    onSelect: (VoiceEntryMode) -> Unit,
+) {
+    WindowDialog(
+        show = show,
+        title = stringResource(R.string.voice_mode_choose),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            listOf(
+                Triple(VoiceEntryMode.DICTATION, Icons.Rounded.KeyboardVoice, R.string.voice_mode_dictation),
+                Triple(VoiceEntryMode.UNIVERSAL, Icons.Rounded.RecordVoiceOver, R.string.voice_mode_universal),
+                Triple(VoiceEntryMode.DOUBAO_DUPLEX, Icons.Rounded.GraphicEq, R.string.voice_mode_doubao),
+            ).forEach { (mode, icon, label) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onSelect(mode) }
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                        tint = if (mode == selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = stringResource(label),
+                        modifier = Modifier.padding(start = 12.dp),
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            Text(
+                text = stringResource(R.string.voice_mode_long_press_hint),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun VoiceModeStatusPanel(
+    state: VoiceModeState,
+    onStop: () -> Unit,
+) {
+    val phase = when {
+        state.error != null -> state.error
+        state.phase == VoiceModePhase.Connecting -> stringResource(R.string.voice_mode_connecting)
+        state.phase == VoiceModePhase.Listening -> stringResource(R.string.voice_mode_listening)
+        state.phase == VoiceModePhase.Transcribing -> stringResource(R.string.voice_mode_transcribing)
+        state.phase == VoiceModePhase.Thinking -> stringResource(R.string.voice_mode_thinking)
+        state.phase == VoiceModePhase.Speaking -> stringResource(R.string.voice_mode_speaking)
+        else -> stringResource(R.string.voice_mode_open)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = if (state.mode == VoiceEntryMode.DOUBAO_DUPLEX) {
+                    Icons.Rounded.GraphicEq
+                } else {
+                    Icons.Rounded.RecordVoiceOver
+                },
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = if (state.error == null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.error,
+            )
+            Text(
+                text = phase,
+                modifier = Modifier.padding(start = 10.dp).weight(1f),
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            IconButton(onClick = onStop, minWidth = 36.dp, minHeight = 36.dp) {
+                Icon(
+                    imageVector = Icons.Rounded.Stop,
+                    contentDescription = stringResource(R.string.voice_mode_stop),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        val detail = when {
+            state.phase == VoiceModePhase.Speaking && state.reply.isNotBlank() -> state.reply
+            state.transcript.isNotBlank() -> state.transcript
+            else -> ""
+        }
+        if (detail.isNotBlank()) {
+            Text(
+                text = detail,
+                maxLines = 2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.body2,
+                modifier = Modifier.padding(start = 30.dp, end = 8.dp, bottom = 4.dp),
+            )
+        }
+    }
 }

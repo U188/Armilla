@@ -8,7 +8,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -42,12 +43,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** Existing generation animation doubles as opt-in dictation; never auto-starts the microphone. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ChatSpeechIndicator(
     textFieldState: TextFieldState,
     showGeneration: Boolean,
     interactionBlocked: Boolean,
     resetKey: Any?,
+    onLongClick: (() -> Unit)? = null,
+    onUnavailableClick: (() -> Unit)? = null,
+    forceVisible: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -136,7 +141,7 @@ internal fun ChatSpeechIndicator(
     // Parent layout data (for example BoxScope.align) must reach the outer node.
     AnimatedVisibility(
         modifier = modifier,
-        visible = SpeechInputPolicy.visible(showGeneration, pack.enabled),
+        visible = forceVisible || SpeechInputPolicy.visible(showGeneration, pack.enabled),
     ) {
         // Constant touch target avoids moving other composer buttons when the circle grows.
         Box(
@@ -147,17 +152,20 @@ internal fun ChatSpeechIndicator(
                         if (active) stateDescription = status
                     }
                 }
-                .then(if (pack.enabled) Modifier.clickable(
-                    enabled = allowed || active,
+                .then(if (pack.enabled || forceVisible) Modifier.combinedClickable(
+                    enabled = allowed || active || onLongClick != null || onUnavailableClick != null,
                     role = Role.Button,
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
-                ) {
-                    TouchHaptics.click(view)
-                    if (active || pendingPermission) stop()
-                    else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()
-                    else { pendingPermission = true; permission.launch(Manifest.permission.RECORD_AUDIO) }
-                } else Modifier),
+                    onLongClick = onLongClick,
+                    onClick = {
+                        TouchHaptics.click(view)
+                        if (!pack.enabled) onUnavailableClick?.invoke()
+                        else if (active || pendingPermission) stop()
+                        else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()
+                        else { pendingPermission = true; permission.launch(Manifest.permission.RECORD_AUDIO) }
+                    },
+                ) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             ContainedMorphLoadingIndicator(indicatorSize = diameter, animate = showGeneration || active)

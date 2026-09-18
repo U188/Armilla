@@ -113,7 +113,32 @@ class OpenAiResponsesProviderTest {
         assertEquals("reasoning", request.getJSONArray("input").getJSONObject(1).getString("type"))
         assertEquals("function_call_output", request.getJSONArray("input").getJSONObject(2).getString("type"))
         assertFalse(request.getJSONArray("tools").getJSONObject(0).getBoolean("strict"))
-        assertEquals("web_search", request.getJSONArray("tools").getJSONObject(1).getString("type"))
+        assertEquals(1, request.getJSONArray("tools").length())
+        assertEquals("function", request.getJSONArray("tools").getJSONObject(0).getString("type"))
+    }
+
+    @Test
+    fun hostedWebSearchIsOnlyAttachedForOfficialOpenAiResponses() {
+        val tools = JSONArray().put(
+            JSONObject().put("type", "function").put(
+                "function",
+                JSONObject().put("name", "device_info").put("parameters", JSONObject().put("type", "object")),
+            ),
+        )
+        val unofficial = OpenAiResponsesProvider.buildRequestJson(
+            config = config("http://154.201.69.191:918/v1").copy(hostedWebSearchEnabled = true),
+            messages = JSONArray().put(JSONObject().put("role", "user").put("content", "介绍一下自己")),
+            tools = tools,
+        )
+        assertEquals(1, unofficial.getJSONArray("tools").length())
+        assertEquals("function", unofficial.getJSONArray("tools").getJSONObject(0).getString("type"))
+
+        val official = OpenAiResponsesProvider.buildRequestJson(
+            config = config("https://api.openai.com/v1").copy(hostedWebSearchEnabled = true),
+            messages = JSONArray().put(JSONObject().put("role", "user").put("content", "介绍一下自己")),
+            tools = tools,
+        )
+        assertEquals("web_search", official.getJSONArray("tools").getJSONObject(1).getString("type"))
     }
 
     @Test

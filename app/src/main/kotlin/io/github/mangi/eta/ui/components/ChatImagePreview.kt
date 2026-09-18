@@ -322,14 +322,18 @@ private fun ChatImagePreviewDialog(
             }
             val image = loaded
             IconButton(
-                enabled = image != null && !saving && !isVideo,
+                enabled = !saving && (isVideo || image != null),
                 onClick = {
-                    val payload = loaded ?: return@IconButton
                     TouchHaptics.click(view)
                     saving = true
                     scope.launch {
                         val uri = withContext(Dispatchers.IO) {
-                            ChatImageGallery.save(context, payload.bytes, payload.mimeType)
+                            if (isVideo) {
+                                ChatImageGallery.saveVideo(context, source)
+                            } else {
+                                val payload = loaded ?: return@withContext null
+                                ChatImageGallery.save(context, payload.bytes, payload.mimeType)
+                            }
                         }
                         saving = false
                         Toast.makeText(

@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.mikepenz.markdown.utils.getUnescapedTextInNode
 import io.github.mangi.eta.agent.media.AgentChatImageCache
+import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.agent.media.MAX_AGENT_IMAGE_BYTES
 import io.github.mangi.eta.agent.model.AgentHttpClient
 import java.io.ByteArrayOutputStream
@@ -134,26 +135,62 @@ internal object ChatImageBytes {
 }
 
 internal object ChatImageGallery {
-    private const val RELATIVE_DIR = "Pictures/Eta"
+    private const val IMAGE_DIR = "Pictures/Eta"
+    private const val VIDEO_DIR = "Movies/Eta"
 
     fun save(context: Context, bytes: ByteArray, mimeType: String): Uri? {
         if (bytes.isEmpty()) return null
         val mime = mimeType.ifBlank { sniffMimeType(bytes) }
+        return writePending(
+            context = context,
+            collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            displayName = chatImageFileName(mime),
+            mimeType = mime,
+            relativePath = IMAGE_DIR,
+            bytes = bytes,
+        )
+    }
+
+    fun saveVideo(context: Context, source: String): Uri? {
+        val file = AgentVideoCodec.fileFromSource(source) ?: return null
+        if (!file.isFile || file.length() <= 0L) return null
+        val mime = AgentVideoCodec.sniffFile(file)
+            ?: AgentVideoCodec.previewFromFile(file, source)?.mimeType
+            ?: "video/mp4"
+        return writePending(
+            context = context,
+            collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            displayName = chatVideoFileName(mime, file.name),
+            mimeType = mime,
+            relativePath = VIDEO_DIR,
+            bytes = file.readBytes(),
+        )
+    }
+
+    private fun writePending(
+        context: Context,
+        collection: Uri,
+        displayName: String,
+        mimeType: String,
+        relativePath: String,
+        bytes: ByteArray,
+    ): Uri? {
+        if (bytes.isEmpty()) return null
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, chatImageFileName(mime))
-            put(MediaStore.Images.Media.MIME_TYPE, mime)
-            put(MediaStore.Images.Media.RELATIVE_PATH, RELATIVE_DIR)
-            put(MediaStore.Images.Media.IS_PENDING, 1)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
         val resolver = context.contentResolver
-        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+        val uri = resolver.insert(collection, values) ?: return null
         return runCatching {
             resolver.openOutputStream(uri)?.use { output ->
                 output.write(bytes)
                 output.flush()
             } ?: return@runCatching null
             values.clear()
-            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
             uri
         }.getOrElse {
@@ -161,6 +198,11 @@ internal object ChatImageGallery {
             null
         }
     }
+}
+
+internal fun chatVideoFileName(mimeType: String, displayName: String = ""): String {
+    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+    return "Eta-$stamp.${AgentVideoCodec.extensionForMime(mimeType, displayName)}"
 }
 
 internal fun markdownImageDestination(content: String, node: ASTNode): String? {

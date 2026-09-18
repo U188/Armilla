@@ -48,13 +48,24 @@ internal fun ContainedMorphLoadingIndicator(
     containerColor: Color = MiuixTheme.colorScheme.primaryContainer,
     indicatorColor: Color = MiuixTheme.colorScheme.onPrimaryContainer,
 ) {
+    val activityBlend = remember { Animatable(if (animate) 1f else 0f) }
     val morphProgress = remember { Animatable(0f) }
     val globalRotation = remember { Animatable(0f) }
     var currentShape by remember { mutableIntStateOf(0) }
     var morphRotationTarget by remember { mutableFloatStateOf(90f) }
 
     LaunchedEffect(animate) {
-        if (!animate) return@LaunchedEffect
+        if (!animate) {
+            // Cancellation freezes the current frame; blend that frame back to the idle
+            // circle before resetting the oscillator, rather than leaving a random shape.
+            activityBlend.animateTo(0f, tween(180))
+            currentShape = 0
+            morphProgress.snapTo(0f)
+            globalRotation.snapTo(0f)
+            morphRotationTarget = 90f
+            return@LaunchedEffect
+        }
+        launch { activityBlend.animateTo(1f, tween(180)) }
         launch {
             globalRotation.animateTo(
                 targetValue = 360f,
@@ -96,11 +107,11 @@ internal fun ContainedMorphLoadingIndicator(
         val to = IndicatorShapes[(currentShape + 1) % IndicatorShapes.size]
         Canvas(modifier = Modifier.fillMaxSize()) {
             val radii = FloatArray(from.size) { index ->
-                from[index] + (to[index] - from[index]) * progress
+                idleBlendedRadius(from[index], to[index], progress, activityBlend.value)
             }
             val canvasSize = this.size
             val rotation = progress * 90f + morphRotationTarget + globalRotation.value
-            val bounce = 1f + 0.08f * sin(progress * PI).toFloat()
+            val bounce = 1f + 0.08f * sin(progress * PI).toFloat() * activityBlend.value
             rotate(rotation) {
                 drawPath(
                     path = smoothPolarPath(
@@ -155,3 +166,9 @@ private val IndicatorShapes: List<FloatArray> = listOf(
     floatArrayOf(0.72f, 1.00f, 0.72f, 0.62f, 1.00f, 0.72f, 1.00f, 0.62f),
     floatArrayOf(1.00f, 0.68f, 0.88f, 0.68f, 1.00f, 0.68f, 0.88f, 0.68f),
 )
+
+/** A zero activity blend always renders the original circle, regardless of the stopped frame. */
+internal fun idleBlendedRadius(from: Float, to: Float, progress: Float, activity: Float): Float {
+    val animatedRadius = from + (to - from) * progress
+    return 1f + (animatedRadius - 1f) * activity.coerceIn(0f, 1f)
+}

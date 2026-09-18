@@ -45,4 +45,39 @@ class DisconnectedContinueTest {
         )
         assertTrue(canContinueDisconnectedRun(messages))
     }
+
+    @Test
+    fun failedRoundStaysClosedAfterNotice() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi(id = "user-1", content = "任务"),
+                AgentMessageUi(id = "assistant-1", content = "已完成 4 个步骤"),
+                SystemNoticeMessageUi(id = "fail-1", code = SystemNoticeCode.RuntimeFailed, detail = "connection closed"),
+            ),
+            input = "",
+            isStreaming = false,
+            thinkingEnabled = false,
+        )
+        assertFalse(state.hasPartialAssistantAfterLastUser())
+        assertFalse(state.hasStartedCurrentTurnOutput())
+        assertTrue(canContinueDisconnectedRun(state.messages))
+    }
+
+    @Test
+    fun pauseAndSteerStayOnTheSameOpenTurn() {
+        val state = AgentChatUiState(
+            messages = listOf(
+                UserMessageUi(id = "user-1", content = "任务"),
+                AgentMessageUi(id = "assistant-1", content = "做到一半", isStreaming = false),
+                UserMessageUi(id = "user-1-supplement-1", content = "再补充一句"),
+            ),
+            input = "",
+            isStreaming = true,
+            isPaused = true,
+            thinkingEnabled = false,
+        )
+        assertTrue(state.hasPartialAssistantAfterLastUser())
+        assertTrue(state.hasStartedCurrentTurnOutput())
+        assertFalse(canContinueDisconnectedRun(state.messages))
+    }
 }

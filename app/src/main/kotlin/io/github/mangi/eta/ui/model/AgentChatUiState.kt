@@ -284,8 +284,15 @@ internal fun AgentChatUiState.lastRealUserIndex(): Int =
         message is UserMessageUi && !message.isSteerSupplement()
     }
 
+/** Failed/stopped notices close that round. Later continue output starts after this boundary. */
+internal fun AgentChatUiState.lastTurnBoundaryIndex(): Int =
+    messages.indexOfLast { message ->
+        (message is UserMessageUi && !message.isSteerSupplement()) ||
+            (message is SystemNoticeMessageUi && message.code.isRetryableFailure())
+    }
+
 private fun AgentChatUiState.currentTurnMessages(): List<AgentChatMessageUi> {
-    val lastUserIndex = lastRealUserIndex()
+    val lastUserIndex = lastTurnBoundaryIndex()
     return if (lastUserIndex >= 0) {
         messages.subList(lastUserIndex + 1, messages.size)
     } else {
@@ -299,7 +306,7 @@ internal fun AgentChatUiState.hasCurrentTurnTools(): Boolean =
 
 /** 最后一条非空助手正文是否在本轮原问题之后，追加/续写不另开一轮。 */
 internal fun AgentChatUiState.hasPartialAssistantAfterLastUser(): Boolean {
-    val lastUserIndex = lastRealUserIndex()
+    val lastUserIndex = lastTurnBoundaryIndex()
     val lastAssistantIndex = messages.indexOfLast { message ->
         message is AgentMessageUi && message.content.isNotBlank()
     }
@@ -308,7 +315,7 @@ internal fun AgentChatUiState.hasPartialAssistantAfterLastUser(): Boolean {
 
 /** 当前用户消息之后是否已经开始思考、工具或正文。不看更早轮次。 */
 internal fun AgentChatUiState.hasStartedCurrentTurnOutput(): Boolean {
-    val lastUserIndex = lastRealUserIndex()
+    val lastUserIndex = lastTurnBoundaryIndex()
     val currentTurn = if (lastUserIndex >= 0) {
         messages.subList(lastUserIndex + 1, messages.size)
     } else {

@@ -2862,7 +2862,8 @@ internal class AgentAppState(
             state = state,
             reasoningEffort = state.reasoningEffort,
             skipAutoCompress = true,
-            logicalTurnId = continuedHistory.lastOrNull { it.turnId.isNotBlank() }?.turnId ?: runId,
+            // 失败那一轮已经结束并保留。点击重试是新开一轮继续，不再复用旧 turnId。
+            logicalTurnId = runId,
         )
     }
 

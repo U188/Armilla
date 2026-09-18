@@ -5,7 +5,10 @@ import org.json.JSONObject
 
 /** 将 Eta 会话消息投影为 OpenAI-compatible 请求所需的系统指令结构。 */
 internal object OpenAiRequestMessages {
-    fun forChatCompletions(source: JSONArray): JSONArray {
+    fun forChatCompletions(
+        source: JSONArray,
+        stripHistoricalReasoning: Boolean = false,
+    ): JSONArray {
         val system = collectInstructions(source, SYSTEM_ROLES)
         return JSONArray().also { messages ->
             if (system.isNotBlank()) {
@@ -14,7 +17,18 @@ internal object OpenAiRequestMessages {
             for (index in 0 until source.length()) {
                 val message = source.optJSONObject(index) ?: continue
                 if (message.optString("role") !in SYSTEM_ROLES) {
-                    messages.put(JSONObject(message.toString()).also { it.remove(AgentTurnIdentity.JSON_KEY); it.remove(ResponsesReasoningState.KEY); it.remove("_eta_responses_output_items") })
+                    messages.put(
+                        JSONObject(message.toString()).also {
+                            it.remove(AgentTurnIdentity.JSON_KEY)
+                            it.remove(ResponsesReasoningState.KEY)
+                            it.remove("_eta_responses_output_items")
+                            if (stripHistoricalReasoning && it.optString("role") == "assistant") {
+                                it.remove("reasoning_content")
+                                it.remove("reasoning")
+                                it.remove("reasoning_details")
+                            }
+                        },
+                    )
                 }
             }
         }

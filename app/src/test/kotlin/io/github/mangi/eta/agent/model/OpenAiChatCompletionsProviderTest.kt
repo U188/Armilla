@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,6 +14,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAiChatCompletionsProviderTest {
+
+    @Test
+    fun customProviderRetriesGenericInvalidInferenceWithoutHistoricalReasoning() {
+        val requests = mutableListOf<String>()
+        val success = sseChunk(JSONObject().put("content", "ok"), finishReason = "stop") +
+            "data: [DONE]\n\n"
+        withSequentialServer(
+            firstStatus = 400,
+            firstContentType = "application/json",
+            firstBody = """{"error":{"message":"inference request is invalid","type":"invalid_request_error"}}""",
+            nextBody = success,
+            onRequest = requests::add,
+        ) { baseUrl ->
+            val request = providerRequest(baseUrl).copy(
+                messages = JSONArray()
+                    .put(JSONObject().put("role", "user").put("content", "你好"))
+                    .put(
+                        JSONObject()
+                            .put("role", "assistant")
+                            .put("content", "你好")
+                            .put("reasoning_content", "先判断这是问候"),
+                    )
+                    .put(JSONObject().put("role", "user").put("content", "介绍一下自己")),
+            )
+
+            val response = OpenAiChatCompletionsProvider.complete(
+                request,
+                AgentRunController(),
+            )
+
+            assertEquals("ok", response.assistantMessage.getString("content"))
+        }
+
+        assertEquals(2, requests.size)
+        val firstMessages = JSONObject(requests[0]).getJSONArray("messages")
+        val secondMessages = JSONObject(requests[1]).getJSONArray("messages")
+        assertEquals("先判断这是问候", firstMessages.getJSONObject(1).getString("reasoning_content"))
+        assertTrue(!secondMessages.getJSONObject(1).has("reasoning_content"))
+        assertEquals("你好", secondMessages.getJSONObject(1).getString("content"))
+    }
 
     @Test
     fun steeringDiscardsUnfinishedToolBatchEvenWithParseableArguments() {
@@ -649,6 +690,41 @@ class OpenAiChatCompletionsProviderTest {
                     .put("delta", JSONObject().put("content", ""))
                     .put("finish_reason", "error")
             ))}\n\n"
+
+    private fun withSequentialServer(
+        firstStatus: Int,
+        firstContentType: String,
+        firstBody: String,
+        nextBody: String,
+        onRequest: (String) -> Unit,
+        block: (String) -> Unit,
+    ) {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val executor = Executors.newSingleThreadExecutor()
+        val count = AtomicInteger()
+        server.executor = executor
+        server.createContext("/chat/completions") { exchange ->
+            onRequest(exchange.requestBody.use { input ->
+                input.readBytes().toString(Charsets.UTF_8)
+            })
+            val first = count.getAndIncrement() == 0
+            val body = if (first) firstBody else nextBody
+            val bytes = body.toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.add(
+                "Content-Type",
+                if (first) firstContentType else "text/event-stream",
+            )
+            exchange.sendResponseHeaders(if (first) firstStatus else 200, bytes.size.toLong())
+            exchange.responseBody.use { output -> output.write(bytes) }
+        }
+        server.start()
+        try {
+            block("http://127.0.0.1:${server.address.port}")
+        } finally {
+            server.stop(0)
+            executor.shutdownNow()
+        }
+    }
 
     private fun withSseServer(
         body: String,

@@ -2,6 +2,12 @@ package io.github.mangi.eta.ui
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material3.Icon
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -40,7 +46,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -164,17 +169,33 @@ internal fun ContextCompressionSettingsScreen(context: Context, onBack: () -> Un
                     },
                 )
                 if (customModelEnabled) {
-                    ArrowPreference(
-                        title = stringResource(R.string.ui_compress_model_title),
-                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        summary = selectedCompressModel?.displayName
-                            ?: stringResource(R.string.model_not_selected),
-                        onClick = {
-                            TouchHaptics.click(view)
-                            showModelDialog = true
-                        },
-                        holdDownState = showModelDialog,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                role = Role.Button,
+                            ) {
+                                TouchHaptics.click(view)
+                                showModelDialog = true
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                text = stringResource(R.string.ui_compress_model_title),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = selectedCompressModel?.displayName
+                                    ?: stringResource(R.string.model_not_selected),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(Icons.Rounded.ChevronRight, contentDescription = null)
+                    }
                 }
             }
         }

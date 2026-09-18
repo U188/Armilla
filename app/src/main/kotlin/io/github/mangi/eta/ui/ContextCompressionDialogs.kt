@@ -209,7 +209,13 @@ private fun CompactCompressionEndpointPreference(
                     modifier = Modifier.fillMaxWidth()
                         .background(if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                             else androidx.compose.ui.graphics.Color.Transparent)
-                        .selectable(selected = checked, enabled = enabled, role = Role.RadioButton) {
+                        .selectable(
+                            selected = checked,
+                            enabled = enabled,
+                            role = Role.RadioButton,
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
                             if (!checked) {
                                 TouchHaptics.click(view)
                                 onSelect(mode)
@@ -376,7 +382,12 @@ internal fun CompressConversationDialog(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .clickable(enabled = !isCompressing && !isLoadingModels, role = Role.Button) {
+                            .clickable(
+                                enabled = !isCompressing && !isLoadingModels,
+                                role = Role.Button,
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) {
                                 TouchHaptics.click(view)
                                 showModelDialog = true
                             }
@@ -571,12 +582,16 @@ internal fun CompressModelPickerDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                role = Role.Button,
+                            ) {
                                 TouchHaptics.click(view)
                                 expandedProviderIds = if (expanded) {
-                                    expandedProviderIds - group.providerId
+                                    emptySet()
                                 } else {
-                                    expandedProviderIds + group.providerId
+                                    setOf(group.providerId)
                                 }
                             }
                             .padding(horizontal = 4.dp, vertical = 12.dp),
@@ -593,7 +608,11 @@ internal fun CompressModelPickerDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        role = Role.Button,
+                                    ) {
                                         TouchHaptics.click(view)
                                         onModelSelected(model.providerId, model.id)
                                     }

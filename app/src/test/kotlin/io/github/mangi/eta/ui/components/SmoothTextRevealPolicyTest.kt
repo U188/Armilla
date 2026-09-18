@@ -10,6 +10,17 @@ import org.junit.Test
 
 class SmoothTextRevealPolicyTest {
     @Test
+    fun revealPathsAppendBatchesButRebuildForNewLayoutsOrRewinds() {
+        assertEquals(true, canAppendRevealPath(true, 10, 11))
+        assertEquals(true, canAppendRevealPath(true, 10, 30))
+        assertEquals(true, canAppendRevealPath(true, 0, 4))
+        assertEquals(false, canAppendRevealPath(false, 10, 30))
+        assertEquals(false, canAppendRevealPath(true, -1, 4))
+        assertEquals(false, canAppendRevealPath(true, 10, 10))
+        assertEquals(false, canAppendRevealPath(true, 10, 9))
+    }
+
+    @Test
     fun coordinatorTracksBackgroundAnimationSuspension() {
         val coordinator = SmoothTextRevealCoordinator()
 

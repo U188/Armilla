@@ -148,6 +148,7 @@ import io.github.mangi.eta.agent.browser.BrowserSessionSnapshot
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.overlay.toolDisplayName
 import io.github.mangi.eta.ui.markdown.NumericCitationMarkup
+import io.github.mangi.eta.ui.markdown.markdownRenderCacheKey
 import io.github.mangi.eta.ui.markdown.StreamingGfmParserSession
 import io.github.mangi.eta.ui.markdown.StreamingGfmSnapshot
 import io.github.mangi.eta.ui.markdown.nextStreamingSnapshot
@@ -1803,7 +1804,7 @@ private fun ChatRevealRawText(
     model: MarkdownComponentModel,
     revealCoordinator: SmoothTextRevealCoordinator,
 ) {
-    val text = remember(model.content, model.node) {
+    val text = remember(markdownRenderCacheKey(model.content, model.node)) {
         AnnotatedString(model.node.getUnescapedTextInNode(model.content))
     }
     ChatRevealAnnotatedText(
@@ -1827,7 +1828,7 @@ private fun ChatRevealMarkdownText(
     val contentNode = remember(model.node, contentChildType) {
         contentChildType?.let(model.node::findChildOfType) ?: model.node
     }
-    val text = remember(model.content, contentNode, style, annotatorSettings) {
+    val text = remember(markdownRenderCacheKey(model.content, contentNode), style, annotatorSettings) {
         buildAnnotatedString {
             pushStyle(style.toSpanStyle())
             buildMarkdownAnnotatedString(
@@ -2134,7 +2135,7 @@ private fun ChatMarkdownTableCell(
     }
 
     val annotatorSettings = annotatorSettings()
-    val text = remember(content, cell, style, annotatorSettings) {
+    val text = remember(markdownRenderCacheKey(content, cell), style, annotatorSettings) {
         buildAnnotatedString {
             pushStyle(style.toSpanStyle())
             buildMarkdownAnnotatedString(

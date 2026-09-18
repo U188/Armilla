@@ -198,6 +198,7 @@ internal class SmoothTextRevealCoordinator {
         text: String,
         layoutResult: TextLayoutResult,
     ) {
+        if (record.text == text && record.layoutResult === layoutResult) return
         val firstLayoutOfRestoredBlock = record.layoutResult == null && record.key.sourceOffset < restoredSourceLength
         if (text != record.text) {
             // 流式文本只追加不修改，但行内语法闭合（**粗体**、`code`、链接折叠等）会让
@@ -385,11 +386,20 @@ internal class SmoothTextRevealNode(
         val sameLayout = cachedLayoutResult === snapshot.layoutResult
         if (sameLayout && cachedFullCount == fullCount) return
 
-        if (sameLayout && fullCount == cachedFullCount + 1) {
-            val completedPath = cachedNextPath
-            if (completedPath != null) {
+        if (canAppendRevealPath(sameLayout, cachedFullCount, fullCount)) {
+            // Fast output commonly reveals several graphemes per frame. Append only
+            // that range, not a fresh path for the entire already-visible prefix.
+            val textLength = snapshot.layoutResult.layoutInput.text.length
+            val start = snapshot.boundaries[cachedFullCount].coerceIn(0, textLength)
+            val end = snapshot.boundaries[fullCount].coerceIn(start, textLength)
+            val addedPath = if (fullCount == cachedFullCount + 1) {
+                cachedNextPath
+            } else if (end > start) {
+                snapshot.layoutResult.getPathForRange(start, end)
+            } else null
+            if (addedPath != null) {
                 val accumulatedPath = cachedFullPath ?: Path()
-                accumulatedPath.addPath(completedPath)
+                accumulatedPath.addPath(addedPath)
                 cachedFullPath = accumulatedPath
             }
             cachedFullCount = fullCount
@@ -585,3 +595,7 @@ private const val MAX_FRAME_DELTA_SECONDS = 0.05f
 private const val BASE_REVEAL_GRAPHEMES_PER_SECOND = 36f
 private const val MAX_REVEAL_GRAPHEMES_PER_SECOND = 240f
 private const val TARGET_CATCH_UP_SECONDS = 0.20f
+
+/** Layout changes and progress corrections require rebuilding; forward batches do not. */
+internal fun canAppendRevealPath(sameLayout: Boolean, cachedCount: Int, nextCount: Int): Boolean =
+    sameLayout && cachedCount >= 0 && nextCount > cachedCount

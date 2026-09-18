@@ -110,9 +110,12 @@ internal object Prefs {
         return localAgent?.getInt(key, default) ?: default
     }
 
-    /** 读取 Agent 本地 String 配置。 */
+    /** 读取字符串配置。本地 Agent 配置优先，避免和只读 remote 重载抢同一参数。 */
     fun getString(key: String, default: String = ""): String {
-        return localAgent?.getString(key, default) ?: default
+        localAgent?.let { prefs ->
+            if (prefs.contains(key)) return prefs.getString(key, default) ?: default
+        }
+        return remote?.getString(key, default) ?: default
     }
 
     /** 写入 Agent 本地 Int 配置。 */
@@ -166,9 +169,6 @@ internal object Prefs {
         return preferences?.getBoolean(key, default) ?: default
     }
 
-    fun getString(key: String): String {
-        return remote?.getString(key, "") ?: ""
-    }
 
     fun powerAssistantTarget(): PowerAssistantTarget = powerAssistantTarget(remote)
 

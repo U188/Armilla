@@ -72,7 +72,7 @@ internal object ConversationMention {
         return (joined.take(headBudget) + OMISSION_MARKER + joined.takeLast(tailBudget)).take(maxChars)
     }
 
-    internal const val TOOL_DETAILS_DIRECTORY = "conversation-mentions/tools"
+    internal const val TOOL_DETAILS_DIRECTORY = "快照缓存/tools"
 
     private fun prepareToolDetailsDirectory(filesDir: File, conversationId: String?): File? {
         val token = sanitizeFileToken(conversationId.orEmpty().ifBlank { "conversation" })

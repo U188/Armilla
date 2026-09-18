@@ -102,6 +102,7 @@ class ConversationMentionTest {
         )
         assertTrue(text.contains("Details file:"))
         assertTrue(text.contains("conv-a"))
+        assertTrue(text.contains("快照缓存/tools"))
         assertTrue(text.contains("read_file"))
         assertFalse(text.contains("path=/workspace/Eta/README.md"))
         val file = File(text.substringAfter("Details file: ").substringBefore('\n'))

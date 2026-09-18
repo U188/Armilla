@@ -34,14 +34,15 @@ class DoubaoSpeechTest {
         }.build()
 
     @Test
-    fun extraModelsAppearForVolcengineHost() {
-        val provider = OpenAiCompatibleProviderSetting(
+    fun extraModelsStayOnDoubaoSpeechProvider() {
+        val ark = OpenAiCompatibleProviderSetting(
             id = "p", name = "火山", baseUrl = "https://ark.cn-beijing.volces.com/api/coding/v3", apiKey = "k",
         )
-        val ids = DoubaoSpeech.extraModels(provider).map { it.modelId }
+        assertTrue(DoubaoSpeech.extraModels(ark).isEmpty())
+        val speech = ark.copy(baseUrl = "https://openspeech.bytedance.com")
+        val ids = DoubaoSpeech.extraModels(speech).map { it.modelId }
         assertTrue(ids.contains("seed-tts-2.0"))
         assertTrue(ids.contains("seed-audio-1.0"))
-        assertTrue(DoubaoSpeech.extraModels(provider.copy(baseUrl = "https://example.com/v1")).isEmpty())
     }
 
     @Test

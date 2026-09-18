@@ -3,6 +3,7 @@ package io.github.mangi.eta.agent.voice.tts
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.model.ProviderClientFactory
 import io.github.mangi.eta.data.model.Model
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import org.junit.Assert.*
@@ -27,19 +28,20 @@ class SpeechModelIsolationTest {
         assertThrows(IllegalArgumentException::class.java) { ProviderClientFactory.getClient(config) }
     }
 
-    @Test fun extraDoubaoSpeechModelsShowOnlyInSpeechPicker() {
+    @Test fun arkProviderDoesNotReceiveDoubaoSpeechCatalog() {
         val volc = OpenAiCompatibleProviderSetting(
             id = "v", name = "火山", baseUrl = "https://ark.cn-beijing.volces.com/api/coding/v3", apiKey = "key",
-            models = listOf(Model("chat", "doubao-seed-2-1-pro-260915", "chat")),
+            models = listOf(
+                Model("chat", "doubao-seed-2-1-pro-260915", "chat"),
+                Model("seed-tts-2.0", "seed-tts-2.0", "tts"),
+            ),
         )
         val chat = AgentModelPickerProjector.project(listOf(volc), "v", "chat")
         assertEquals(listOf("doubao-seed-2-1-pro-260915"), chat.providerGroups.single().models.map { it.modelId })
-        val speech = AgentModelPickerProjector.project(listOf(volc), "v", "seed-tts-2.0", includeSpeechModels = true)
-        val ids = speech.providerGroups.single().models.map { it.modelId }
-        assertTrue(ids.contains("seed-tts-2.0"))
-        assertTrue(ids.contains("seed-audio-1.0"))
-        assertTrue(ids.contains("doubao-seed-2-1-pro-260915"))
-        assertEquals("seed-tts-2.0", speech.selectedModel?.modelId)
+        val extras = SpeechSynthesisModels.catalogModels(volc).map { it.modelId }
+        assertTrue(extras.isEmpty())
+        val stripped = SpeechSynthesisModels.mergeCatalog(volc).map { it.modelId }
+        assertEquals(listOf("doubao-seed-2-1-pro-260915"), stripped)
     }
 
     @Test fun openspeechProviderHiddenFromChatPicker() {

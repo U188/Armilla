@@ -15,20 +15,14 @@ internal object SpeechSynthesisModels {
         return provider.baseUrl.trim().toHttpUrlOrNull()?.host.equals("openspeech.bytedance.com", ignoreCase = true)
     }
 
-    fun isDoubaoSpeechHost(baseUrl: String): Boolean {
-        val host = baseUrl.trim().toHttpUrlOrNull()?.host.orEmpty().lowercase()
-        return host == "openspeech.bytedance.com" ||
-            host.endsWith(".volces.com") ||
-            host == "volces.com" ||
-            host.endsWith(".volcengine.com") ||
-            host == "volcengine.com"
-    }
+    fun isDoubaoSpeechHost(baseUrl: String): Boolean =
+        baseUrl.trim().toHttpUrlOrNull()?.host.equals("openspeech.bytedance.com", ignoreCase = true)
 
     fun catalogModels(provider: ProviderSetting): List<Model> {
         val host = provider.baseUrl.trim().toHttpUrlOrNull()?.host.orEmpty().lowercase()
         val source = provider.sourceType.trim().lowercase()
         return when {
-            isDoubaoSpeechHost(provider.baseUrl) || source == ProviderSourceTypes.DOUBAO_SPEECH -> listOf(
+            isSpeechOnlyProvider(provider) -> listOf(
                 catalogModel("seed-tts-2.0", "豆包语音合成 2.0"),
                 catalogModel("seed-audio-1.0", "豆包音频生成 1.0"),
             )
@@ -57,10 +51,17 @@ internal object SpeechSynthesisModels {
 
     fun mergeCatalog(provider: ProviderSetting): List<Model> {
         val extras = catalogModels(provider)
-        if (extras.isEmpty()) return provider.models
-        val have = provider.models.map { it.modelId.lowercase() }.toHashSet()
-        return extras.filter { it.modelId.lowercase() !in have } + provider.models
+        val models = if (isSpeechOnlyProvider(provider)) {
+            provider.models
+        } else {
+            provider.models.filterNot { it.modelId.lowercase() in DOUBAO_CATALOG_IDS }
+        }
+        if (extras.isEmpty()) return models
+        val have = models.map { it.modelId.lowercase() }.toHashSet()
+        return extras.filter { it.modelId.lowercase() !in have } + models
     }
+
+    private val DOUBAO_CATALOG_IDS = setOf("seed-tts-2.0", "seed-audio-1.0")
 
     private fun catalogModel(id: String, displayName: String): Model =
         Model(

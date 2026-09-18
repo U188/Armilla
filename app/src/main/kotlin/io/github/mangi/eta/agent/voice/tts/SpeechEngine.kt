@@ -32,8 +32,9 @@ internal object SpeechEngineResolver {
         val id = model.lowercase()
         val source = sourceType.trim().lowercase()
         return when {
-            DoubaoSpeech.matchesModel(model) || DoubaoSpeech.isOpenspeech(baseUrl) ||
-                source == ProviderSourceTypes.DOUBAO_SPEECH -> SpeechEngine.DOUBAO
+            DoubaoSpeech.isOpenspeech(baseUrl) || source == ProviderSourceTypes.DOUBAO_SPEECH ||
+                (DoubaoSpeech.matchesModel(model) && !host.contains("volces.com") && !host.contains("volcengine.com")) ->
+                SpeechEngine.DOUBAO
             host.contains("xiaomimimo") || source == ProviderSourceTypes.MIMO || id.startsWith("mimo") ->
                 SpeechEngine.MIMO
             host.contains("minimax") || source == ProviderSourceTypes.MINIMAX ||

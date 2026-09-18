@@ -715,7 +715,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             return
         }
         val session = sessions.get(runId) ?: return
-        if (session.cancel("已停止") && overlayRunId == runId) {
+        if (session.requestStop() && overlayRunId == runId) {
             state.value = state.value.copy(status = AgentOverlayStatus.Stopping)
         }
     }
@@ -794,6 +794,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         }
 
         val completed = lastCompletedRunContext ?: return
+        if (targetRunId.isNotBlank() && completed.request.runId != targetRunId) return
         if (completed.request.handoff?.source != AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE) {
             state.value = state.value.copy(status = AgentOverlayStatus.ContinuationUnavailable)
             return

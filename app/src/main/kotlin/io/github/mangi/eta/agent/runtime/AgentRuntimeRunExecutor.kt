@@ -305,8 +305,10 @@ internal class AgentRuntimeRunExecutor(
                 ok = false,
                 content = "",
                 error = message,
-                reasoningContent = modelFailure?.reasoningContent.orEmpty(),
-                transcript = modelFailure?.transcript.orEmpty(),
+                reasoningContent = modelFailure?.reasoningContent
+                    ?: (throwable as? AgentRunCancelledException)?.reasoningContent.orEmpty(),
+                transcript = modelFailure?.transcript
+                    ?: (throwable as? AgentRunCancelledException)?.transcript.orEmpty(),
             )
         } finally {
             runCatching { toolsBinding?.close() }
@@ -314,21 +316,7 @@ internal class AgentRuntimeRunExecutor(
             unownedSkillRoot?.let { root -> runCatching { SkillRuntime.releaseRunSkills(appContext, root) } }
         }
 
-        if (cancelled) {
-            runCatching { checkpointRecorder?.discard() }.onFailure { throwable ->
-                AndroidAgentLogger.error(
-                    "Agent runtime cancelled checkpoint cleanup failed: " +
-                        "type=${throwable.safeLogType()}"
-                )
-            }
-            session.cancel("已停止")
-            return Outcome(
-                result = result,
-                entrySurfaceGuard = entrySurfaceGuard,
-                shouldUpdateHost = true,
-            )
-        }
-
+        // Stopped runs use the same durable outbox path as successful/failed runs.
         val completedRequest = runCatching { snapshotRequest(request) }
             .getOrElse { throwable ->
                 AndroidAgentLogger.error(
@@ -336,14 +324,14 @@ internal class AgentRuntimeRunExecutor(
                 )
                 request
             }
-        val committed = session.complete(result) {
+        val committed = session.complete(result) { terminal ->
             runCatching { checkpointRecorder?.seal() }
                 .onFailure { throwable ->
                     AndroidAgentLogger.error(
                         "Agent runtime checkpoint seal failed: type=${throwable.safeLogType()}"
                     )
                 }
-            runCatching { persistArtifacts(completedRequest, result, archivedEvents) }
+            runCatching { persistArtifacts(completedRequest, terminal, archivedEvents) }
                 .onFailure { throwable ->
                     AndroidAgentLogger.error(
                         "Agent runtime artifact persistence failed: type=${throwable.safeLogType()}"
@@ -351,10 +339,10 @@ internal class AgentRuntimeRunExecutor(
                 }
         }
         return Outcome(
-            result = result,
+            result = session.terminalResult ?: result,
             entrySurfaceGuard = entrySurfaceGuard,
             completedRequest = completedRequest.takeIf { committed },
-            response = response.takeIf { committed },
+            response = response.takeIf { committed && session.terminalResult?.ok == true },
             shouldUpdateHost = committed,
         )
     }

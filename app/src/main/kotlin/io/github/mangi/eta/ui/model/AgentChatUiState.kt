@@ -90,9 +90,14 @@ internal fun List<AgentChatMessageUi>.stoppedDuringModelRetry(): Boolean {
         }
     } ?: return false
     if (last !is SystemNoticeMessageUi || last.code != SystemNoticeCode.Stopped) return false
-    val lastUser = indexOfLast { it is UserMessageUi && !(it as UserMessageUi).isSteerSupplement() }
-    val start = if (lastUser >= 0) lastUser + 1 else 0
-    return subList(start, size).any { it is SystemNoticeMessageUi && it.code == SystemNoticeCode.ModelRetry }
+    val stopIndex = indexOf(last)
+    val boundary = take(stopIndex).indexOfLast {
+        (it is UserMessageUi && !it.isSteerSupplement()) ||
+            (it is SystemNoticeMessageUi && it.code.isRetryableFailure())
+    }
+    return subList(boundary + 1, stopIndex).any {
+        it is SystemNoticeMessageUi && it.code == SystemNoticeCode.ModelRetry
+    }
 }
 
 /** Last visible chat item after the original user turn, ignoring steer/resume supplements. */

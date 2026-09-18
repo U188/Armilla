@@ -201,9 +201,22 @@ internal object AgentModelClient {
         )
         val result = try {
             loop.run()
-        } catch (cancelled: AgentRunCancelledException) {
-            throw cancelled
         } catch (throwable: Throwable) {
+            loop.preserveIncompleteResponse()
+            if (runController.isCancelled || throwable is AgentRunCancelledException) {
+                AgentStoppedHistory.closePendingTools(messages, turnId)
+                runController.takeStoppedSteering().forEach { supplement ->
+                    messages.put(AgentSupplementMedia.userMessage(
+                        AgentContextCompactor.steeringUserContent(supplement.text), supplement.imagesJson,
+                    ).put(AgentTurnIdentity.JSON_KEY, turnId))
+                }
+                throw AgentRunCancelledException(
+                    transcript = AgentConversationCodec.transcript(
+                        messages, transcriptStartIndex, loop.sensitiveToolCallIdsSnapshot(),
+                    ),
+                    reasoningContent = loop.reasoningSnapshot(),
+                )
+            }
             throw AgentModelExecutionException(
                 cause = throwable,
                 reasoningContent = loop.reasoningSnapshot(),

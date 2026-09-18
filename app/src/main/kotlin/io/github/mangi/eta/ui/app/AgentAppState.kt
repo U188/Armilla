@@ -155,6 +155,9 @@ internal class AgentAppState(
     private val appContext = context.applicationContext
     private val skillZipImportGateway = skillZipImportGateway ?: CoreSkillZipImportGateway(appContext)
     private val runConversationIds = mutableMapOf<String, String>()
+    // A stopped worker still owns its transcript until its terminal result is committed.
+    private val stoppingRuns = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val modelRetryState = AgentRunRetryState()
     private val runOverheadTokens = mutableMapOf<String, Int>()
     private val runMessageProjector = AgentRunMessageProjector()
     private val runEventCoalescer = AgentRunEventCoalescer()
@@ -593,6 +596,10 @@ internal class AgentAppState(
     }
 
     private fun rejectConversationArchiveMutation(): Boolean {
+        if (stoppingRuns.keys.any { runConversationIds[it] == selectedConversationId }) {
+            Toast.makeText(appContext, "已停止，正在保存本轮上下文，请稍后再操作。", Toast.LENGTH_SHORT).show()
+            return true
+        }
         if (!conversationArchiveBusy && !io.github.mangi.eta.agent.runtime.AgentExecutionService.backupMaintenance) return false
         Toast.makeText(appContext, "正在导入或导出对话，请完成后再修改。", Toast.LENGTH_SHORT).show()
         return true
@@ -1275,7 +1282,11 @@ internal class AgentAppState(
     }
 
     fun sendCurrentMessage(submittedText: String? = null) {
-        if (rejectConversationArchiveMutation()) return
+        if (rejectConversationArchiveMutation()) {
+            // Composer clears locally before invoking this callback. Preserve an early send.
+            if (submittedText != null) updateCurrentConversation(homeState.copy(input = submittedText))
+            return
+        }
         if (io.github.mangi.eta.agent.runtime.AgentExecutionService.backupMaintenance) {
             Toast.makeText(appContext, "正在恢复备份，请等待完成。", Toast.LENGTH_SHORT).show()
             return
@@ -2015,6 +2026,12 @@ internal class AgentAppState(
                 }
                 return@launch
             }
+            if (runId in stoppingRuns) {
+                withContext(Dispatchers.Main) {
+                    applyRunResult(runId, AgentRuntimeWire.RunResult(runId, false, "", "已停止"))
+                }
+                return@launch
+            }
             val permittedReasoningEffort = if (
                 agentBooleanForUi(Prefs.Keys.AGENT_THINKING_ENABLED)
             ) {
@@ -2124,6 +2141,7 @@ internal class AgentAppState(
                         ),
                     ),
                     onEvent = { event -> enqueueRunEvent(runId, event) },
+                    isStopRequested = { runId in stoppingRuns },
                 )
             }
             withContext(Dispatchers.Main) {
@@ -2677,48 +2695,44 @@ internal class AgentAppState(
     }
 
     private fun stopRun(runId: String) {
+        if (runId in stoppingRuns) return
         val imageGen = imageGenerationRunIds.remove(runId)
-        runJobs.remove(runId)?.cancel()
+        flushPendingRunDelta(runId)
+        val retrying = modelRetryState.isWaiting(runId)
         if (!imageGen) {
-            flushPendingRunDelta(runId)
+            stoppingRuns[runId] = retrying
             scope.launch(Dispatchers.IO) {
                 AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
             }
             updateRunTrace(runId) { messages ->
-                val finalizedThinking = runMessageProjector.finalizeThinking(runId, messages)
-                val finalizedText = runMessageProjector.finalizeText(runId, finalizedThinking)
-                runMessageProjector.failRunningTools(SYNTHETIC_STATUS_STOPPED, finalizedText)
+                val thinking = runMessageProjector.finalizeThinking(runId, messages)
+                runMessageProjector.failRunningTools(
+                    SYNTHETIC_STATUS_STOPPED, runMessageProjector.finalizeText(runId, thinking),
+                )
             }
+        } else {
+            runJobs.remove(runId)?.cancel()
         }
-        val retrying = conversationIdForRun(runId)
-            ?.let { conversationsById[it] }
-            ?.messages
-            .orEmpty()
-            .any { it is SystemNoticeMessageUi && it.code == SystemNoticeCode.ModelRetry }
         replaceLatestAssistantWithNotice(
             runId,
             if (retrying) SystemNoticeCode.RuntimeFailed else SystemNoticeCode.Stopped,
             detail = if (retrying) "已停止等待接口重试" else null,
         )
-        if (!imageGen) {
-            snapshotPartialAssistantToHistory(runId)
-        }
+        // Immediate UI feedback, without cancelling the result subscriber or losing history.
         setConversationStreaming(runId, false)
-        val conversationId = conversationIdForRun(runId)
-        conversationId?.let(pendingInRunCompactConversationIds::remove)
-        runMessageProjector.clearRun(runId)
-        runConversationIds.remove(runId)
-        runOverheadTokens.remove(runId)
-        runCompressedDuringRun.remove(runId)
+        if (imageGen) {
+            runMessageProjector.clearRun(runId)
+            runConversationIds.remove(runId)
+            runOverheadTokens.remove(runId)
+            runCompressedDuringRun.remove(runId)
+        }
         refreshConversationSummaries()
         persistConversations()
-        if (conversationId != null) {
-            onConversationRunSettled(conversationId)
-        }
     }
 
     fun pauseCurrentRun() {
         val runId = activeRunIdForSelectedConversation() ?: return
+        if (runId in stoppingRuns) return
         if (runId in imageGenerationRunIds) return
         if (homeState.isPaused) return
         scope.launch(Dispatchers.IO) {
@@ -2732,7 +2746,7 @@ internal class AgentAppState(
     fun abandonPausedRun() {
         if (rejectConversationArchiveMutation()) return
         if (!homeState.isPaused) return
-        abortActiveRunForRevision()
+        stopCurrentRun()
         Toast.makeText(
             appContext,
             appContext.getString(R.string.chat_paused_run_abandoned),
@@ -2744,7 +2758,16 @@ internal class AgentAppState(
         if (rejectConversationArchiveMutation()) return
         if (homeState.isStreaming && !homeState.isPaused) return
         if (AssistantRepository.profile(id) == null) return
-        if (homeState.isPaused) abandonPausedRun()
+        if (homeState.isPaused) {
+            val conversationId = selectedConversationId
+            val job = activeRunIdForSelectedConversation()?.let(runJobs::get)
+            abandonPausedRun()
+            scope.launch {
+                job?.join()
+                if (selectedConversationId == conversationId) selectAssistant(id)
+            }
+            return
+        }
         val discarded = memoryState.hasUnsavedChanges &&
             memoryState.assistantId.isNotBlank() &&
             memoryState.assistantId != id
@@ -3206,6 +3229,8 @@ internal class AgentAppState(
     }
 
     private fun enqueueRunEvent(runId: String, event: AgentEvent) {
+        if (runId in stoppingRuns && event !is AgentEvent.ContextCompacted &&
+            event !is AgentEvent.UserSupplementReceived && event !is AgentEvent.UsageReceived) return
         if (runMessageProjector.isSealed(runId) && !event.allowedAfterSeal()) {
             runEventFlushJobs.remove(runId)?.cancel()
             runEventCoalescer.flush(runId)
@@ -3401,6 +3426,7 @@ internal class AgentAppState(
         persistSupplement: Boolean = true,
         replaying: Boolean = false,
     ) {
+        modelRetryState.accept(runId, event)
         when (event) {
             is AgentEvent.AssistantBlockStart -> {
                 updateRunTrace(runId) { messages ->
@@ -3723,6 +3749,8 @@ internal class AgentAppState(
         result: AgentRuntimeWire.RunResult,
         acknowledgeRuntimeResult: Boolean = false,
     ) {
+        val stoppedDuringRetry = stoppingRuns.remove(runId)
+        modelRetryState.clear(runId)
         contextBudgetBlockedRuns.remove(runId)
         if (contextBudgetPrompt?.runId == runId) contextBudgetPrompt = null
         flushPendingRunDelta(runId)
@@ -3731,6 +3759,11 @@ internal class AgentAppState(
         updateRunTrace(runId) { messages -> runMessageProjector.finalizeRun(runId, messages) }
         applyConversationHistoryResult(runId, result.transcript)
         when {
+            stoppedDuringRetry != null -> replaceLatestAssistantWithNotice(
+                runId,
+                if (stoppedDuringRetry) SystemNoticeCode.RuntimeFailed else SystemNoticeCode.Stopped,
+                detail = if (stoppedDuringRetry) "已停止等待接口重试" else null,
+            )
             result.ok && result.content.isNotBlank() -> completeLatestAssistantMessage(
                 runId,
                 fallbackContent = result.content,
@@ -3931,6 +3964,13 @@ internal class AgentAppState(
         detail: String? = null,
     ) {
         updateMessages(runId) { messages ->
+            val existing = messages.indexOfLast {
+                it is SystemNoticeMessageUi && it.code != SystemNoticeCode.ModelRetry &&
+                    (it.id == "interrupted-$runId" || it.id.startsWith("assistant-$runId-"))
+            }
+            if (existing >= 0) return@updateMessages messages.toMutableList().also {
+                it[existing] = SystemNoticeMessageUi(messages[existing].id, code, detail)
+            }
             val targetIndex = AgentRunMessageProjector.resultTargetIndex(runId, messages)
             if (targetIndex < 0) {
                 messages + SystemNoticeMessageUi(AgentRunMessageProjector.resultFallbackId(runId, messages), code, detail)

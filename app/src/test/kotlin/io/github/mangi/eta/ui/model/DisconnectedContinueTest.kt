@@ -5,6 +5,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DisconnectedContinueTest {
+    @Test fun oldRetryBeforeTerminalBoundaryDoesNotEnableContinueForANewerStop() {
+        val messages = listOf(
+            UserMessageUi("user-run-old", "task"),
+            SystemNoticeMessageUi("assistant-run-old-retry-1", SystemNoticeCode.ModelRetry),
+            SystemNoticeMessageUi("fail", SystemNoticeCode.RuntimeFailed),
+            AgentMessageUi("assistant-run-new-1", "retry output"),
+            SystemNoticeMessageUi("stop", SystemNoticeCode.Stopped),
+        )
+        assertFalse(messages.stoppedDuringModelRetry())
+        assertFalse(canContinueDisconnectedRun(messages))
+    }
+
     @Test
     fun runtimeFailureNoticeEnablesContinue() {
         val messages = listOf(

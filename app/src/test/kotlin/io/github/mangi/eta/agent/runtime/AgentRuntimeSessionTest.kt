@@ -11,6 +11,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRuntimeSessionTest {
+    @Test fun userStopWaitsForTranscriptCommitAndPublishesOnce() {
+        val results = mutableListOf<AgentRuntimeWire.RunResult>()
+        val session = AgentRuntimeSession("run", resultSink = results::add)
+        assertTrue(session.requestStop())
+        assertFalse(session.requestStop())
+        assertTrue(session.controller.isCancelled)
+        assertFalse(session.steer("must not resume"))
+        assertTrue(results.isEmpty())
+        val transcript = listOf(io.github.mangi.eta.agent.model.AgentModelClient.ConversationMessage(
+            "assistant", "already completed work", turnId = "run"))
+        var saved = false
+        assertTrue(session.complete(AgentRuntimeWire.RunResult("run", true, "", transcript = transcript)) { terminal ->
+            assertFalse(terminal.ok)
+            assertEquals("已停止", terminal.error)
+            assertEquals(transcript, terminal.transcript)
+            assertTrue(results.isEmpty())
+            saved = true
+        })
+        assertTrue(saved)
+        assertEquals(transcript, results.single().transcript)
+        assertFalse(results.single().ok)
+        assertFalse(session.complete(AgentRuntimeWire.RunResult("run", true, "late")))
+    }
+
+    @Test fun stopCannotOverrideAlreadyCommittingResult() {
+        val session = AgentRuntimeSession("run")
+        assertTrue(session.complete(AgentRuntimeWire.RunResult("run", true, "done")) {
+            assertFalse(session.requestStop())
+        })
+        assertTrue(session.terminalResult!!.ok)
+    }
+
     @Test fun pausedSupplementIsAcknowledgedBeforeResuming() {
         val controller = AgentRunController()
         controller.pause()

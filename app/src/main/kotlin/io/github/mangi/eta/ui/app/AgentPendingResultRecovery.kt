@@ -71,11 +71,15 @@ internal object AgentPendingResultRecovery {
                 )
                 else -> SystemNoticeMessageUi(
                     id = resultId,
-                    code = SystemNoticeCode.RuntimeFailed,
+                    code = if (result.error == "已停止") SystemNoticeCode.Stopped else SystemNoticeCode.RuntimeFailed,
                     detail = result.error,
                 )
             }
-            if (assistantIndex >= 0) {
+            val partial = messages.getOrNull(assistantIndex) as? AgentMessageUi
+            if (!result.ok && partial != null && partial.content.isNotBlank()) {
+                messages[assistantIndex] = partial.copy(isStreaming = false)
+                messages += completedMessage.copyWithId(interruptedNoticeId(runId))
+            } else if (assistantIndex >= 0) {
                 messages[assistantIndex] = completedMessage.copyWithId(messages[assistantIndex].id)
             } else {
                 messages += completedMessage
@@ -92,6 +96,7 @@ internal object AgentPendingResultRecovery {
                 history = history.state.history,
                 appliedRuntimeRunIds = history.state.appliedRuntimeRunIds,
                 isStreaming = false,
+                isPaused = false,
             ),
             alreadyApplied = false,
         )

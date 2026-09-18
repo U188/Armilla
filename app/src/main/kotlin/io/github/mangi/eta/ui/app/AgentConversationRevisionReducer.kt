@@ -36,21 +36,19 @@ internal object AgentConversationRevisionReducer {
             state.messages[index] is UserMessageUi
         } ?: return null
         val userMessage = state.messages[userMessageIndex] as UserMessageUi
-        val userMessageIndices = state.messages.indices.filter { state.messages[it] is UserMessageUi }
-        val targetUserOrdinal = userMessageIndices.indexOf(userMessageIndex)
-        if (targetUserOrdinal < 0) return null
-
-        val historyUserIndices = state.history.indices.filter { state.history[it].role == "user" }
-        // checkpoint 超限时只保留末尾上下文，因此展示轮次和 history 必须从尾部对齐。
-        val retainedUserOrdinal = historyUserIndices.size - (userMessageIndices.size - targetUserOrdinal)
-        val historyIndex = historyUserIndices.getOrNull(retainedUserOrdinal)
+        val historyIndex = historyUserIndex(state, userMessageIndex)
+        // Missing supplements must not be mistaken for the preceding original question.
+        if (historyIndex == null && userMessage.isSteerSupplement()) return null
+        val laterTurnCount = state.messages.drop(userMessageIndex + 1).count {
+            it is UserMessageUi && !it.isSteerSupplement()
+        }
         val compacted = historyIndex == null
 
         return Boundary(
             userMessage = userMessage,
             userMessageIndex = userMessageIndex,
             historyPrefix = historyIndex?.let(state.history::take).orEmpty(),
-            laterTurnCount = userMessageIndices.size - targetUserOrdinal - 1,
+            laterTurnCount = laterTurnCount,
             contextWasCompacted = compacted,
         )
     }
@@ -74,23 +72,49 @@ internal object AgentConversationRevisionReducer {
         val userMessageIndex = (targetIndex downTo 0).firstOrNull { index ->
             state.messages[index] is UserMessageUi
         } ?: return null
-        val userMessageIndices = state.messages.indices.filter { state.messages[it] is UserMessageUi }
-        val targetUserOrdinal = userMessageIndices.indexOf(userMessageIndex)
-        if (targetUserOrdinal < 0) return null
-
-        val historyUserIndices = state.history.indices.filter { state.history[it].role == "user" }
-        val retainedUserOrdinal = historyUserIndices.size - (userMessageIndices.size - targetUserOrdinal)
-        val historyUserIndex = historyUserIndices.getOrNull(retainedUserOrdinal)
+        val historyUserIndex = historyUserIndex(state, userMessageIndex)
+        if (historyUserIndex == null && (state.messages[userMessageIndex] as UserMessageUi).isSteerSupplement()) return null
         val messages = state.messages.take(targetIndex + 1)
         val history = if (historyUserIndex == null) {
             reconstructHistory(messages)
         } else if (state.messages[targetIndex] is UserMessageUi) {
             state.history.take(historyUserIndex + 1)
         } else {
-            val nextUser = historyUserIndices.getOrNull(retainedUserOrdinal + 1)
+            // A branch must not include later supplements that are not visible in its prefix.
+            val nextUser = (historyUserIndex + 1 until state.history.size).firstOrNull {
+                state.history[it].role == "user"
+            }
             if (nextUser != null) state.history.take(nextUser) else state.history
         }
         return BranchPrefix(messages = messages, history = history)
+    }
+
+    /** Stable owner + exact user payload; list length is never evidence of message identity. */
+    private fun historyUserIndex(state: AgentChatUiState, uiIndex: Int): Int? {
+        val user = state.messages[uiIndex] as UserMessageUi
+        val runId = user.id.removePrefix("user-").substringBefore("-supplement-")
+        val expected = user.content.trim()
+        val steering = io.github.mangi.eta.agent.model.AgentContextCompactor.steeringUserContent(user.content).trim()
+        fun matches(message: AgentModelClient.ConversationMessage): Boolean {
+            if (message.role != "user") return false
+            val text = message.content.ifBlank {
+                runCatching {
+                    val parts = org.json.JSONArray(message.contentJson)
+                    (0 until parts.length()).mapNotNull { parts.optJSONObject(it)?.optString("text") }
+                        .filter { it.isNotBlank() }.joinToString("\n")
+                }.getOrDefault("")
+            }.trim()
+            return text == expected || text == steering
+        }
+        val candidates = state.history.indices.filter { matches(state.history[it]) }
+        val inTurn = candidates.filter { state.history[it].turnId == runId }
+        val scoped = inTurn.ifEmpty { candidates }
+        // Disambiguate only identical payloads, not every user bubble including supplements.
+        val laterDuplicates = state.messages.drop(uiIndex + 1).filterIsInstance<UserMessageUi>().count {
+            it.content.trim() == expected &&
+                (inTurn.isEmpty() || it.id.removePrefix("user-").substringBefore("-supplement-") == runId)
+        }
+        return scoped.getOrNull(scoped.size - 1 - laterDuplicates)
     }
 
     fun outboundHistory(state: AgentChatUiState): List<AgentModelClient.ConversationMessage> {
@@ -131,7 +155,7 @@ internal object AgentConversationRevisionReducer {
         messages: List<AgentChatMessageUi>,
     ): List<AgentModelClient.ConversationMessage> {
         val lastUserIndex = messages.indexOfLast { message ->
-            message is UserMessageUi && !message.isSteerSupplement()
+            message is UserMessageUi
         }
         val partial = messages
             .drop((lastUserIndex + 1).coerceAtLeast(0))

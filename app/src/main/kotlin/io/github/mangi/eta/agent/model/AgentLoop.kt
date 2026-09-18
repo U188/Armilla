@@ -68,6 +68,30 @@ internal class AgentLoop(
     private val accumulatedReasoning = StringBuilder()
     private val sensitiveToolCallIds = linkedSetOf<String>()
     private var pendingToolImageMessage: JSONObject? = null
+    private val incompleteText = sortedMapOf<Int, String>()
+    private var responseStored = false
+
+    private fun rememberIncompleteText(event: ProviderEvent) {
+        when (event) {
+            is ProviderEvent.BlockDelta -> if (event.kind == AssistantBlockKind.TEXT) {
+                incompleteText[event.index] = incompleteText[event.index].orEmpty() + event.delta
+            }
+            is ProviderEvent.BlockEnd -> if (event.kind == AssistantBlockKind.TEXT && event.replaceContent) {
+                incompleteText[event.index] = event.content
+            }
+            else -> Unit
+        }
+    }
+
+    fun preserveIncompleteResponse() {
+        if (responseStored) return
+        val text = incompleteText.values.joinToString("").trim()
+        if (text.isNotBlank()) {
+            messages.put(JSONObject().put("role", "assistant").put("content", text)
+                .put(AgentTurnIdentity.JSON_KEY, turnId))
+            responseStored = true
+        }
+    }
     private var lastUsage: AgentTokenUsage? = null
     private var lastUsageMessageCount: Int = 0
     private var suppressThinkingForNextRequest = false
@@ -123,6 +147,8 @@ internal class AgentLoop(
             manualBudgetAttempt = false
             val roundTools = currentRoundTools
             toolCallValidator = AgentToolCallValidator(roundTools)
+            incompleteText.clear()
+            responseStored = false
             val reasoningLengthBeforeRound = accumulatedReasoning.length
             val continuationText = AgentContinuationTextEvents(
                 if (continuingInterruptedRequest) interruptedTextPrefix.toString() else "")
@@ -151,6 +177,7 @@ internal class AgentLoop(
                                 accumulatedReasoning.append(visibleEvent.delta)
                             }
                             continuationText.map(visibleEvent).forEach { textEvent ->
+                                rememberIncompleteText(textEvent)
                                 continuationBlocks.map(attemptRound, textEvent).toAgentEvent(attemptRound)?.let(onEvent)
                             }
                         }
@@ -173,7 +200,7 @@ internal class AgentLoop(
             round = completedRound.round
             val providerResponse = completedRound.response
 
-            runController.throwIfCancelled()
+            if (!runController.isCancelled) runController.throwIfCancelled()
             continuationText.finish().forEach { textEvent ->
                 continuationBlocks.map(round, textEvent).toAgentEvent(round)?.let(onEvent)
             }
@@ -183,6 +210,8 @@ internal class AgentLoop(
                 assistantMessage.put("content", continuationText.normalize(originalContent))
             }
             val toolCalls = AgentConversationCodec.parseToolCalls(assistantMessage)
+            toolCalls.filter { AgentSensitiveToolPolicy.isSensitive(it.name) }
+                .forEach { sensitiveToolCallIds += it.id }
             val assistantReasoning = continuationReasoning.visibleCompletedReasoning(
                 assistantMessage.optString("reasoning_content"))
             val content = assistantMessage.optString("content").trim()
@@ -215,6 +244,7 @@ internal class AgentLoop(
                             toolCalls = emptyList(),
                         ).put(AgentTurnIdentity.JSON_KEY, turnId),
                     )
+                    responseStored = true
                     appendCompactContinueIfNeeded(suppressOptionalThinking = false)
                 }
                 appendPendingSteeringMessage()
@@ -227,6 +257,7 @@ internal class AgentLoop(
                         toolCalls = toolCalls,
                     ).put(AgentTurnIdentity.JSON_KEY, turnId)
                 )
+                responseStored = true
                 onEvent(
                     AgentEvent.AssistantReceived(
                         round = round,
@@ -242,6 +273,7 @@ internal class AgentLoop(
                 continue
             }
 
+            runController.throwIfCancelled()
             if (toolCalls.isNotEmpty()) {
                 val finishedContent = assistantMessage.optString("content").trim()
                 val finishedNaturally = providerResponse.stopReason != AssistantStopReason.TOOL_USE &&
@@ -256,30 +288,34 @@ internal class AgentLoop(
                         sensitiveToolCallIds = sensitiveToolCallIds.toSet(),
                     )
                 }
-                val outcomes = when (providerResponse.stopReason) {
-                    AssistantStopReason.TOOL_USE ->
-                        toolCalls.map { call -> executeTool(round, call) }
-                    AssistantStopReason.OUTPUT_LIMIT ->
-                        toolCalls.map { call ->
-                            rejectedToolOutcome(
-                                round = round,
-                                toolCall = call,
-                                code = "TRUNCATED_TOOL_CALL",
-                                message = "模型输出达到长度上限，工具参数可能不完整；本次调用未执行，请重新提交完整参数。",
-                            )
-                        }
-                    else ->
-                        toolCalls.map { call ->
-                            rejectedToolOutcome(
-                                round = round,
-                                toolCall = call,
-                                code = "UNEXPECTED_TOOL_CALL",
-                                message = "模型在 ${providerResponse.stopReason.name} 终止状态下返回了工具调用；" +
-                                    "本批调用未执行，请重新规划。",
-                            )
-                        }
+                val outcomes = mutableListOf<ToolOutcome>()
+                try {
+                    when (providerResponse.stopReason) {
+                        AssistantStopReason.TOOL_USE ->
+                            toolCalls.forEach { call -> outcomes += executeTool(round, call) }
+                        AssistantStopReason.OUTPUT_LIMIT ->
+                            toolCalls.forEach { call ->
+                                outcomes += rejectedToolOutcome(
+                                    round = round,
+                                    toolCall = call,
+                                    code = "TRUNCATED_TOOL_CALL",
+                                    message = "模型输出达到长度上限，工具参数可能不完整；本次调用未执行，请重新提交完整参数。",
+                                )
+                            }
+                        else ->
+                            toolCalls.forEach { call ->
+                                outcomes += rejectedToolOutcome(
+                                    round = round,
+                                    toolCall = call,
+                                    code = "UNEXPECTED_TOOL_CALL",
+                                    message = "模型在 ${providerResponse.stopReason.name} 终止状态下返回了工具调用；" +
+                                        "本批调用未执行，请重新规划。",
+                                )
+                            }
+                    }
+                } finally {
+                    appendToolOutcomes(round, outcomes)
                 }
-                appendToolOutcomes(round, outcomes)
                 emitProjectedPrompt(round)
                 interruptedTextPrefix.setLength(0)
                 round += 1
@@ -641,7 +677,7 @@ internal class AgentLoop(
             sensitiveToolCallIds += toolCall.id
         }
 
-        runController.throwIfCancelled()
+        // Once returned, this result remains evidence even if stop arrived concurrently.
         emitToolFinished(round, toolCall, result)
         return ToolOutcome(toolCall, result)
     }

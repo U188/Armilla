@@ -25,6 +25,11 @@ internal class AgentRunController {
     data class SteeringInput(val text: String, val imagesJson: String = "[]")
     private val steeringMessages = ArrayDeque<SteeringInput>()
     private var acceptingSteering = true
+    private var stoppedSteering = emptyList<SteeringInput>()
+
+    fun takeStoppedSteering(): List<SteeringInput> = lock.withLock {
+        stoppedSteering.also { stoppedSteering = emptyList() }
+    }
     @Volatile
     private var paused = false
     @Volatile
@@ -38,6 +43,7 @@ internal class AgentRunController {
 
     fun cancel() {
         lock.withLock {
+            if (!cancelled) stoppedSteering = steeringMessages.toList()
             cancelled = true
             acceptingSteering = false
             steeringMessages.clear()
@@ -238,4 +244,7 @@ internal class AgentRunController {
     }
 }
 
-internal class AgentRunCancelledException : RuntimeException("Agent run cancelled")
+internal class AgentRunCancelledException(
+    val transcript: List<AgentModelClient.ConversationMessage> = emptyList(),
+    val reasoningContent: String = "",
+) : RuntimeException("Agent run cancelled")

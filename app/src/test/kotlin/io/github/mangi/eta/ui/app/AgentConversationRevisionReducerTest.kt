@@ -15,6 +15,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentConversationRevisionReducerTest {
+    @Test fun missingSupplementCannotEraseItsOriginalTurn() {
+        val state = conversationState().copy(
+            messages = listOf(
+                UserMessageUi("user-run-old", "earlier"),
+                UserMessageUi("user-run-task", "mention task"),
+                UserMessageUi("user-run-task-supplement-1", "will context grow?"),
+                UserMessageUi("user-run-task-supplement-2", "review changes"),
+            ),
+            history = listOf(
+                AgentModelClient.ConversationMessage("user", "earlier", turnId = "run-old"),
+                AgentModelClient.ConversationMessage("user", "mention task", turnId = "run-task"),
+            ),
+        )
+        assertNull(AgentConversationRevisionReducer.boundary(state, "user-run-task-supplement-2"))
+        assertNull(AgentConversationRevisionReducer.branchPrefix(state, "user-run-task-supplement-2"))
+        val boundary = AgentConversationRevisionReducer.boundary(state, "user-run-task")!!
+        assertEquals(listOf("earlier"), boundary.historyPrefix.map { it.content })
+        assertEquals(0, boundary.laterTurnCount)
+    }
+
+    @Test fun retainedSupplementKeepsOriginalQuestionAndCompletedTools() {
+        val prior = listOf(
+            AgentModelClient.ConversationMessage("user", "task", turnId = "run-task"),
+            AgentModelClient.ConversationMessage("assistant", "work", turnId = "run-task"),
+            AgentModelClient.ConversationMessage("tool", "actual result", turnId = "run-task"),
+        )
+        val state = conversationState().copy(
+            messages = listOf(UserMessageUi("user-run-task", "task"),
+                UserMessageUi("user-run-task-supplement-1", "review")),
+            history = prior + AgentModelClient.ConversationMessage("user",
+                io.github.mangi.eta.agent.model.AgentContextCompactor.steeringUserContent("review"), turnId = "run-task"),
+        )
+        assertEquals(prior, AgentConversationRevisionReducer.boundary(state, "user-run-task-supplement-1")!!.historyPrefix)
+    }
+
+    @Test fun oldAssistantIsNotReappendedAfterASupplement() {
+        val history = listOf(AgentModelClient.ConversationMessage("user", "task", turnId = "run-task"),
+            AgentModelClient.ConversationMessage("assistant", "old text", turnId = "run-task"),
+            AgentModelClient.ConversationMessage("user", "supplement", turnId = "run-task"))
+        val ui = listOf(UserMessageUi("user-run-task", "task"),
+            AgentMessageUi("assistant-run-task-1", "old text"),
+            UserMessageUi("user-run-task-supplement-1", "supplement"))
+        assertEquals(history, AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(history, ui))
+    }
+
     @Test fun stoppingDoesNotReplaceEarlierDistinctAssistantOrToolCall() {
         val original = AgentModelClient.ConversationMessage("assistant", "earlier answer", turnId = "turn")
         val partial = AgentMessageUi(id = "assistant-run-1-0", content = "new partial")

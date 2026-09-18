@@ -18,7 +18,55 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentModelClientLoopTest {
+    @Test fun stoppingMidBatchKeepsCompletedResultsAndMarksUnconfirmedCalls() {
+        val controller = AgentRunController()
+        val provider = ScriptedProvider(assistant(finishReason = "tool_calls", toolCalls = listOf(
+            toolCall("done", "get_current_context", "{}"),
+            toolCall("unknown", "get_current_context", "{}"),
+        )))
+        val executed = mutableListOf<String>()
+        val failure = assertThrows(io.github.mangi.eta.agent.runtime.AgentRunCancelledException::class.java) {
+            AgentModelClient.complete(config = modelConfig(), prompt = "task", provider = provider,
+                runController = controller, turnId = "logical-turn",
+                toolExecutor = AgentModelClient.ToolExecutor { call ->
+                    executed += call.id
+                    controller.steer("accepted supplement")
+                    controller.cancel()
+                    AgentModelClient.ToolResult("confirmed result")
+                })
+        }
+        assertEquals(listOf("done"), executed)
+        assertEquals("confirmed result", failure.transcript.single { it.toolCallId == "done" }.content)
+        assertTrue(failure.transcript.single { it.toolCallId == "unknown" }.content.contains("STOPPED_OUTCOME_UNKNOWN"))
+        assertTrue(failure.transcript.last().content.contains("accepted supplement"))
+        assertTrue(failure.transcript.all { it.turnId == "logical-turn" })
+    }
+
     @get:org.junit.Rule val timeout = org.junit.rules.Timeout.seconds(45)
+    @Test fun stoppedPartialTextAndSupplementSurviveWithoutReplayingTools() {
+        val controller = AgentRunController()
+        val provider = object : AgentProviderClient {
+            override val id = "stop-partial"
+            override val capabilities = ProviderCapabilities(EndpointKind.CHAT_COMPLETIONS, true, true, false, false, false, false)
+            override fun complete(request: ProviderRequest, runController: AgentRunController,
+                onEvent: (ProviderEvent) -> Unit): ProviderResponse {
+                onEvent(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 0, "visible partial"))
+                runController.steer("review this")
+                runController.cancel()
+                runController.throwIfCancelled()
+                error("unreachable")
+            }
+        }
+        val failure = assertThrows(io.github.mangi.eta.agent.runtime.AgentRunCancelledException::class.java) {
+            AgentModelClient.complete(config = modelConfig(), prompt = "task", provider = provider,
+                runController = controller, turnId = "one-turn",
+                toolExecutor = AgentModelClient.ToolExecutor { error("must not execute") })
+        }
+        assertEquals("visible partial", failure.transcript.first().content)
+        assertTrue(failure.transcript.last().content.contains("review this"))
+        assertEquals(setOf("one-turn"), failure.transcript.map { it.turnId }.toSet())
+    }
+
     @Test
     fun eachRoundUsesOneCapabilitySnapshotForDeclarationValidationAndPrompt() {
         var root = true

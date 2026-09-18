@@ -998,7 +998,8 @@ internal fun resolveFinalResultMessageIds(
             }
             is AgentMessageUi -> lastAgentMessageId = message.id
             is SystemNoticeMessageUi -> if (message.code.isRetryableFailure()) {
-                lastAgentMessageId = message.id
+                ids.add(message.id)
+                lastAgentMessageId = null
             }
             else -> Unit
         }
@@ -1169,7 +1170,8 @@ internal fun shouldShowMorphLoadingIndicator(
 
 internal fun isWaitingForFirstModelOutput(messages: List<AgentChatMessageUi>): Boolean {
     val lastUserIndex = messages.indexOfLast { message ->
-        message is UserMessageUi && !message.isSteerSupplement()
+        (message is UserMessageUi && !message.isSteerSupplement()) ||
+            (message is SystemNoticeMessageUi && message.code.isRetryableFailure())
     }
     if (lastUserIndex < 0) return false
     return messages.asSequence()

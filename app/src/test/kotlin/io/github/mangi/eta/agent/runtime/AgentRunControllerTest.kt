@@ -12,6 +12,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunControllerTest {
+    @Test fun stoppedQueuedSupplementsAreRetainedOnceWithoutResuming() {
+        val controller = AgentRunController()
+        controller.steer("accepted but not consumed")
+        controller.cancel()
+        controller.cancel()
+        assertFalse(controller.hasPendingSteering)
+        assertEquals(listOf("accepted but not consumed"), controller.takeStoppedSteering().map { it.text })
+        assertTrue(controller.takeStoppedSteering().isEmpty())
+        assertFalse(controller.steer("late"))
+    }
+
     @Test
     fun cancellationWakesLongRetryWait() {
         val controller = AgentRunController()

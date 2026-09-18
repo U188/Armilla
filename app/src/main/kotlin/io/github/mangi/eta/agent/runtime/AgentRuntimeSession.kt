@@ -18,6 +18,7 @@ internal class AgentRuntimeSession(
 ) {
     private enum class State {
         RUNNING,
+        STOPPING,
         COMMITTING,
         TERMINAL,
     }
@@ -40,6 +41,19 @@ internal class AgentRuntimeSession(
             )
         }
     }
+
+    /** User stop cancels resources immediately; the worker must still seal its history. */
+    fun requestStop(): Boolean {
+        lock.withLock {
+            if (state != State.RUNNING) return false
+            state = State.STOPPING
+        }
+        controller.cancel()
+        return true
+    }
+
+    var terminalResult: AgentRuntimeWire.RunResult? = null
+        private set
 
     val isTerminal: Boolean
         get() = lock.withLock { state == State.TERMINAL }
@@ -135,17 +149,20 @@ internal class AgentRuntimeSession(
      */
     fun complete(
         result: AgentRuntimeWire.RunResult,
-        beforePublish: () -> Unit = {},
+        beforePublish: (AgentRuntimeWire.RunResult) -> Unit = {},
     ): Boolean {
-        lock.withLock {
-            if (state != State.RUNNING) return false
+        val terminal = lock.withLock {
+            if (state != State.RUNNING && state != State.STOPPING) return false
             require(result.runId == runId) { "Result runId does not match the active session" }
+            val stopped = state == State.STOPPING
             state = State.COMMITTING
+            if (stopped) result.copy(ok = false, error = "已停止") else result
         }
-        val commitFailure = runCatching(beforePublish).exceptionOrNull()
+        val commitFailure = runCatching { beforePublish(terminal) }.exceptionOrNull()
         lock.withLock {
             state = State.TERMINAL
-            subscribers.forEach { it.resultSink(result) }
+            terminalResult = terminal
+            subscribers.forEach { it.resultSink(terminal) }
             subscribers.clear()
             replayEvents.clear()
         }

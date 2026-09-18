@@ -9,6 +9,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AgentChatFinalResultTest {
+    @Test fun failureStaysClosedWhileRetryStreamsAndAfterItCompletes() {
+        val messages = listOf(
+            UserMessageUi("user-run-old", "task"),
+            AgentMessageUi("assistant-run-old-1", "partial"),
+            io.github.mangi.eta.ui.model.SystemNoticeMessageUi("failure",
+                io.github.mangi.eta.ui.model.SystemNoticeCode.RuntimeFailed),
+            AgentMessageUi("assistant-run-new-1", "new result"),
+        )
+        assertEquals(setOf("failure"), resolveFinalResultMessageIds(messages, isStreaming = true))
+        assertEquals(setOf("failure", "assistant-run-new-1"), resolveFinalResultMessageIds(messages))
+    }
+
 
     @Test
     fun onlyLastAgentMessageOfEachTurnIsFinalResult() {

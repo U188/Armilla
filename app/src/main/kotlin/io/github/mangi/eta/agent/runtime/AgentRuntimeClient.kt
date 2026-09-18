@@ -44,8 +44,10 @@ internal class AgentRuntimeClient(
 
     fun run(
         request: AgentRuntimeWire.RunRequest,
-        onEvent: (AgentEvent) -> Unit
+        onEvent: (AgentEvent) -> Unit,
+        isStopRequested: () -> Boolean = { false },
     ): AgentRuntimeWire.RunResult {
+        if (isStopRequested()) return AgentRuntimeWire.RunResult(request.runId, false, "", "已停止")
         val resultLatch = CountDownLatch(1)
         val resultRef = AtomicReference<AgentRuntimeWire.RunResult?>()
         val preparedImagesRef = AtomicReference<AgentRuntimeImageTransfer.PreparedImages?>()
@@ -86,6 +88,11 @@ internal class AgentRuntimeClient(
             preparedHistoryRef.set(preparedHistory)
             msg.data = AgentRuntimeWire.toBundle(request, preparedImages.images, preparedHistory.descriptor)
             serviceMessenger.send(msg)
+            if (isStopRequested()) {
+                val cancel = Message.obtain(null, AgentRuntimeWire.MSG_CANCEL)
+                cancel.data = AgentRuntimeWire.ackBundle(request.runId)
+                serviceMessenger.send(cancel)
+            }
             // 最终结果或 Binder 断连负责唤醒；正常长任务不因客户端等待时长被取消。
             resultLatch.await()
             return resultRef.get() ?: AgentRuntimeWire.RunResult("", false, "", "Agent Runtime 未返回结果")

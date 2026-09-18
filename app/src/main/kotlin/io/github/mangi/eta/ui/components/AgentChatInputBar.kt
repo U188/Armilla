@@ -847,7 +847,7 @@ internal fun resolveChatComposerSendMode(
     (isStreaming || isPaused) && hasSteerContent -> "send"
     isPaused -> "continue"
     isStreaming -> "stop"
-    // Disconnected failure: empty composer continues the same turn; typed text starts a new send.
+    // Terminal failure: Continue creates a new logical turn, never resumes the failed one.
     canContinueDisconnected && hasSteerContent -> "send"
     canContinueDisconnected -> "continue"
     canStartNewSend -> "send"

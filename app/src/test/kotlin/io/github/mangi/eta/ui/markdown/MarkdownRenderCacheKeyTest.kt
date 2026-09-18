@@ -1,7 +1,7 @@
 package io.github.mangi.eta.ui.markdown
 
 import org.intellij.markdown.ast.ASTNode
-import org.intellij.markdown.flavours.gfm.GFMElementTypes
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes.CELL
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
@@ -32,7 +32,7 @@ class MarkdownRenderCacheKeyTest {
             val parsed = snapshot(source)
             val result = mutableListOf<MarkdownRenderCacheKey>()
             fun visit(node: ASTNode) {
-                if (node.type == GFMElementTypes.CELL) {
+                if (node.type == CELL) {
                     result.add(markdownRenderCacheKey(parsed.renderedSource, node))
                 }
                 node.children.forEach(::visit)

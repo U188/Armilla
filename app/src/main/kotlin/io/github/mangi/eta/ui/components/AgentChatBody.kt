@@ -338,6 +338,7 @@ private fun AgentChatScaffold(
     pendingImages: List<PendingImageUi>,
     pendingFileReferences: List<PendingFileReferenceUi>,
     messageEdit: MessageEditUiState?,
+    assistantId: String = "",
     showEmptySuggestions: Boolean,
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,

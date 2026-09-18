@@ -3,7 +3,6 @@ package io.github.mangi.eta.agent.voice.tts
 import io.github.mangi.eta.agent.model.AgentHttpClient
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.agent.model.ProviderRequestHeaders
-import io.github.mangi.eta.agent.model.ProviderUrls
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.Base64
@@ -50,27 +49,18 @@ internal class CloudSpeechSynthesizer(
 
     suspend fun synthesize(config: AgentModelClient.ModelConfig, text: String, voice: String): ByteArray {
         speechCheck(text.isNotBlank()) { "没有可朗读的文字" }
-        speechCheck(voice.isNotBlank()) { "请填写该接口支持的音色 ID" }
-        return if (DoubaoSpeech.matchesModel(config.model) || DoubaoSpeech.isOpenspeech(config.baseUrl)) {
-            synthesizeDoubao(config, text, voice)
+        speechCheck(voice.isNotBlank()) { "请选择音色" }
+        val engine = SpeechEngineResolver.resolve(config.providerSourceType, config.baseUrl, config.model)
+        if (engine == SpeechEngine.DOUBAO) return synthesizeDoubao(config, text, voice)
+        val request = SpeechProtocols.request(engine, config, text, voice)
+        val client = if (engine == SpeechEngine.MIMO || engine == SpeechEngine.MINIMAX || engine == SpeechEngine.QWEN) {
+            doubaoClient
         } else {
-            synthesizeOpenAi(config, text, voice)
+            httpClient
         }
-    }
-
-    private suspend fun synthesizeOpenAi(
-        config: AgentModelClient.ModelConfig,
-        text: String,
-        voice: String,
-    ): ByteArray {
-        val headers = Headers.Builder().add("Accept", "audio/mpeg")
-            .apply { if (config.apiKey.isNotBlank()) add("Authorization", "Bearer ${config.apiKey}") }
-            .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders) }.build()
-        val payload = JSONObject().put("model", config.model).put("input", text)
-            .put("voice", voice).put("response_format", "mp3").toString()
-        val request = Request.Builder().url(ProviderUrls.openAiAudioSpeechUrl(config.baseUrl))
-            .headers(headers).post(payload.toRequestBody("application/json".toMediaType())).build()
-        return executeAudio(httpClient, request, rawMp3 = true)
+        return executeAudio(client, request, rawMp3 = engine == SpeechEngine.OPENAI) { type, bytes ->
+            SpeechProtocols.decode(engine, type, bytes)
+        }
     }
 
     private suspend fun synthesizeDoubao(
@@ -102,7 +92,12 @@ internal class CloudSpeechSynthesizer(
         return executeAudio(doubaoClient, request, rawMp3 = false)
     }
 
-    private suspend fun executeAudio(client: OkHttpClient, request: Request, rawMp3: Boolean): ByteArray =
+    private suspend fun executeAudio(
+        client: OkHttpClient,
+        request: Request,
+        rawMp3: Boolean,
+        decode: (String?, ByteArray) -> ByteArray = Companion::decodeDoubaoAudio,
+    ): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
@@ -129,10 +124,14 @@ internal class CloudSpeechSynthesizer(
                             }
                             val payload = out.toByteArray()
                             if (rawMp3) {
-                                validateAudio(it.header("Content-Type"), payload)
-                                payload
+                                val type = it.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
+                                if (type in setOf("audio/wav", "audio/x-wav", "audio/wave")) payload
+                                else {
+                                    validateAudio(it.header("Content-Type"), payload)
+                                    payload
+                                }
                             } else {
-                                decodeDoubaoAudio(it.header("Content-Type"), payload)
+                                decode(it.header("Content-Type"), payload)
                             }
                         }
                         if (continuation.isActive) continuation.resume(bytes)

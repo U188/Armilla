@@ -10,7 +10,6 @@ import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.SpeechSynthesisModels
-import io.github.mangi.eta.agent.voice.tts.DoubaoSpeech
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
 import java.text.NumberFormat
 import java.util.Locale
@@ -102,7 +101,7 @@ internal object AgentModelPickerProjector {
 
 
     private fun listedModels(provider: ProviderSetting, includeSpeechModels: Boolean): List<Model> {
-        val extras = if (includeSpeechModels) DoubaoSpeech.extraModels(provider) else emptyList()
+        val extras = if (includeSpeechModels) SpeechSynthesisModels.catalogModels(provider) else emptyList()
         val seen = HashSet<String>()
         return (extras + provider.models).filter { model ->
             if (!model.isEnabled) return@filter false

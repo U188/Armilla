@@ -16,9 +16,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.voice.tts.DoubaoSpeech
-import io.github.mangi.eta.agent.voice.tts.DoubaoVoices
+import io.github.mangi.eta.agent.voice.tts.SpeechEngineResolver
 import io.github.mangi.eta.agent.voice.tts.SpeechPlayback
+import io.github.mangi.eta.agent.voice.tts.SpeechVoices
 import io.github.mangi.eta.agent.voice.tts.SpeechVoice
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.SpeechSynthesisModels
@@ -26,7 +26,6 @@ import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -45,11 +44,12 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     val models = remember(providers, providerId, modelId) {
         AgentModelPickerProjector.project(providers.filter(SpeechSynthesisModels::allowsSpeechEndpoint), providerId, modelId, includeSpeechModels = true)
     }
-    val doubao = DoubaoSpeech.matchesModel(modelId)
-    val catalog = remember(doubao) { if (doubao) DoubaoVoices.catalog else OpenAiSpeechVoices.catalog }
+    val selectedProvider = remember(providers, providerId) { providers.firstOrNull { it.id == providerId } }
+    val engine = remember(selectedProvider, modelId) { SpeechEngineResolver.resolve(selectedProvider, modelId) }
+    val catalog = remember(engine, modelId) { SpeechVoices.catalog(engine, modelId) }
     val playback by SpeechPlayback.state.collectAsState()
     val sample = stringResource(R.string.tts_sample)
-    LaunchedEffect(doubao, modelId) {
+    LaunchedEffect(engine, modelId) {
         if (!cloud || catalog.isEmpty()) return@LaunchedEffect
         if (voice.isBlank() || catalog.none { it.id == voice }) {
             val fallback = catalog.first().id
@@ -168,16 +168,28 @@ private fun TtsVoicePickerDialog(
             val male = voices.filter { "_male_" in it.id }
             val other = voices.filter { voice -> voice !in female && voice !in male }
             if (female.isNotEmpty()) {
-                SmallTitle(stringResource(R.string.tts_voice_female))
+                VoiceSectionTitle(stringResource(R.string.tts_voice_female))
                 female.forEach { VoiceRow(it, selectedId, onSelected) }
             }
             if (male.isNotEmpty()) {
-                SmallTitle(stringResource(R.string.tts_voice_male))
+                VoiceSectionTitle(stringResource(R.string.tts_voice_male))
                 male.forEach { VoiceRow(it, selectedId, onSelected) }
             }
             other.forEach { VoiceRow(it, selectedId, onSelected) }
         }
     }
+}
+
+@Composable
+private fun VoiceSectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MiuixTheme.textStyles.subtitle,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+    )
 }
 
 @Composable
@@ -193,15 +205,4 @@ private fun VoiceRow(voice: SpeechVoice, selectedId: String, onSelected: (String
             color = if (voice.id == selectedId) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
         )
     }
-}
-
-private object OpenAiSpeechVoices {
-    val catalog: List<SpeechVoice> = listOf(
-        SpeechVoice("alloy", "Alloy"),
-        SpeechVoice("echo", "Echo"),
-        SpeechVoice("fable", "Fable"),
-        SpeechVoice("onyx", "Onyx"),
-        SpeechVoice("nova", "Nova"),
-        SpeechVoice("shimmer", "Shimmer"),
-    )
 }

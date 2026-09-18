@@ -114,14 +114,26 @@ internal object SpeechPlayback {
                                     ?.takeIf(SpeechSynthesisModels::allowsSpeechEndpoint)
                                     ?: throw SpeechPlaybackFailure("该提供商不支持此朗读接入方式")
                                 val model = provider.models.firstOrNull { it.id == modelId && it.isEnabled }
-                                    ?: DoubaoSpeech.extraModels(provider).firstOrNull { it.id == modelId || it.modelId == modelId }
+                                    ?: SpeechSynthesisModels.catalogModels(provider).firstOrNull { it.id == modelId || it.modelId == modelId }
                                     ?: throw SpeechPlaybackFailure("朗读模型已不可用，请重新配置或选择系统朗读")
                                 RuntimeConfigRepository.buildRuntimeConfig(provider, model)
                             }
                             val voice = voiceId
-                            speechCheck(voice.isNotEmpty()) { "请先设置云端音色 ID" }
+                            speechCheck(voice.isNotEmpty()) { "请先选择音色" }
                             val synth = CloudSpeechSynthesizer()
-                            val label = if (DoubaoSpeech.matchesModel(config.model) || DoubaoSpeech.isOpenspeech(config.baseUrl)) "豆包语音" else "云端 Speech"
+                            val label = when (SpeechEngineResolver.resolve(config.providerSourceType, config.baseUrl, config.model)) {
+                                SpeechEngine.DOUBAO -> "豆包语音"
+                                SpeechEngine.MIMO -> "小米语音"
+                                SpeechEngine.MINIMAX -> "MiniMax"
+                                SpeechEngine.STEP -> "阶跃语音"
+                                SpeechEngine.QWEN -> "通义语音"
+                                SpeechEngine.GROQ -> "Groq"
+                                SpeechEngine.XAI -> "xAI"
+                                SpeechEngine.GEMINI -> "Gemini"
+                                SpeechEngine.ELEVENLABS -> "ElevenLabs"
+                                SpeechEngine.FISH -> "Fish Audio"
+                                SpeechEngine.OPENAI -> "云端 Speech"
+                            }
                             supervisorScope {
                                 // At most current + next sentence buffered. Never restart from the beginning on failure.
                                 var next = async { synth.synthesize(config, sentences.first(), voice) }

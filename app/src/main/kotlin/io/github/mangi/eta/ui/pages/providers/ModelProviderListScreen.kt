@@ -194,6 +194,9 @@ internal fun ModelProviderListScreen(
                         ArrowPreference(
                             title = stringResource(R.string.ui_new_doubao_speech),
                             summary = stringResource(R.string.ui_new_doubao_speech_summary),
+                            startAction = {
+                                ProviderBrandIcon(ProviderSourceTypes.DOUBAO_SPEECH)
+                            },
                             onClick = { onNavigate(AppRoute.ModelProviderNew(NewProviderType.DoubaoSpeech)) },
                         )
                     }

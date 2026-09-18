@@ -25,11 +25,34 @@ internal object SpeechSynthesisModels {
     }
 
     fun catalogModels(provider: ProviderSetting): List<Model> {
-        if (!isDoubaoSpeechHost(provider.baseUrl)) return emptyList()
-        return listOf(
-            catalogModel("seed-tts-2.0", "豆包语音合成 2.0"),
-            catalogModel("seed-audio-1.0", "豆包音频生成 1.0"),
-        )
+        val host = provider.baseUrl.trim().toHttpUrlOrNull()?.host.orEmpty().lowercase()
+        val source = provider.sourceType.trim().lowercase()
+        return when {
+            isDoubaoSpeechHost(provider.baseUrl) || source == ProviderSourceTypes.DOUBAO_SPEECH -> listOf(
+                catalogModel("seed-tts-2.0", "豆包语音合成 2.0"),
+                catalogModel("seed-audio-1.0", "豆包音频生成 1.0"),
+            )
+            host.contains("xiaomimimo") || source == ProviderSourceTypes.MIMO -> listOf(
+                catalogModel("mimo-v2.5-tts", "小米语音 2.5"),
+                catalogModel("mimo-v2.5-tts-voiceclone", "小米语音克隆 2.5"),
+            )
+            host.contains("minimax") || source == ProviderSourceTypes.MINIMAX -> listOf(
+                catalogModel("speech-2.8-hd", "MiniMax Speech 2.8 HD"),
+                catalogModel("speech-2.6-hd", "MiniMax Speech 2.6 HD"),
+            )
+            host.contains("stepfun") || source == ProviderSourceTypes.STEPFUN -> listOf(
+                catalogModel("step-tts-mini", "Step TTS Mini"),
+                catalogModel("stepaudio-2.5-tts", "StepAudio 2.5 TTS"),
+            )
+            host.contains("dashscope") || host.contains("maas.aliyuncs.com") || source == ProviderSourceTypes.BAILIAN -> listOf(
+                catalogModel("qwen-audio-3.0-tts-flash", "Qwen Audio 3.0 Flash"),
+                catalogModel("qwen-audio-3.0-tts-plus", "Qwen Audio 3.0 Plus"),
+            )
+            host.contains("groq.com") -> listOf(
+                catalogModel("canopylabs/orpheus-v1-english", "Orpheus English"),
+            )
+            else -> emptyList()
+        }
     }
 
     fun mergeCatalog(provider: ProviderSetting): List<Model> {
@@ -44,7 +67,7 @@ internal object SpeechSynthesisModels {
             id = id,
             modelId = id,
             displayName = displayName,
-            ownedBy = "volcengine",
+            ownedBy = "catalog",
             isBuiltIn = true,
             source = ModelSource.CATALOG,
             outputModalities = listOf(Model.AUDIO_MODALITY),

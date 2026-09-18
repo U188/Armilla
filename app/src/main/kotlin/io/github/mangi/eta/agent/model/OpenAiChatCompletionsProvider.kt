@@ -49,32 +49,20 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
             .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders, request.sessionId) }
             .build()
 
-        fun httpRequest(stripHistoricalReasoning: Boolean): Request = Request.Builder()
+        val requestBody = buildRequestJson(config, request.messages, request.tools)
+            .toString()
+            .toRequestBody(JSON_MEDIA_TYPE)
+
+        val httpRequest = Request.Builder()
             .url(url)
             .headers(headers)
-            .post(
-                buildRequestJson(
-                    config = config,
-                    messages = request.messages,
-                    tools = request.tools,
-                    stripHistoricalReasoning = stripHistoricalReasoning,
-                ).toString().toRequestBody(JSON_MEDIA_TYPE),
-            )
+            .post(requestBody)
             .build()
 
         try {
             runController.throwIfCancelled()
             onEvent(ProviderEvent.RequestStarted)
-            val assistantMessage = try {
-                readStreamingAssistantMessage(httpRequest(false), runController, onEvent)
-            } catch (failure: AgentModelFailure) {
-                if (!shouldRetryWithoutHistoricalReasoning(config, request.messages, failure)) throw failure
-                runController.throwIfCancelled()
-                io.github.mangi.eta.core.AndroidAgentLogger.warn(
-                    "OpenAI-compatible custom provider rejected reasoning replay; retrying once without historical reasoning metadata",
-                )
-                readStreamingAssistantMessage(httpRequest(true), runController, onEvent)
-            }
+            val assistantMessage = readStreamingAssistantMessage(httpRequest, runController, onEvent)
             onEvent(ProviderEvent.Completed(assistantMessage.optString("finish_reason").ifBlank { null }))
             return ProviderResponse(assistantMessage)
         } catch (throwable: Throwable) {
@@ -87,8 +75,7 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
     private fun buildRequestJson(
         config: AgentModelClient.ModelConfig,
         messages: JSONArray,
-        tools: JSONArray,
-        stripHistoricalReasoning: Boolean = false,
+        tools: JSONArray
     ): JSONObject {
         val sourceType = ProviderSourceRegistry.resolve(
             providerId = config.providerId,
@@ -99,13 +86,7 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
         return JSONObject()
             .put("model", config.model)
             .put("stream", true)
-            .put(
-                "messages",
-                OpenAiRequestMessages.forChatCompletions(
-                    messages,
-                    stripHistoricalReasoning = stripHistoricalReasoning,
-                ),
-            )
+            .put("messages", OpenAiRequestMessages.forChatCompletions(messages))
             .put("tools", tools)
             .put("tool_choice", "auto")
             .also { request ->
@@ -121,34 +102,6 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                     if (tools.length() == 0) { request.remove("tools"); request.remove("tool_choice") }
                 }
             }
-    }
-
-    internal fun shouldRetryWithoutHistoricalReasoning(
-        config: AgentModelClient.ModelConfig,
-        messages: JSONArray,
-        failure: AgentModelFailure,
-    ): Boolean {
-        if (ProviderSourceRegistry.resolve(
-                providerId = config.providerId,
-                sourceType = config.providerSourceType,
-                baseUrl = config.baseUrl,
-                providerType = config.providerType,
-            ) != ProviderSourceTypes.CUSTOM
-        ) {
-            return false
-        }
-        if (failure.code != "HTTP_400" ||
-            !failure.message.orEmpty().contains("inference request is invalid", ignoreCase = true)
-        ) {
-            return false
-        }
-        for (index in 0 until messages.length()) {
-            val message = messages.optJSONObject(index) ?: continue
-            if (message.optString("role") == "assistant" && message.optReasoningContent().isNotBlank()) {
-                return true
-            }
-        }
-        return false
     }
 
     private fun readStreamingAssistantMessage(

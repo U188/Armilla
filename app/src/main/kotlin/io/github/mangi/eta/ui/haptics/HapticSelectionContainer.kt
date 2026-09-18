@@ -22,6 +22,8 @@ import androidx.compose.ui.platform.LocalView
  *
  * Compose 选区变化会连发 [HapticFeedbackType.TextHandleMove]，在 HyperOS 上若转成长按
  * 就会跟着滑。这里吞掉系统选区震动，改由长按超时自己触发一次。
+ * 长按的移动仍交给原生 SelectionContainer；仅拦截释放事件，避免链接的
+ * clickable 把长按松手误判为点击跳转。短按和无障碍点击保持原样。
  */
 @Composable
 internal fun HapticSelectionContainer(
@@ -35,14 +37,24 @@ internal fun HapticSelectionContainer(
         SelectionContainer(
             modifier = modifier.pointerInput(view) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     val slop = viewConfiguration.touchSlop
+                    val longPressTimeout = viewConfiguration.longPressTimeoutMillis
                     try {
-                        withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                        withTimeout(longPressTimeout) {
                             while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Final)
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val change = event.changes.firstOrNull { it.id == down.id }
-                                if (change == null || !change.pressed) return@withTimeout
+                                if (change == null) return@withTimeout
+                                if (!change.pressed) {
+                                    // Also cover an up delivered at the timeout boundary.
+                                    if (isSelectionLongPressRelease(
+                                            change.uptimeMillis - down.uptimeMillis,
+                                            longPressTimeout,
+                                        )
+                                    ) change.consume()
+                                    return@withTimeout
+                                }
                                 if ((change.position - down.position).getDistance() > slop) {
                                     return@withTimeout
                                 }
@@ -50,6 +62,17 @@ internal fun HapticSelectionContainer(
                         }
                     } catch (_: PointerEventTimeoutCancellationException) {
                         fireSelectionStartHaptic(view)
+                        // Do not consume down/moves: native word selection and drag
+                        // extension must continue. Cancel only the link's tap on up,
+                        // before its child clickable receives the Main pass.
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                change.consume()
+                                break
+                            }
+                        }
                     }
                 }
             },
@@ -79,3 +102,6 @@ private class SelectionHapticFeedback(
         }
     }
 }
+
+internal fun isSelectionLongPressRelease(elapsedMillis: Long, timeoutMillis: Long): Boolean =
+    elapsedMillis >= timeoutMillis

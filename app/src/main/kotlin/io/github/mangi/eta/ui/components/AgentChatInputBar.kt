@@ -364,7 +364,12 @@ internal fun AgentChatInputBar(
                     )
                 }
 
-                Box(modifier = Modifier.fillMaxWidth()) {
+                // The speech target is 48dp, while action buttons are 40dp.
+                // Center BOTH layers and reserve the row height even when speech is hidden.
+                Box(
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,

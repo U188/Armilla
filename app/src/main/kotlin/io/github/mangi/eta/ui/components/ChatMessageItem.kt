@@ -292,6 +292,7 @@ internal fun ChatMessageItem(
     onBranchMessage: (String) -> Unit = {},
     isPaused: Boolean = false,
     enableLivePreview: Boolean = true,
+    speechPreface: String = "",
 ) {
     when (message) {
         is UserMessageUi -> UserMessageBubble(
@@ -307,6 +308,7 @@ internal fun ChatMessageItem(
         is AgentMessageUi -> AgentMessageBlock(
             message = message,
             allowSpeech = true,
+            speechPreface = speechPreface,
             retainedStreamingState = retainedStreamingState,
             showCopyAction = showCopyAction,
             showMessageActions = showMessageActions,
@@ -787,6 +789,7 @@ private fun UserMessageBubble(
 private fun AgentMessageBlock(
     message: AgentMessageUi,
     allowSpeech: Boolean = false,
+    speechPreface: String = "",
     retainedStreamingState: StreamingMarkdownState?,
     showCopyAction: Boolean,
     showMessageActions: Boolean,
@@ -804,6 +807,9 @@ private fun AgentMessageBlock(
     var copied by remember(message.id) { mutableStateOf(false) }
     val keepStreamingMarkdown = message.isStreaming || retainedStreamingState != null
     val displayContent = remember(message.content) { NumericCitationMarkup.strip(message.content) }
+    val speechContent = remember(speechPreface, displayContent) {
+        listOf(speechPreface.trim(), displayContent).filter { it.isNotBlank() }.joinToString("\n\n")
+    }
     var streamingRevealComplete by remember(message.id) {
         mutableStateOf(!keepStreamingMarkdown)
     }
@@ -905,7 +911,7 @@ private fun AgentMessageBlock(
                     )
                 }
                 if (allowSpeech) {
-                    SpeechPlaybackButton(message.id, displayContent)
+                    SpeechPlaybackButton(message.id, speechContent)
                 }
                 if (showMessageActions) {
                     TooltipBox(text = stringResource(R.string.ui_branch_conversation), enabled = branchEnabled) {

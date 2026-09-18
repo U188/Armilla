@@ -785,9 +785,12 @@ internal fun AgentConversationMessages(
         ) {
             val trailingWorkKey =
                 (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
+            var pendingThinking = ""
             timelineEntries.forEach { entry ->
                 when (entry) {
                     is AgentTimelineEntry.Message -> {
+                        val speechPreface = pendingThinking
+                        pendingThinking = ""
                         item(
                             key = entry.key,
                             contentType = "message",
@@ -795,6 +798,7 @@ internal fun AgentConversationMessages(
                             val message = entry.message
                             ChatMessageItem(
                                 message = message,
+                                speechPreface = if (message is AgentMessageUi) speechPreface else "",
                                 retainedStreamingState = (message as? AgentMessageUi)
                                     ?.takeIf { it.isStreaming || streamingMarkdownStates.containsKey(it.id) }
                                     ?.let { agentMessage ->
@@ -830,6 +834,9 @@ internal fun AgentConversationMessages(
                     }
 
                     is AgentTimelineEntry.WorkProcess -> {
+                        pendingThinking = entry.messages.filterIsInstance<ThinkingMessageUi>()
+                            .joinToString("\n\n") { it.content.trim() }
+                            .trim()
                         entry.messages.forEach { message ->
                             if (message is ThinkingMessageUi && message.isStreaming) {
                                 streamingMarkdownStates.getOrPut(message.id) {

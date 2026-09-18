@@ -486,6 +486,41 @@ class OpenAiResponsesProviderTest {
         assertTrue(formatted.contains("https://example.com/b"))
     }
 
+    @Test
+    fun deepSeekTerminalContentKeepsFullReasoningThroughCheckpoint() {
+        val thought = JSONObject().put("type", "reasoning").put("id", "rs_deepseek")
+            .put("content", JSONArray().put(JSONObject().put("type", "reasoning_text").put("text", "完整推理")))
+        val body = event("response.reasoning_text.delta", JSONObject().put("delta", "完整推理")) +
+            event("response.completed", JSONObject().put("response", JSONObject().put("status", "completed")
+                .put("output", JSONArray().put(thought))))
+        withSseServer(body) { baseUrl ->
+            val cfg = config(baseUrl).copy(model = "deepseek-v4.1-flash")
+            val result = OpenAiResponsesProvider.complete(ProviderRequest(cfg, JSONArray(), JSONArray()), AgentRunController())
+            assertEquals("完整推理", result.assistantMessage.getString("reasoning_content"))
+            val dto = AgentConversationCodec.durableMessage(result.assistantMessage)
+            val restored = AgentConversationCodec.toJsonObject(AgentConversationCodec.decodeTranscript(
+                AgentConversationCodec.encodeConversationCheckpoint(listOf(dto)),
+            ).single())
+            assertEquals(thought.toString(), ResponsesReasoningState.items(restored, cfg)!!.getJSONObject(0).toString())
+        }
+    }
+
+    @Test
+    fun fullReasoningStreamFallbackDoesNotConfuseSummaryWithReasoning() {
+        for (full in listOf(true, false)) {
+            val type = if (full) "response.reasoning_text.delta" else "response.reasoning_summary_text.delta"
+            val body = event(type, JSONObject().put("delta", "文本")) +
+                event("response.completed", JSONObject().put("response", JSONObject().put("status", "completed")))
+            withSseServer(body) { baseUrl ->
+                val cfg = config(baseUrl)
+                val result = OpenAiResponsesProvider.complete(ProviderRequest(cfg, JSONArray(), JSONArray()), AgentRunController())
+                val items = ResponsesReasoningState.items(result.assistantMessage, cfg)
+                if (full) assertEquals("文本", items!!.getJSONObject(0).getJSONArray("content").getJSONObject(0).getString("text"))
+                else assertNull(items)
+            }
+        }
+    }
+
     private fun config(baseUrl: String) = AgentModelClient.ModelConfig(
         providerSourceType = "custom",
         baseUrl = baseUrl,

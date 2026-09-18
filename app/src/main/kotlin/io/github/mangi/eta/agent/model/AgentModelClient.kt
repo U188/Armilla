@@ -320,6 +320,7 @@ internal object AgentModelClient {
         val reasoningContent: String = "",
         val toolCallsJson: String = "",
         val turnId: String = "",
+        val responsesReasoningJson: String = "",
     )
 
     fun interface ToolExecutor {

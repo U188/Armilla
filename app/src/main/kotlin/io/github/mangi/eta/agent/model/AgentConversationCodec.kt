@@ -76,6 +76,9 @@ internal object AgentConversationCodec {
                 if (message.reasoningContent.isNotBlank()) {
                     target.put("reasoning_content", message.reasoningContent)
                 }
+                ResponsesReasoningState.sanitize(message.responsesReasoningJson).takeIf { it.isNotBlank() }?.let {
+                    target.put(ResponsesReasoningState.KEY, JSONObject(it))
+                }
                 if (message.toolCallsJson.isNotBlank()) {
                     target.put("tool_calls", JSONTokener(message.toolCallsJson).nextValue())
                 }
@@ -98,6 +101,7 @@ internal object AgentConversationCodec {
             },
             toolCallId = message.optString("tool_call_id"),
             reasoningContent = message.optReasoningContent(),
+            responsesReasoningJson = ResponsesReasoningState.sanitize(message.optJSONObject(ResponsesReasoningState.KEY)?.toString().orEmpty()),
             toolCallsJson = message.optJSONArray("tool_calls")?.toString().orEmpty(),
         )
     }
@@ -261,6 +265,7 @@ internal object AgentConversationCodec {
                     message.put("reasoning_content", reasoning)
                 }
                 ResponsesEphemeralState.copyOutputItems(source, message)
+                ResponsesReasoningState.copy(source, message)
             }
 
     fun toolResultMessage(
@@ -408,6 +413,7 @@ internal object AgentConversationCodec {
             contentJson = "",
             reasoningContent = last.reasoningContent.take(maxChars / 4),
             toolCallsJson = "",
+            responsesReasoningJson = "",
         )
         return json.encodeToString(listOf(notice, compacted))
             .takeIf { it.length <= maxChars }
@@ -425,6 +431,7 @@ internal object AgentConversationCodec {
             toolCallId = if (message.turnId.isNotBlank()) message.toolCallId else message.toolCallId.take(256),
             reasoningContent = if (message.turnId.isNotBlank()) message.reasoningContent else message.reasoningContent.take(MAX_REASONING_CHARS),
             toolCallsJson = sanitizeToolCallsJson(message.toolCallsJson, message.turnId.isNotBlank()),
+            responsesReasoningJson = ResponsesReasoningState.sanitize(message.responsesReasoningJson),
             turnId = message.turnId.take(128),
         )
 

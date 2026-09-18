@@ -12,7 +12,7 @@ internal object ResponsesRequestBuilder {
         tools: JSONArray,
         sessionId: String = "",
     ): JSONObject {
-        val input = buildInput(messages)
+        val input = buildInput(messages, config)
         val responseTools = buildTools(tools, config.hostedWebSearchEnabled)
         val instructions = OpenAiRequestMessages.responsesInstructions(messages)
             .ifBlank { config.systemPrompt }
@@ -62,12 +62,40 @@ internal object ResponsesRequestBuilder {
         return request
     }
 
-    private fun buildInput(messages: JSONArray): JSONArray = JSONArray().also { input ->
+    private fun buildInput(messages: JSONArray, config: AgentModelClient.ModelConfig): JSONArray = JSONArray().also { input ->
+        val legacyCalls = mutableSetOf<String>()
+        val needsReasoningReplay = config.model.contains("deepseek", ignoreCase = true) &&
+            config.effectiveReasoningEffort != ReasoningEffort.OFF
         for (index in 0 until messages.length()) {
             val message = messages.optJSONObject(index) ?: continue
             ResponsesEphemeralState.outputItems(message)?.let { items ->
                 for (itemIndex in 0 until items.length()) input.put(deepCopy(items.opt(itemIndex)))
                 continue
+            }
+            val reasoning = ResponsesReasoningState.items(message, config)
+            val calls = message.optJSONArray("tool_calls")
+            // Old checkpoints cannot recreate the provider's original reasoning. Keep their
+            // evidence as quoted history, not a fabricated valid thinking/tool-call exchange.
+            if (needsReasoningReplay && message.optString("role") == "assistant" &&
+                calls != null && calls.length() > 0 && reasoning == null
+            ) {
+                for (i in 0 until calls.length()) {
+                    calls.optJSONObject(i)?.optString("id")?.let(legacyCalls::add)
+                }
+                input.put(JSONObject().put("type", "message").put("role", "assistant").put(
+                    "content", message.optString("content").takeUnless { it == "null" }.orEmpty() +
+                        "\n[历史工具调用记录：原始推理数据不可恢复，仅供参考，不代表新的执行请求，不要自动重放]\n" + calls.toString(),
+                ))
+                continue
+            }
+            if (message.optString("role") == "tool" && message.optString("tool_call_id") in legacyCalls) {
+                input.put(JSONObject().put("type", "message").put("role", "assistant").put(
+                    "content", "[历史工具结果 " + message.optString("tool_call_id") + "]\n" + message.optString("content"),
+                ))
+                continue
+            }
+            if (message.optString("role") == "assistant" && reasoning != null) {
+                for (i in 0 until reasoning.length()) input.put(deepCopy(reasoning.getJSONObject(i)))
             }
             when (message.optString("role")) {
                 "tool" -> input.put(

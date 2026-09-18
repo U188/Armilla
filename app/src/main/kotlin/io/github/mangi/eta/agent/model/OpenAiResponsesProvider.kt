@@ -58,6 +58,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                 runController = runController,
                 onEvent = onEvent,
             )
+            ResponsesReasoningState.capture(assistant, config)
             onEvent(ProviderEvent.Completed(assistant.optString("finish_reason").ifBlank { null }))
             return ProviderResponse(assistant)
         } catch (throwable: Throwable) {
@@ -81,6 +82,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
     ): JSONObject {
         val streamedText = StringBuilder()
         val streamedReasoning = StringBuilder()
+        val streamedFullReasoning = StringBuilder()
         val toolCalls = linkedMapOf<String, StreamingFunctionCall>()
         val hostedTools = linkedMapOf<String, Boolean>()
         val contentBlocks = mutableListOf<StreamingContentBlock>()
@@ -208,6 +210,7 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                         val delta = event.optString("delta")
                         if (delta.isNotEmpty()) {
                             streamedReasoning.append(delta)
+                            if (type == "response.reasoning_text.delta") streamedFullReasoning.append(delta)
                             appendContentDelta(
                                 event = event,
                                 kind = AssistantBlockKind.THINKING,
@@ -480,6 +483,13 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
         }
         if (hasTerminalOutput) {
             ResponsesEphemeralState.attachOutputItems(assistant, output)
+        } else if (streamedFullReasoning.isNotEmpty()) {
+            // Only full reasoning deltas, never summaries or invented empty placeholders.
+            assistant.put(ResponsesReasoningState.KEY, JSONObject().put("items", JSONArray().put(
+                JSONObject().put("type", "reasoning").put("content", JSONArray().put(
+                    JSONObject().put("type", "reasoning_text").put("text", streamedFullReasoning.toString()),
+                )),
+            )))
         }
         return assistant
     }
@@ -567,6 +577,26 @@ internal object OpenAiResponsesProvider : AgentProviderClient {
                                 itemId = itemId,
                                 outputIndex = index,
                                 partIndex = summaryIndex,
+                            ),
+                            rawContent = partText,
+                            content = partText,
+                        )
+                    }
+                    // DeepSeek returns full reasoning as content[{type: reasoning_text, text}].
+                    // This is distinct from an OpenAI summary and must survive terminal reconciliation.
+                    val reasoningParts = item.optJSONArray("content") ?: JSONArray()
+                    for (partIndex in 0 until reasoningParts.length()) {
+                        val part = reasoningParts.optJSONObject(partIndex) ?: continue
+                        if (part.optString("type") != "reasoning_text") continue
+                        val partText = part.optString("text")
+                        appendSeparated(reasoning, partText)
+                        contentParts += FinalContentPart(
+                            kind = AssistantBlockKind.THINKING,
+                            identity = ResponsesContentIdentity(
+                                family = RESPONSE_REASONING_FAMILY,
+                                itemId = itemId,
+                                outputIndex = index,
+                                partIndex = partIndex,
                             ),
                             rawContent = partText,
                             content = partText,

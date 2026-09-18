@@ -21,6 +21,7 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.view.ViewTreeObserver
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
@@ -232,7 +233,12 @@ private fun CompactCompressionEndpointPreference(
         Row(
             modifier = Modifier.fillMaxWidth()
                 .semantics { stateDescription = detailsState }
-                .clickable(enabled = enabled, role = Role.Button) {
+                .clickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) {
                     TouchHaptics.click(view)
                     detailsExpanded = !detailsExpanded
                 }

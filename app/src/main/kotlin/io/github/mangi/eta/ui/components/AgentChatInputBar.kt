@@ -365,10 +365,10 @@ internal fun AgentChatInputBar(
                 }
 
                 Box(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         if (isEditingMessage) {
                             IconButton(
                                 onClick = onCancelMessageEdit,
@@ -413,6 +413,15 @@ internal fun AgentChatInputBar(
                         }
 
                         Spacer(modifier = Modifier.weight(1f))
+                        if (!isEditingMessage) {
+                            ChatSpeechIndicator(
+                                textFieldState = textFieldState,
+                                showGeneration = showMorphLoading,
+                                interactionBlocked = drawerBlocksIme,
+                                resetKey = isStreaming to isEditingMessage,
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
 
                         if (shouldShowLiveContextUsage(showContextUsage, contextSendBlocked, liveUsage)) {
                             AgentContextUsageButton(
@@ -525,14 +534,18 @@ internal fun AgentChatInputBar(
                                 }
                             }
                         }
-                }
-                    ChatSpeechIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        textFieldState = textFieldState,
-                        showGeneration = showMorphLoading,
-                        interactionBlocked = drawerBlocksIme,
-                        resetKey = isStreaming to isEditingMessage,
-                    )
+                    }
+                    // Editing has asymmetric controls: center against the whole row,
+                    // not the remaining space between the cancel and model/send buttons.
+                    if (isEditingMessage) {
+                        ChatSpeechIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                            textFieldState = textFieldState,
+                            showGeneration = showMorphLoading,
+                            interactionBlocked = drawerBlocksIme,
+                            resetKey = isStreaming to isEditingMessage,
+                        )
+                    }
                 }
             }
         }

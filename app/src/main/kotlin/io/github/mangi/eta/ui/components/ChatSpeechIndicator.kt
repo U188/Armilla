@@ -130,10 +130,14 @@ internal fun ChatSpeechIndicator(
     val diameter by animateDpAsState(if (active) 40.dp else 24.dp, spring(dampingRatio = 0.65f), label = "speechDiameter")
     val label = stringResource(if (active) R.string.speech_stop else R.string.speech_start)
     val status = stringResource(if (listening) R.string.speech_listening else R.string.speech_preparing)
-    AnimatedVisibility(visible = SpeechInputPolicy.visible(showGeneration, pack.enabled)) {
+    // Parent layout data (for example BoxScope.align) must reach the outer node.
+    AnimatedVisibility(
+        modifier = modifier,
+        visible = SpeechInputPolicy.visible(showGeneration, pack.enabled),
+    ) {
         // Constant touch target avoids moving other composer buttons when the circle grows.
         Box(
-            modifier = modifier.size(48.dp).clip(CircleShape)
+            modifier = Modifier.size(48.dp).clip(CircleShape)
                 .semantics {
                     if (pack.enabled) {
                         contentDescription = label

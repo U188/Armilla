@@ -79,6 +79,7 @@ import io.github.mangi.eta.data.repository.UsageStatsRepository
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.isSteerSupplement
 import io.github.mangi.eta.ui.model.hasPartialAssistantAfterLastUser
+import io.github.mangi.eta.ui.model.canContinueDisconnectedRun
 import io.github.mangi.eta.ui.model.MessageSearchHit
 import io.github.mangi.eta.ui.model.MessageSearchRoleLabels
 import io.github.mangi.eta.ui.model.searchConversationMessages
@@ -2821,14 +2822,48 @@ internal class AgentAppState(
 
     fun continuePausedGeneration() {
         if (rejectConversationArchiveMutation()) return
-        val runId = activeRunIdForSelectedConversation() ?: return
-        if (!homeState.isPaused) return
-        contextBudgetBlockedRuns[runId]?.let { contextBudgetPrompt = it; return }
         if (rejectSendIfCompressing()) return
+        if (!homeState.isPaused) {
+            continueDisconnectedGeneration()
+            return
+        }
+        val runId = activeRunIdForSelectedConversation() ?: return
+        contextBudgetBlockedRuns[runId]?.let { contextBudgetPrompt = it; return }
         scope.launch(Dispatchers.IO) {
             AgentRuntimeClient(appContext, AndroidAgentLogger).resumeRun(runId)
         }
         updateCurrentConversation(homeState.copy(isPaused = false))
+    }
+
+    private fun continueDisconnectedGeneration() {
+        if (homeState.isStreaming || homeState.isPaused) return
+        if (rejectSendIfModelUnavailable()) return
+        if (!canContinueDisconnectedRun(homeState.messages)) return
+        val conversationId = selectedConversationId ?: return
+        val state = conversationsById[conversationId] ?: return
+        val committed = AgentConversationRevisionReducer.commitVisibleAssistantIntoHistory(
+            state.history,
+            state.messages,
+        )
+        val continuedHistory = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(committed)
+        val prompt = RESUME_AFTER_COMPRESS_PROMPT
+        val runId = "run-${UUID.randomUUID()}"
+        launchConversationRun(
+            conversationId = conversationId,
+            runId = runId,
+            prompt = prompt,
+            images = emptyList(),
+            history = continuedHistory,
+            userHistoryMessage = AgentModelClient.ConversationMessage(
+                role = "user",
+                content = prompt,
+            ),
+            messages = state.messages,
+            state = state,
+            reasoningEffort = state.reasoningEffort,
+            skipAutoCompress = true,
+            logicalTurnId = continuedHistory.lastOrNull { it.turnId.isNotBlank() }?.turnId ?: runId,
+        )
     }
 
     fun steerCurrentRun(text: String) {

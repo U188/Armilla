@@ -162,4 +162,47 @@ class ChatComposerSendModeTest {
             ),
         )
     }
+
+    @Test
+    fun disconnectedFailureEmptyShowsContinue() {
+        assertEquals(
+            "continue",
+            resolveChatComposerSendMode(
+                isStreaming = false,
+                isPaused = false,
+                hasSteerContent = false,
+                canStartNewSend = false,
+                canContinueDisconnected = true,
+            ),
+        )
+    }
+
+    @Test
+    fun disconnectedFailureWithDraftSendsNewMessage() {
+        assertEquals(
+            "send",
+            resolveChatComposerSendMode(
+                isStreaming = false,
+                isPaused = false,
+                hasSteerContent = true,
+                canStartNewSend = true,
+                canContinueDisconnected = true,
+            ),
+        )
+    }
+
+    @Test
+    fun compressingDisconnectedFailureHidesContinue() {
+        assertEquals(
+            "idle",
+            resolveChatComposerSendMode(
+                isStreaming = false,
+                isPaused = false,
+                hasSteerContent = false,
+                canStartNewSend = false,
+                isCompressingContext = true,
+                canContinueDisconnected = true,
+            ),
+        )
+    }
 }

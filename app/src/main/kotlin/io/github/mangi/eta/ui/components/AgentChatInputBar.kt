@@ -146,6 +146,7 @@ internal fun AgentChatInputBar(
     onContinue: () -> Unit = {},
     onAbortPausedRun: () -> Unit = {},
     isPaused: Boolean = false,
+    canContinueDisconnected: Boolean = false,
     onAttachImage: (String) -> Unit,
     onAttachVideo: (String) -> Unit,
     onRemoveImage: (String) -> Unit,
@@ -441,6 +442,7 @@ internal fun AgentChatInputBar(
                         val sendMode = resolveChatComposerSendMode(
                             isStreaming = isStreaming,
                             isPaused = isPaused,
+                            canContinueDisconnected = canContinueDisconnected,
                             hasSteerContent = textFieldState.text.isNotBlank() ||
                                 pendingImages.isNotEmpty() ||
                                 pendingFileReferences.isNotEmpty(),
@@ -470,7 +472,7 @@ internal fun AgentChatInputBar(
                                         }
                                     },
                                     onLongClick = {
-                                        if (sendMode != "continue") return@combinedClickable
+                                        if (sendMode != "continue" || !isPaused) return@combinedClickable
                                         TouchHaptics.longPress(view)
                                         onAbortPausedRun()
                                     },
@@ -511,8 +513,12 @@ internal fun AgentChatInputBar(
                                         },
                                         contentDescription = when (mode) {
                                             "stop" -> stringResource(R.string.chat_stop)
-                                            "continue" -> stringResource(R.string.chat_continue) +
-                                                "，" + stringResource(R.string.chat_continue_abort)
+                                            "continue" -> if (isPaused) {
+                                                stringResource(R.string.chat_continue) +
+                                                    "，" + stringResource(R.string.chat_continue_abort)
+                                            } else {
+                                                stringResource(R.string.chat_continue)
+                                            }
                                             else -> stringResource(R.string.chat_send)
                                         },
                                         modifier = Modifier.size(
@@ -829,6 +835,7 @@ internal fun resolveChatComposerSendMode(
     hasSteerContent: Boolean,
     canStartNewSend: Boolean,
     isCompressingContext: Boolean = false,
+    canContinueDisconnected: Boolean = false,
 ): String = when {
     // 压缩进行中禁止追加/续写，避免一边压缩一边输出。流式时仍可停止。
     isCompressingContext && isStreaming -> "stop"
@@ -836,6 +843,9 @@ internal fun resolveChatComposerSendMode(
     (isStreaming || isPaused) && hasSteerContent -> "send"
     isPaused -> "continue"
     isStreaming -> "stop"
+    // Disconnected failure: empty composer continues the same turn; typed text starts a new send.
+    canContinueDisconnected && hasSteerContent -> "send"
+    canContinueDisconnected -> "continue"
     canStartNewSend -> "send"
     else -> "idle"
 }

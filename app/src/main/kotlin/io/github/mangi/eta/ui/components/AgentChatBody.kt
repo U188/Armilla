@@ -84,6 +84,7 @@ import io.github.mangi.eta.ui.app.LocalBlurEnabled
 import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.countUncommittedLiveTokens
 import io.github.mangi.eta.ui.model.latestBilledContextTokens
+import io.github.mangi.eta.ui.model.canContinueDisconnectedRun
 import io.github.mangi.eta.ui.model.isRetryableFailure
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
@@ -143,6 +144,7 @@ internal fun AgentChatBody(
     input: String,
     isStreaming: Boolean,
     isPaused: Boolean = false,
+    canContinueDisconnected: Boolean = false,
     isCompressingContext: Boolean = false,
     isWaitingForCompression: Boolean = false,
     reasoningEffort: ReasoningEffort,
@@ -406,6 +408,7 @@ private fun AgentChatScaffold(
                 showContextUsage = hasMessages,
                 isStreaming = isStreaming,
                 isPaused = isPaused,
+                canContinueDisconnected = canContinueDisconnectedRun(visibleMessages),
                 isCompressingContext = isCompressingContext,
                 showMorphLoading = showMorphLoading,
                 reasoningEffort = reasoningEffort,
@@ -1017,6 +1020,7 @@ private fun AgentChatBottomBar(
     showContextUsage: Boolean,
     isStreaming: Boolean,
     isPaused: Boolean = false,
+    canContinueDisconnected: Boolean = false,
     isCompressingContext: Boolean = false,
     showMorphLoading: Boolean = false,
     reasoningEffort: ReasoningEffort,
@@ -1112,6 +1116,7 @@ private fun AgentChatBottomBar(
                 showContextUsage = showContextUsage,
                 isStreaming = isStreaming,
                 isPaused = isPaused,
+                canContinueDisconnected = canContinueDisconnected,
                 isCompressingContext = isCompressingContext,
                 showMorphLoading = showMorphLoading,
                 reasoningEffort = reasoningEffort,

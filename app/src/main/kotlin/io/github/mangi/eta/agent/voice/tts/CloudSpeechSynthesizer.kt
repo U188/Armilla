@@ -177,8 +177,9 @@ internal class CloudSpeechSynthesizer(
             speechCheck(audioBytes.isNotEmpty()) {
                 if (failed) "朗读接口返回了错误状态" else "朗读接口没有返回音频数据"
             }
-            validateAudio("audio/mpeg", audioBytes)
-            return audioBytes
+            val decoded = DoubaoSpeech.decodeAudio(audioBytes)
+            speechCheck(decoded.bytes.size > 64) { "朗读接口没有返回音频数据" }
+            return decoded.bytes
         }
 
         internal fun extractJsonPayloads(text: String): List<JSONObject> {

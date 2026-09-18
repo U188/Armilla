@@ -48,7 +48,7 @@ internal object SpeechPlayback {
     private val mutableState = MutableStateFlow(SpeechPlaybackState())
     val state = mutableState.asStateFlow()
     val audioAttributes: AudioAttributes = AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
 
     // Call from main; cancellation never affects the Agent run.
     fun stop() {
@@ -98,7 +98,7 @@ internal object SpeechPlayback {
                 if (!epoch.isCurrent(token)) return@withLock
                 try {
                     withContext(Dispatchers.IO) {
-                        File(app.cacheDir, "speech-playback").listFiles()?.filter { it.name.endsWith(".mp3") }?.forEach { it.delete() }
+                        File(app.cacheDir, "speech-playback").listFiles()?.filter { it.extension in setOf("mp3", "wav", "ogg") }?.forEach { it.delete() }
                     }
                     speechCheck(markdown.length <= SpeechSpeakableText.MAX_SOURCE_CHARS) { "回复过长，请分段朗读" }
                     val sentences = withContext(Dispatchers.Default) { SpeechSpeakableText.sentences(markdown) }
@@ -182,14 +182,16 @@ internal object SpeechPlayback {
 
     private suspend fun playMp3(context: Context, bytes: ByteArray) {
         val directory = File(context.cacheDir, "speech-playback")
-        val file = File(directory, "${UUID.randomUUID()}.mp3")
+        val payload = DoubaoSpeech.decodeAudio(bytes)
+        val file = File(directory, "${UUID.randomUUID()}.${payload.extension}")
         val player = MediaPlayer()
         try {
             withContext(Dispatchers.IO) {
                 speechCheck(directory.isDirectory || directory.mkdirs()) { "无法创建临时音频目录" }
-                file.writeBytes(bytes)
+                file.writeBytes(payload.bytes)
             }
             player.setAudioAttributes(audioAttributes)
+            player.setVolume(1f, 1f)
             player.setDataSource(file.absolutePath)
             withTimeout(120_000) {
                 suspendCancellableCoroutine<Unit> { continuation ->

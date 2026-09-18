@@ -103,4 +103,13 @@ class DoubaoSpeechTest {
         assertArrayEquals(mp3, CloudSpeechSynthesizer(http).synthesize(tts, "你好", "zh_female_vv_uranus_bigtts"))
     }
 
+
+    @Test
+    fun pcmIsWrappedAsWav() {
+        val pcm = ByteArray(4800) { (it % 256).toByte() }
+        val wav = DoubaoSpeech.decodeAudio(pcm)
+        assertEquals("wav", wav.extension)
+        assertEquals('R'.code.toByte(), wav.bytes[0])
+        assertTrue(wav.bytes.size > pcm.size)
+    }
 }

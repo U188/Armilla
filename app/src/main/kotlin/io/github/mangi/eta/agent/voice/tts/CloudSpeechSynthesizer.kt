@@ -66,8 +66,9 @@ internal class CloudSpeechSynthesizer(
         val create = DoubaoSpeech.usesCreate(config.model)
         val headers = Headers.Builder()
             .add("Content-Type", "application/json")
-            .add("Accept", if (create) "application/json" else "audio/mpeg")
+            .add("Accept", "application/json")
             .add("X-Api-Key", config.apiKey)
+            .add("X-Api-App-Key", "aGjiRDfUWi")
             .add("X-Api-Request-Id", DoubaoSpeech.requestId())
             .apply {
                 if (!create) add("X-Api-Resource-Id", DoubaoSpeech.resourceId(config.model))
@@ -82,7 +83,7 @@ internal class CloudSpeechSynthesizer(
         val url = if (create) DoubaoSpeech.CREATE_URL else DoubaoSpeech.UNIDIRECTIONAL_URL
         val request = Request.Builder().url(url)
             .headers(headers).post(payload.toRequestBody("application/json".toMediaType())).build()
-        return executeAudio(doubaoClient, request, rawMp3 = !create)
+        return executeAudio(doubaoClient, request, rawMp3 = false)
     }
 
     private suspend fun executeAudio(client: OkHttpClient, request: Request, rawMp3: Boolean): ByteArray =
@@ -145,27 +146,57 @@ internal class CloudSpeechSynthesizer(
                 return bytes
             }
             val type = contentType.orEmpty().substringBefore(';').trim().lowercase()
-            speechCheck(type.isEmpty() || type == "application/json" || type == "text/plain" || type == "application/octet-stream") {
-                "朗读接口未返回音频或 JSON"
-            }
-            val text = runCatching { bytes.decodeToString() }.getOrDefault("")
+            speechCheck(
+                type.isEmpty() ||
+                    type == "application/json" ||
+                    type == "text/plain" ||
+                    type == "text/event-stream" ||
+                    type == "application/octet-stream",
+            ) { "朗读接口未返回音频或 JSON" }
+            val text = runCatching { bytes.decodeToString() }.getOrDefault("").trim()
             speechCheck(text.isNotBlank()) { "朗读接口返回了空响应" }
-            val json = runCatching { JSONObject(text) }.getOrNull()
-            speechCheck(json != null) { "朗读接口返回了无效音频，可能是错误网页或 JSON" }
-            val code = json!!.opt("code")
-            if (code is Number) {
-                speechCheck(code.toInt() == 0 || code.toInt() == 20000000) { "朗读接口返回了错误状态" }
+            val payloads = extractJsonPayloads(text)
+            speechCheck(payloads.isNotEmpty()) { "朗读接口返回了无效音频，可能是错误网页或 JSON" }
+            val out = ByteArrayOutputStream()
+            var failed = false
+            payloads.forEach { json ->
+                val code = json.opt("code")
+                if (code is Number && code.toInt() != 0 && code.toInt() != 20000000 && code.toInt() != 3000) {
+                    failed = true
+                    return@forEach
+                }
+                val audio = json.optString("audio").ifBlank { json.optString("data") }
+                if (audio.isBlank()) return@forEach
+                val decoded = runCatching {
+                    Base64.getDecoder().decode(audio.filterNot { it.isWhitespace() })
+                }.getOrNull() ?: return@forEach
+                speechCheck(out.size() + decoded.size <= MAX_AUDIO_BYTES) { "朗读音频超过大小限制" }
+                out.write(decoded)
             }
-            val audio = json.optString("audio").ifBlank { json.optString("data") }
-            speechCheck(audio.isNotBlank()) { "朗读接口没有返回音频数据" }
-            val decoded = runCatching {
-                Base64.getDecoder().decode(audio.filterNot { it.isWhitespace() })
-            }.getOrNull()?.takeIf { it.isNotEmpty() }
-            speechCheck(decoded != null) { "朗读接口返回了无效音频，可能是错误网页或 JSON" }
-            val audioBytes = requireNotNull(decoded)
-            speechCheck(audioBytes.size <= MAX_AUDIO_BYTES) { "朗读音频超过大小限制" }
+            val audioBytes = out.toByteArray()
+            speechCheck(audioBytes.isNotEmpty()) {
+                if (failed) "朗读接口返回了错误状态" else "朗读接口没有返回音频数据"
+            }
             validateAudio("audio/mpeg", audioBytes)
             return audioBytes
+        }
+
+        internal fun extractJsonPayloads(text: String): List<JSONObject> {
+            val stripped = text.replace(Regex("^data:", RegexOption.MULTILINE), "").trim()
+            runCatching { JSONObject(stripped) }.getOrNull()?.let { return listOf(it) }
+            val out = ArrayList<JSONObject>()
+            val tokener = org.json.JSONTokener(stripped)
+            while (tokener.more()) {
+                val next = runCatching { tokener.nextValue() }.getOrNull() ?: break
+                if (next is JSONObject) out += next
+            }
+            if (out.isNotEmpty()) return out
+            stripped.lineSequence().forEach { raw ->
+                val line = raw.trim().removePrefix("data:").trim()
+                if (line.isEmpty() || line == "[DONE]") return@forEach
+                runCatching { JSONObject(line) }.getOrNull()?.let(out::add)
+            }
+            return out
         }
 
         private fun looksLikeMp3(bytes: ByteArray): Boolean {

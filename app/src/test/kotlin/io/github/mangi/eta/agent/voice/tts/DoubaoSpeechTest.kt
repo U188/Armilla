@@ -68,6 +68,7 @@ class DoubaoSpeechTest {
         val http = client(type = "audio/mpeg", bytes = mp3) { request ->
             assertEquals(DoubaoSpeech.UNIDIRECTIONAL_URL, request.url.toString())
             assertEquals("seed-tts-2.0", request.header("X-Api-Resource-Id"))
+            assertEquals("aGjiRDfUWi", request.header("X-Api-App-Key"))
             val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
             assertEquals("你好", body.getJSONObject("req_params").getString("text"))
             assertEquals("zh_male_yunzhou_jupiter_bigtts", body.getJSONObject("req_params").getString("speaker"))
@@ -89,4 +90,17 @@ class DoubaoSpeechTest {
         assertFalse(message.contains("volc-key"))
         assertFalse(message.contains("private"))
     }
+
+    @Test
+    fun seedTtsConcatenatesJsonStream() = runBlocking {
+        val chunk = Base64.getEncoder().encodeToString(mp3)
+        val body = """
+            {"code":0,"data":"$chunk"}
+            {"code":20000000,"message":"OK","data":""}
+        """.trimIndent()
+        val http = client(type = "application/json", bytes = body.toByteArray())
+        val tts = config.copy(model = "seed-tts-2.0")
+        assertArrayEquals(mp3, CloudSpeechSynthesizer(http).synthesize(tts, "你好", "zh_female_vv_uranus_bigtts"))
+    }
+
 }

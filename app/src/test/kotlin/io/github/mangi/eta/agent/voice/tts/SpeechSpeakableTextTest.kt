@@ -72,13 +72,13 @@ class SpeechSpeakableTextTest {
         assertEquals(emptyList<String>(), SpeechSpeakableText.committedSentences("你好", finalized = false))
         assertEquals(listOf("你好。"), SpeechSpeakableText.committedSentences("你好。", finalized = false))
         val mid = SpeechSpeakableText.committedSentences(
-            "第一句已经足够长可以单独成句了。后面还在写",
+            "第一句已经足够长可以单独成句而且不会被提前合并了。后面还在写",
             finalized = false,
         )
         assertTrue(mid.joinToString("").contains("第一句"))
         assertFalse(mid.joinToString("").contains("还在写"))
         val done = SpeechSpeakableText.committedSentences(
-            "第一句已经足够长可以单独成句了。第二句也已经完整了。",
+            "第一句已经足够长可以单独成句而且不会被提前合并了。第二句也已经完整了。",
             finalized = false,
         )
         assertTrue(done.joinToString("").contains("第二句"))

@@ -82,11 +82,11 @@ internal object ConversationArchiveMedia {
     internal fun text(content: String, path: (String) -> String): String {
         val block = AgentFileReferencePromptCodec.parse(content)
         val request = markdown(block.request, path)
-        if (block.references.isEmpty()) return request
+        if (block.references.isEmpty() && block.conversations.isEmpty()) return request
         return AgentFileReferencePromptCodec.format(request, block.references.map { reference ->
             require(reference.kind != AgentFileReferenceKind.Directory) { "单会话备份暂不支持目录附件，请先打包为文件" }
             reference.copy(absolutePath = path(reference.absolutePath))
-        })
+        }, block.conversations)
     }
 
     internal fun markdown(content: String, path: (String) -> String): String {

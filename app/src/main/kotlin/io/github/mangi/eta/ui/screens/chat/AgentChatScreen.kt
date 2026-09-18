@@ -1,5 +1,6 @@
 package io.github.mangi.eta.ui.screens.chat
 
+import io.github.mangi.eta.ui.model.ConversationMentionInputUi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
@@ -17,6 +18,7 @@ import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 @Composable
 internal fun AgentChatScreen(
     state: AgentChatUiState,
+    conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     modelPickerState: AgentModelPickerUiState,
     autoCompressEnabled: Boolean,
     requestOverheadTokens: Int = 0,
@@ -45,6 +47,7 @@ internal fun AgentChatScreen(
             availableReasoningEfforts = state.availableReasoningEfforts,
             pendingImages = state.pendingImages,
             pendingFileReferences = state.pendingFileReferences,
+            conversationMentions = conversationMentions,
             messageEdit = state.messageEdit,
             assistantId = state.assistantId,
             onReasoningEffortChange = { onAction(AgentChatAction.ReasoningEffortChanged(it)) },

@@ -90,6 +90,7 @@ import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.SystemNoticeMessageUi
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.MessageEditUiState
+import io.github.mangi.eta.ui.model.ConversationMentionInputUi
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
@@ -151,6 +152,7 @@ internal fun AgentChatBody(
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
     pendingFileReferences: List<PendingFileReferenceUi>,
+    conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
     assistantId: String = "",
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
@@ -273,6 +275,7 @@ internal fun AgentChatBody(
             availableReasoningEfforts = availableReasoningEfforts,
             pendingImages = pendingImages,
             pendingFileReferences = pendingFileReferences,
+            conversationMentions = conversationMentions,
             messageEdit = messageEdit,
             assistantId = assistantId,
             showEmptySuggestions = !isKeyboardVisible,
@@ -337,6 +340,7 @@ private fun AgentChatScaffold(
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
     pendingFileReferences: List<PendingFileReferenceUi>,
+    conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
     assistantId: String = "",
     showEmptySuggestions: Boolean,
@@ -418,6 +422,7 @@ private fun AgentChatScaffold(
                 availableReasoningEfforts = availableReasoningEfforts,
                 pendingImages = pendingImages,
                 pendingFileReferences = pendingFileReferences,
+            conversationMentions = conversationMentions,
                 messageEdit = messageEdit,
                 assistantId = assistantId,
                 onSubmit = onSubmit,
@@ -1032,6 +1037,7 @@ private fun AgentChatBottomBar(
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
     pendingFileReferences: List<PendingFileReferenceUi>,
+    conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
     assistantId: String = "",
     onSubmit: (String) -> Unit,
@@ -1129,6 +1135,7 @@ private fun AgentChatBottomBar(
                 availableReasoningEfforts = availableReasoningEfforts,
                 pendingImages = pendingImages,
                 pendingFileReferences = pendingFileReferences,
+            conversationMentions = conversationMentions,
                 isEditingMessage = messageEdit != null,
                 assistantId = assistantId,
                 editHasLaterTurns = messageEdit?.hasLaterTurns == true,

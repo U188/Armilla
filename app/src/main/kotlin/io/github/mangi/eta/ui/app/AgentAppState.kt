@@ -105,6 +105,9 @@ import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
 import io.github.mangi.eta.ui.model.filterForFolder
 import io.github.mangi.eta.ui.model.MessageEditUiState
+import io.github.mangi.eta.ui.model.PendingConversationMentionUi
+import io.github.mangi.eta.ui.model.ConversationMention
+import io.github.mangi.eta.ui.model.toMentionedConversations
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
 import io.github.mangi.eta.ui.model.PermissionHealthItemUi
@@ -166,6 +169,7 @@ internal class AgentAppState(
     private val imageGenerationRunIds = mutableSetOf<String>()
     private data class PendingSteerDraft(
         val conversationId: String?, val imageIds: Set<String>, val fileIds: Set<String>,
+        val mentionIds: Set<String> = emptySet(),
     )
     private val pendingSteerDrafts = mutableMapOf<String, PendingSteerDraft>()
     private var compressionJob: Job? = null
@@ -1294,22 +1298,27 @@ internal class AgentAppState(
         val prompt = (submittedText ?: homeState.input).trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
+        val pendingMentions = homeState.pendingConversationMentions
         if (!homeState.isStreaming && rejectSendIfModelUnavailable()) return
         if (homeState.isStreaming || homeState.isPaused) {
             if (
                 prompt.isNotBlank() ||
                 pendingImages.isNotEmpty() ||
-                pendingFileReferences.isNotEmpty()
+                pendingFileReferences.isNotEmpty() || pendingMentions.isNotEmpty()
             ) {
                 steerCurrentRun(prompt)
             }
             return
         }
-        if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) {
+        if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty() && pendingMentions.isEmpty()) {
             return
         }
         val generateVideo = selectedModelGeneratesVideos()
         val generateImage = !generateVideo && selectedModelGeneratesImages()
+        if ((generateImage || generateVideo) && pendingMentions.isNotEmpty()) {
+            Toast.makeText(appContext, "会话引用需要对话模型，图像/视频生成接口暂不支持。", Toast.LENGTH_LONG).show()
+            return
+        }
         if ((generateImage || generateVideo) && prompt.isBlank()) {
             Toast.makeText(
                 appContext,
@@ -1435,7 +1444,7 @@ internal class AgentAppState(
     ) {
         if (conversationId != selectedConversationId || rejectSendIfModelUnavailable()) return
         if (rejectSendIfCompressing()) return
-        val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences)
+        val runtimePrompt = AgentFileReferencePromptCodec.format(prompt, fileReferences, homeState.pendingConversationMentions.toMentionedConversations())
         val runId = "run-${UUID.randomUUID()}"
         val userMessage = UserMessageUi(
             id = editBoundary?.userMessage?.id ?: "user-$runId",
@@ -1471,7 +1480,9 @@ internal class AgentAppState(
             ?.userMessage
             ?.content
             ?.defaultConversationTitleFromMessage()
-        val nextAutoTitle = defaultConversationTitle(prompt, fileReferences)
+        val nextAutoTitle = defaultConversationTitle(prompt.ifBlank {
+            homeState.pendingConversationMentions.firstOrNull()?.let { "@${it.title}" }.orEmpty()
+        }, fileReferences)
         val title = if (
             editBoundary?.userMessageIndex == 0 &&
             (currentTitle == oldAutoTitle || currentTitle.isNullOrBlank())
@@ -1495,6 +1506,7 @@ internal class AgentAppState(
                 input = "",
                 pendingImages = emptyList(),
                 pendingFileReferences = emptyList(),
+                pendingConversationMentions = emptyList(),
                 messageEdit = null,
             ),
             reasoningEffort = homeState.reasoningEffort,
@@ -1553,11 +1565,15 @@ internal class AgentAppState(
                 input = parsedPrompt.request,
                 pendingImages = images,
                 pendingFileReferences = fileReferences,
+                pendingConversationMentions = parsedPrompt.conversations.map { mentioned ->
+                    PendingConversationMentionUi("mention-${UUID.randomUUID()}", mentioned.id, mentioned.title, mentioned.transcript)
+                },
                 messageEdit = MessageEditUiState(
                     targetMessageId = boundary.userMessage.id,
                     previousInput = homeState.input,
                     previousImages = homeState.pendingImages,
                     previousFileReferences = homeState.pendingFileReferences,
+                    previousConversationMentions = homeState.pendingConversationMentions,
                     hasLaterTurns = boundary.laterTurnCount > 0,
                 ),
             )
@@ -1573,6 +1589,7 @@ internal class AgentAppState(
                 input = edit.previousInput,
                 pendingImages = edit.previousImages,
                 pendingFileReferences = edit.previousFileReferences,
+                pendingConversationMentions = edit.previousConversationMentions,
                 messageEdit = null,
             )
         )
@@ -1632,6 +1649,7 @@ internal class AgentAppState(
             isWaitingForCompression = false,
             pendingImages = emptyList(),
             pendingFileReferences = emptyList(),
+                pendingConversationMentions = emptyList(),
             appliedRuntimeRunIds = emptyList(),
             messageEdit = null,
             livePromptTokens = null,
@@ -1691,7 +1709,7 @@ internal class AgentAppState(
         val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true)
         if (!generateImage && !generateVideo && rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
                 PendingFileReferenceUi(id = "regen-$index", reference = reference)
-            })) {
+            }, parsed.conversations.map { PendingConversationMentionUi(it.id, it.id, it.title, it.transcript) })) {
             return
         }
         if (!ignoreCompression && boundary.contextWasCompacted) showCompactedRevisionNotice()
@@ -1708,6 +1726,7 @@ internal class AgentAppState(
                 val runtimePrompt = AgentFileReferencePromptCodec.format(
                     parsed.request,
                     if (supportsVision) parsed.references else parsed.references + extra,
+                    parsed.conversations,
                 )
                 val persisted = extra.ifEmpty { parsed.references }.map { reference ->
                     AgentConversationCodec.PersistedImage(
@@ -1766,6 +1785,7 @@ internal class AgentAppState(
         prompt: String,
         images: List<PendingImageUi>,
         fileReferences: List<PendingFileReferenceUi> = emptyList(),
+        conversationMentions: List<PendingConversationMentionUi> = homeState.pendingConversationMentions,
     ): Boolean {
         val billed = if (homeState.messageEdit != null) {
             null
@@ -1778,6 +1798,7 @@ internal class AgentAppState(
             pendingImages = images,
             selectedModel = modelPickerState.selectedModel,
             pendingFileReferences = fileReferences,
+            pendingConversationMentions = conversationMentions,
             billedContextTokens = billed,
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
@@ -2369,7 +2390,7 @@ internal class AgentAppState(
 
     private fun String.defaultConversationTitleFromMessage(): String {
         val parsed = AgentFileReferencePromptCodec.parse(this)
-        return defaultConversationTitle(parsed.request, parsed.references)
+        return defaultConversationTitle(parsed.request.ifBlank { parsed.conversations.firstOrNull()?.let { "@${it.title}" }.orEmpty() }, parsed.references)
     }
 
     /**
@@ -2611,6 +2632,35 @@ internal class AgentAppState(
         resolveAndAttachFileReferences {
             listOf(AgentFileReferenceGateway(AndroidAgentLogger).resolveAbsolutePath(path))
         }
+    }
+
+    fun attachConversationMention(conversationId: String): Boolean {
+        val pending = homeState.pendingConversationMentions
+        if (conversationId == selectedConversationId || pending.any { it.conversationId == conversationId }) return false
+        val source = conversationsById[conversationId] ?: return false
+        val budget = minOf(ConversationMention.MAX_TRANSCRIPT_CHARS, ConversationMention.remainingTranscriptBudget(pending))
+        if (pending.size >= ConversationMention.MAX_ATTACHED || budget < 128) {
+            Toast.makeText(appContext, "最多引用 3 个会话，总计不超过 16000 字符。", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val status = if (source.isStreaming) "[选择时快照：来源会话仍在运行，未包含后续输出]\n" else ""
+        val transcript = ConversationMention.transcript(source.messages, budget - status.length)
+        if (transcript.isBlank()) {
+            Toast.makeText(appContext, "这个会话没有可引用的消息。", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        updateCurrentConversation(homeState.copy(pendingConversationMentions = pending + PendingConversationMentionUi(
+            id = "mention-${UUID.randomUUID()}", conversationId = conversationId,
+            title = conversationTitles[conversationId].orEmpty().ifBlank { "未命名会话" },
+            transcript = status + transcript,
+        )))
+        return true
+    }
+
+    fun removeConversationMention(id: String) {
+        updateCurrentConversation(homeState.copy(
+            pendingConversationMentions = homeState.pendingConversationMentions.filterNot { it.id == id },
+        ))
     }
 
     fun removePendingFileReference(id: String) {
@@ -2900,7 +2950,8 @@ internal class AgentAppState(
         val prompt = text.trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
-        if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty()) return
+        val pendingMentions = homeState.pendingConversationMentions
+        if (prompt.isBlank() && pendingImages.isEmpty() && pendingFileReferences.isEmpty() && pendingMentions.isEmpty()) return
         val fileReferences = pendingFileReferences.map { it.reference }
         if (
             !AgentFileReferencePolicy.canSend(
@@ -2919,7 +2970,8 @@ internal class AgentAppState(
         if (pendingSteerDrafts.values.any { it.conversationId == conversationId }) return
         val requestId = UUID.randomUUID().toString()
         pendingSteerDrafts[requestId] = PendingSteerDraft(conversationId,
-            pendingImages.map { it.id }.toSet(), pendingFileReferences.map { it.id }.toSet())
+            pendingImages.map { it.id }.toSet(), pendingFileReferences.map { it.id }.toSet(),
+            pendingMentions.map { it.id }.toSet())
         scope.launch(Dispatchers.IO) {
           try {
             // Preserve position and reject partial staging, rather than silently shifting sources.
@@ -2949,7 +3001,7 @@ internal class AgentAppState(
                 }
                 return@launch
             }
-            val steerText = AgentFileReferencePromptCodec.format(prompt, fileReferences + references)
+            val steerText = AgentFileReferencePromptCodec.format(prompt, fileReferences + references, pendingMentions.toMentionedConversations())
                 .ifBlank { "请查看我补充的附件。" }
             val sent = AgentRuntimeClient(appContext, AndroidAgentLogger)
                 .steerRun(runId, steerText, requestId, imagesJson)
@@ -3508,6 +3560,7 @@ internal class AgentAppState(
                         updateConversation(id, state.copy(
                             pendingImages = state.pendingImages.filterNot { it.id in draft.imageIds },
                             pendingFileReferences = state.pendingFileReferences.filterNot { it.id in draft.fileIds },
+                            pendingConversationMentions = state.pendingConversationMentions.filterNot { it.id in draft.mentionIds },
                         ))
                     }
                 }
@@ -4060,6 +4113,7 @@ internal class AgentAppState(
             availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
             pendingImages = draft.pendingImages,
             pendingFileReferences = draft.pendingFileReferences,
+            pendingConversationMentions = draft.pendingConversationMentions,
             providerId = currentBoundProviderId(),
             modelId = currentBoundModelId(),
             assistantId = currentBoundAssistantId(),

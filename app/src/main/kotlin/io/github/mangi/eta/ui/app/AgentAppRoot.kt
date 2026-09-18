@@ -461,6 +461,13 @@ fun AgentAppRoot(
                 RoutedShell(route = AppRoute.Home) {
                     AgentHomeScreen(
                         state = agentState.homeState,
+                        conversationMentions = io.github.mangi.eta.ui.model.ConversationMentionInputUi(
+                            conversations = agentState.conversationPaneState.historyConversations,
+                            currentConversationId = agentState.conversationPaneState.selectedConversationId,
+                            pending = agentState.homeState.pendingConversationMentions,
+                            onAttach = agentState::attachConversationMention,
+                            onRemove = agentState::removeConversationMention,
+                        ),
                         modelPickerState = agentState.modelPickerState,
                         autoCompressEnabled = agentState.autoCompressEnabled,
                         requestOverheadTokens = agentState.requestOverheadTokens,
@@ -520,6 +527,13 @@ fun AgentAppRoot(
                 RoutedShell(route = AppRoute.Chat) {
                     AgentChatScreen(
                         state = agentState.homeState,
+                        conversationMentions = io.github.mangi.eta.ui.model.ConversationMentionInputUi(
+                            conversations = agentState.conversationPaneState.historyConversations,
+                            currentConversationId = agentState.conversationPaneState.selectedConversationId,
+                            pending = agentState.homeState.pendingConversationMentions,
+                            onAttach = agentState::attachConversationMention,
+                            onRemove = agentState::removeConversationMention,
+                        ),
                         modelPickerState = agentState.modelPickerState,
                         autoCompressEnabled = agentState.autoCompressEnabled,
                         requestOverheadTokens = agentState.requestOverheadTokens,

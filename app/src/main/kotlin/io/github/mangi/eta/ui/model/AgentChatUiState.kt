@@ -22,6 +22,7 @@ internal data class AgentChatUiState(
     val availableReasoningEfforts: List<ReasoningEffort> = emptyList(),
     val pendingImages: List<PendingImageUi> = emptyList(),
     val pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),
+    val pendingConversationMentions: List<PendingConversationMentionUi> = emptyList(),
     val appliedRuntimeRunIds: List<String> = emptyList(),
     val messageEdit: MessageEditUiState? = null,
     /** 当前请求的 prompt 占用；工具循环里由 Runtime 按账单+增量投影，对齐 ST 输入。 */
@@ -280,12 +281,21 @@ data class PendingFileReferenceUi(
 )
 
 @Immutable
+data class PendingConversationMentionUi(
+    val id: String,
+    val conversationId: String,
+    val title: String,
+    val transcript: String,
+)
+
+@Immutable
 data class MessageEditUiState(
     val targetMessageId: String,
     val previousInput: String,
     val previousImages: List<PendingImageUi>,
     val previousFileReferences: List<PendingFileReferenceUi>,
     val hasLaterTurns: Boolean,
+    val previousConversationMentions: List<PendingConversationMentionUi> = emptyList(),
 )
 
 internal fun UserMessageUi.isSteerSupplement(): Boolean =

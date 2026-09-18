@@ -249,6 +249,7 @@ internal fun liveContextUsage(
     pendingImages: List<PendingImageUi>,
     selectedModel: AgentModelOptionUi?,
     pendingFileReferences: List<PendingFileReferenceUi> = emptyList(),
+    pendingConversationMentions: List<PendingConversationMentionUi> = emptyList(),
     historyTokenCount: Int? = null,
     billedContextTokens: Int? = null,
     requestOverheadTokens: Int = 0,
@@ -270,6 +271,7 @@ internal fun liveContextUsage(
     val prompt = AgentFileReferencePromptCodec.format(
         currentInput,
         pendingFileReferences.map { it.reference } + imageFileReferences,
+        pendingConversationMentions.toMentionedConversations(),
     )
     val images = if (supportsVision) pendingImages.map { it.toLiveModelImage() } else emptyList()
     val currentTurnTokens = if (prompt.isEmpty() && images.isEmpty()) {

@@ -1,5 +1,6 @@
 package io.github.mangi.eta.ui.screens.home
 
+import io.github.mangi.eta.ui.model.ConversationMentionInputUi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
@@ -19,6 +20,7 @@ import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 @Composable
 internal fun AgentHomeScreen(
     state: AgentChatHomeUiState,
+    conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     modelPickerState: AgentModelPickerUiState,
     autoCompressEnabled: Boolean,
     requestOverheadTokens: Int = 0,
@@ -48,6 +50,7 @@ internal fun AgentHomeScreen(
             availableReasoningEfforts = state.availableReasoningEfforts,
             pendingImages = state.pendingImages,
             pendingFileReferences = state.pendingFileReferences,
+            conversationMentions = conversationMentions,
             messageEdit = state.messageEdit,
             assistantId = state.assistantId,
             onReasoningEffortChange = { onAction(AgentHomeAction.ReasoningEffortChanged(it)) },

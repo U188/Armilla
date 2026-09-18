@@ -57,6 +57,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import io.github.mangi.eta.ui.model.ConversationMention
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,6 +97,7 @@ import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.liveContextUsage
 import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
 import io.github.mangi.eta.ui.model.shouldShowLiveContextUsage
+import io.github.mangi.eta.ui.model.ConversationMentionInputUi
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
 import kotlin.math.roundToInt
@@ -137,6 +140,7 @@ internal fun AgentChatInputBar(
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
     pendingFileReferences: List<PendingFileReferenceUi>,
+    conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     isEditingMessage: Boolean,
     assistantId: String = "",
     editHasLaterTurns: Boolean,
@@ -176,6 +180,7 @@ internal fun AgentChatInputBar(
         draftText,
         pendingImages,
         pendingFileReferences,
+        conversationMentions.pending,
         modelPickerState.selectedModel,
     ) {
         liveContextUsage(
@@ -185,6 +190,7 @@ internal fun AgentChatInputBar(
             pendingImages = pendingImages,
             selectedModel = modelPickerState.selectedModel,
             pendingFileReferences = pendingFileReferences,
+            pendingConversationMentions = conversationMentions.pending,
             historyTokenCount = historyTokenCount,
             billedContextTokens = billedContextTokens,
             requestOverheadTokens = requestOverheadTokens,
@@ -197,7 +203,7 @@ internal fun AgentChatInputBar(
     val canSend = !modelPickerState.isChanging && modelPickerState.selectedModel != null && !contextSendBlocked && !compressionSendBlocked && (
         textFieldState.text.isNotBlank() ||
             pendingImages.isNotEmpty() ||
-            pendingFileReferences.isNotEmpty()
+            (pendingFileReferences.isNotEmpty() || conversationMentions.pending.isNotEmpty())
         )
     val density = LocalDensity.current
     val statusBarTopPx = WindowInsets.statusBars.getTop(density)
@@ -234,6 +240,23 @@ internal fun AgentChatInputBar(
         modifier = modifier
             .fillMaxWidth(),
     ) {
+        val mentionQuery = ConversationMention.queryAtCursor(draftText, textFieldState.selection.end)
+            .takeIf { textFieldState.selection.collapsed }
+        ConversationMentionPanel(
+            state = conversationMentions,
+            query = mentionQuery?.query,
+            onSelect = { id ->
+                val query = mentionQuery
+                if (query != null && conversationMentions.onAttach(id)) {
+                    val end = textFieldState.selection.end
+                    textFieldState.edit {
+                        replace(query.start, end, "")
+                        selection = TextRange(query.start)
+                    }
+                    focusRequester.requestFocus()
+                }
+            },
+        )
         AnimatedVisibility(
             visible = pendingFileReferences.isNotEmpty(),
             enter = fadeIn(tween(160)),
@@ -452,7 +475,7 @@ internal fun AgentChatInputBar(
                             canContinueDisconnected = canContinueDisconnected,
                             hasSteerContent = textFieldState.text.isNotBlank() ||
                                 pendingImages.isNotEmpty() ||
-                                pendingFileReferences.isNotEmpty(),
+                                (pendingFileReferences.isNotEmpty() || conversationMentions.pending.isNotEmpty()),
                             canStartNewSend = canSend,
                             isCompressingContext = isCompressingContext,
                         )

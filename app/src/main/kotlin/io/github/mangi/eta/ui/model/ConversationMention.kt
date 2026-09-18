@@ -2,6 +2,8 @@ package io.github.mangi.eta.ui.model
 
 import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.MentionedConversation
+import io.github.mangi.eta.agent.terminal.TerminalPrivateStorage
+import java.io.File
 
 internal data class ConversationMentionQuery(
     val start: Int,
@@ -54,9 +56,12 @@ internal object ConversationMention {
     fun transcript(
         messages: List<AgentChatMessageUi>,
         maxChars: Int = MAX_TRANSCRIPT_CHARS,
+        filesDir: File? = null,
+        conversationId: String? = null,
     ): String {
         if (maxChars <= 0) return ""
-        val chunks = messages.mapNotNull(::formatMessage)
+        val toolDetailsDirectory = filesDir?.let { prepareToolDetailsDirectory(it, conversationId) }
+        val chunks = messages.mapNotNull { formatMessage(it, toolDetailsDirectory) }
         if (chunks.isEmpty()) return ""
         val joined = chunks.joinToString("\n\n")
         if (joined.length <= maxChars) return joined
@@ -67,16 +72,53 @@ internal object ConversationMention {
         return (joined.take(headBudget) + OMISSION_MARKER + joined.takeLast(tailBudget)).take(maxChars)
     }
 
-    private fun formatToolActivity(message: ToolActivityMessageUi): String = buildString {
-        append("Tool ${message.toolName}: ${message.status.name}")
+    internal const val TOOL_DETAILS_DIRECTORY = "conversation-mentions/tools"
+
+    private fun prepareToolDetailsDirectory(filesDir: File, conversationId: String?): File? {
+        val token = sanitizeFileToken(conversationId.orEmpty().ifBlank { "conversation" })
+        val directory = File(TerminalPrivateStorage.workspace(filesDir), "$TOOL_DETAILS_DIRECTORY/$token")
+        return runCatching { directory.mkdirs(); directory.takeIf { it.isDirectory } }.getOrNull()
+    }
+
+    internal fun toolActivityDetails(message: ToolActivityMessageUi): String = buildString {
         message.argumentsSummary.trim().takeIf { it.isNotEmpty() }?.let {
-            append("\nArguments: ").append(it)
+            append("Arguments:\n").append(it).append('\n')
         }
         message.command?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            append("\nCommand: ").append(it)
+            append("Command:\n").append(it).append('\n')
         }
         message.resultSummary?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            append("\nResult: ").append(it)
+            append("Result:\n").append(it).append('\n')
+        }
+    }.trim()
+
+    private fun writeToolDetailsFile(directory: File, message: ToolActivityMessageUi, details: String): File? {
+        val file = File(directory, "${sanitizeFileToken(message.id)}.txt")
+        return runCatching {
+            file.writeText(details)
+            file.takeIf { it.isFile }
+        }.getOrNull()
+    }
+
+    private fun sanitizeFileToken(value: String): String =
+        value.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "tool" }
+
+    private fun formatToolActivity(
+        message: ToolActivityMessageUi,
+        toolDetailsDirectory: File?,
+    ): String = buildString {
+        append("Tool ${message.toolName}: ${message.status.name}")
+        val details = toolActivityDetails(message)
+        val detailsFile = if (details.isNotEmpty() && toolDetailsDirectory != null) {
+            writeToolDetailsFile(toolDetailsDirectory, message, details)
+        } else {
+            null
+        }
+        if (detailsFile != null) {
+            append("\nDetails file: ").append(detailsFile.absolutePath)
+            append("\nUse read_file on that path if the arguments or result are needed.")
+        } else if (details.isNotEmpty()) {
+            append('\n').append(details)
         }
         if (message.imageCount > 0) {
             append("\nImages: ").append(message.imageCount)
@@ -86,7 +128,7 @@ internal object ConversationMention {
     fun remainingTranscriptBudget(already: List<PendingConversationMentionUi>): Int =
         (MAX_TOTAL_CHARS - already.sumOf { it.transcript.length }).coerceAtLeast(0)
 
-    private fun formatMessage(message: AgentChatMessageUi): String? {
+    private fun formatMessage(message: AgentChatMessageUi, toolDetailsDirectory: File?): String? {
         return when (message) {
         is UserMessageUi -> {
             if (message.isResumeAfterCompress()) return null
@@ -111,7 +153,7 @@ internal object ConversationMention {
         is AgentMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Assistant: $it" }
         is ThinkingMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Thinking: $it" }
         is ToolSummaryMessageUi -> message.tools.takeIf { it.isNotEmpty() }?.let { "Tools: ${it.joinToString()}" }
-        is ToolActivityMessageUi -> formatToolActivity(message)
+        is ToolActivityMessageUi -> formatToolActivity(message, toolDetailsDirectory)
         is ContextCompactedMessageUi -> {
             val summary = message.summary.trim()
             if (summary.isEmpty()) "Context compressed (${message.compactedCount} messages)"

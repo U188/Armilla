@@ -2648,7 +2648,12 @@ internal class AgentAppState(
             return false
         }
         val status = if (source.isStreaming) "[选择时快照：来源会话仍在运行，未包含后续输出]\n" else ""
-        val transcript = ConversationMention.transcript(source.messages, budget - status.length)
+        val transcript = ConversationMention.transcript(
+            source.messages,
+            budget - status.length,
+            appContext.filesDir,
+            conversationId,
+        )
         if (transcript.isBlank()) {
             Toast.makeText(appContext, "这个会话没有可引用的消息。", Toast.LENGTH_SHORT).show()
             return false

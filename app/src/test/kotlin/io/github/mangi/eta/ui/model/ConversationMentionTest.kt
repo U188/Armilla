@@ -4,6 +4,7 @@ import io.github.mangi.eta.agent.model.AgentFileReferencePromptCodec
 import io.github.mangi.eta.agent.model.MentionedConversation
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
 
 class ConversationMentionTest {
     private fun summary(id: String, title: String = id, time: Long = 0L) = ConversationSummaryUi(
@@ -80,6 +81,36 @@ class ConversationMentionTest {
         assertTrue(text.contains("# Eta"))
         assertTrue(text.contains("Images: 2"))
         assertFalse(text.contains("不含原始参数或结果"))
+    }
+
+    @Test fun toolEvidenceWritesDetailsToWorkspaceFileWhenFilesDirIsProvided() {
+        val filesDir = File.createTempFile("mention-files", null).apply {
+            delete()
+            mkdirs()
+        }
+        val text = ConversationMention.transcript(
+            listOf(ToolActivityMessageUi(
+                id = "tool-1",
+                toolName = "read_file",
+                status = ToolActivityStatusUi.Success,
+                argumentsSummary = "path=/workspace/Eta/README.md",
+                command = "cat README.md",
+                resultSummary = "# Eta",
+            )),
+            filesDir = filesDir,
+            conversationId = "conv-a",
+        )
+        assertTrue(text.contains("Details file:"))
+        assertTrue(text.contains("conv-a"))
+        assertTrue(text.contains("read_file"))
+        assertFalse(text.contains("path=/workspace/Eta/README.md"))
+        val file = File(text.substringAfter("Details file: ").substringBefore('\n'))
+        assertTrue(file.isFile)
+        val details = file.readText()
+        assertTrue(details.contains("path=/workspace/Eta/README.md"))
+        assertTrue(details.contains("cat README.md"))
+        assertTrue(details.contains("# Eta"))
+        filesDir.deleteRecursively()
     }
 
     @Test fun toolEvidenceOmitsBlankOptionalFields() {

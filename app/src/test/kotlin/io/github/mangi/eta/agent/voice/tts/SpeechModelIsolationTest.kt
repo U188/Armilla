@@ -50,6 +50,6 @@ class SpeechModelIsolationTest {
         val chat = AgentModelPickerProjector.project(listOf(speech), "s", "seed-tts-2.0")
         assertTrue(chat.providerGroups.isEmpty())
         val picker = AgentModelPickerProjector.project(listOf(speech), "s", "seed-tts-2.0", includeSpeechModels = true)
-        assertEquals(listOf("seed-tts-2.0"), picker.providerGroups.single().models.map { it.modelId })
+        assertEquals(listOf("seed-tts-2.0", "seed-audio-1.0"), picker.providerGroups.single().models.map { it.modelId })
     }
 }

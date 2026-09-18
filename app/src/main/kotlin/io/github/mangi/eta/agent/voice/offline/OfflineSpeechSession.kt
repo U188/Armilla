@@ -12,19 +12,25 @@ import com.k2fsa.sherpa.ncnn.ModelConfig
 import com.k2fsa.sherpa.ncnn.RecognizerConfig
 import com.k2fsa.sherpa.ncnn.SherpaNcnn
 import java.io.File
+import java.util.concurrent.Executors
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 
 /** No network and no audio files. All native calls and microphone ownership stay on one worker. */
 internal object OfflineSpeechSession {
     private val microphone = Mutex()
+    // OpenMP/ncnn keep process-wide runtime state; a dedicated worker avoids
+    // DefaultDispatcher thread churn around model load.
+    private val native = Executors.newSingleThreadExecutor { thread ->
+        Thread(thread, "eta-speech-ncnn").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
 
     @SuppressLint("MissingPermission") // Permission is requested by the user-initiated UI entry.
     suspend fun recognize(
         context: Context,
         onListening: suspend () -> Unit,
         onText: suspend (String) -> Unit,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = withContext(native) {
         check(microphone.tryLock()) { "Speech input is already active" }
         var recognizer: SherpaNcnn? = null
         var recorder: AudioRecord? = null
@@ -44,7 +50,7 @@ internal object OfflineSpeechSession {
                     joinerParam = path("joiner_jit_trace-pnnx.ncnn.param"),
                     joinerBin = path("joiner_jit_trace-pnnx.ncnn.bin"),
                     tokens = path("tokens.txt"),
-                    numThreads = 2, useGPU = false,
+                    numThreads = 1, useGPU = false,
                 ),
                 decoderConfig = DecoderConfig(method = "greedy_search"),
                 enableEndpoint = true,

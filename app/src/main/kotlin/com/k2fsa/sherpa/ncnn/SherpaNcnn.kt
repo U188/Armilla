@@ -95,6 +95,13 @@ class SherpaNcnn(
 
     companion object {
         init {
+            // LLVM OpenMP aborts if sched_getaffinity/setaffinity fail. Android cores
+            // can go offline in powersave, which is exactly that path in libncnn.so.
+            android.system.Os.setenv("KMP_AFFINITY", "disabled", true)
+            android.system.Os.setenv("KMP_DUPLICATE_LIB_OK", "TRUE", true)
+            android.system.Os.setenv("OMP_NUM_THREADS", "1", true)
+            android.system.Os.setenv("OMP_WAIT_POLICY", "PASSIVE", true)
+            System.loadLibrary("ncnn")
             System.loadLibrary("sherpa-ncnn-jni")
         }
     }

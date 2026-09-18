@@ -68,6 +68,8 @@ import io.github.mangi.eta.ui.model.ConversationMention
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.focus.FocusRequester
@@ -989,6 +991,13 @@ private fun VoiceEntryButton(
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
+                .semantics {
+                    contentDescription = if (active) {
+                        context.getString(R.string.voice_mode_stop)
+                    } else {
+                        context.getString(R.string.voice_mode_open)
+                    }
+                }
                 .combinedClickable(
                     enabled = !interactionBlocked,
                     indication = null,
@@ -1011,18 +1020,6 @@ private fun VoiceEntryButton(
             ContainedMorphLoadingIndicator(
                 indicatorSize = if (active) 40.dp else 24.dp,
                 animate = showGeneration || active,
-            )
-            Icon(
-                imageVector = when (defaultMode) {
-                    VoiceEntryMode.DICTATION -> Icons.Rounded.KeyboardVoice
-                    VoiceEntryMode.UNIVERSAL -> Icons.Rounded.RecordVoiceOver
-                    VoiceEntryMode.DOUBAO_DUPLEX -> Icons.Rounded.GraphicEq
-                },
-                contentDescription = stringResource(
-                    if (active) R.string.voice_mode_stop else R.string.voice_mode_open,
-                ),
-                modifier = Modifier.size(18.dp),
-                tint = MiuixTheme.colorScheme.onSurface,
             )
         }
     }

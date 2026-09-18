@@ -63,14 +63,33 @@ class ConversationMentionTest {
         assertTrue(text.contains("参考它"))
         assertFalse(text.contains("do not recursively copy me"))
     }
-    @Test fun toolEvidenceDoesNotLeakRawSensitiveResults() {
+    @Test fun toolEvidenceIncludesArgumentsAndResults() {
         val text = ConversationMention.transcript(listOf(ToolActivityMessageUi(
-            id = "t", toolName = "wifi_credentials", status = ToolActivityStatusUi.Success,
-            argumentsSummary = "secret arguments", resultSummary = "secret password",
+            id = "t",
+            toolName = "read_file",
+            status = ToolActivityStatusUi.Success,
+            argumentsSummary = "path=/workspace/Eta/README.md",
+            command = "cat README.md",
+            resultSummary = "# Eta",
+            imageCount = 2,
         )))
-        assertTrue(text.contains("wifi_credentials"))
+        assertTrue(text.contains("read_file"))
         assertTrue(text.contains("Success"))
-        assertFalse(text.contains("secret"))
+        assertTrue(text.contains("path=/workspace/Eta/README.md"))
+        assertTrue(text.contains("cat README.md"))
+        assertTrue(text.contains("# Eta"))
+        assertTrue(text.contains("Images: 2"))
+        assertFalse(text.contains("不含原始参数或结果"))
+    }
+
+    @Test fun toolEvidenceOmitsBlankOptionalFields() {
+        val text = ConversationMention.transcript(listOf(ToolActivityMessageUi(
+            id = "t",
+            toolName = "search_files",
+            status = ToolActivityStatusUi.Running,
+            argumentsSummary = " ",
+        )))
+        assertEquals("Tool search_files: Running", text)
     }
     @Test fun terminalNoticeIsRetained() {
         val text = ConversationMention.transcript(listOf(SystemNoticeMessageUi("s", SystemNoticeCode.Stopped)))

@@ -67,6 +67,22 @@ internal object ConversationMention {
         return (joined.take(headBudget) + OMISSION_MARKER + joined.takeLast(tailBudget)).take(maxChars)
     }
 
+    private fun formatToolActivity(message: ToolActivityMessageUi): String = buildString {
+        append("Tool ${message.toolName}: ${message.status.name}")
+        message.argumentsSummary.trim().takeIf { it.isNotEmpty() }?.let {
+            append("\nArguments: ").append(it)
+        }
+        message.command?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            append("\nCommand: ").append(it)
+        }
+        message.resultSummary?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            append("\nResult: ").append(it)
+        }
+        if (message.imageCount > 0) {
+            append("\nImages: ").append(message.imageCount)
+        }
+    }
+
     fun remainingTranscriptBudget(already: List<PendingConversationMentionUi>): Int =
         (MAX_TOTAL_CHARS - already.sumOf { it.transcript.length }).coerceAtLeast(0)
 
@@ -95,8 +111,7 @@ internal object ConversationMention {
         is AgentMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Assistant: $it" }
         is ThinkingMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Thinking: $it" }
         is ToolSummaryMessageUi -> message.tools.takeIf { it.isNotEmpty() }?.let { "Tools: ${it.joinToString()}" }
-        // Raw tool results may be sensitive. Refer only to tool name and outcome.
-        is ToolActivityMessageUi -> "Tool ${message.toolName}: ${message.status.name}（不含原始参数或结果）"
+        is ToolActivityMessageUi -> formatToolActivity(message)
         is ContextCompactedMessageUi -> {
             val summary = message.summary.trim()
             if (summary.isEmpty()) "Context compressed (${message.compactedCount} messages)"

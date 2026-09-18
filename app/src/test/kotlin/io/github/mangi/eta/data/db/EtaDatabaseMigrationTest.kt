@@ -63,6 +63,7 @@ class EtaDatabaseMigrationTest {
                 EtaDatabase.MIGRATION_23_24,
                 EtaDatabase.MIGRATION_24_25,
                 EtaDatabase.MIGRATION_25_26,
+                EtaDatabase.MIGRATION_26_27,
             )
             .build()
         } catch (error: Throwable) {
@@ -133,6 +134,7 @@ class EtaDatabaseMigrationTest {
             assertEquals("", conversations.first { it.id == "conv-1" }.modelId)
             assertEquals(null, runBlocking(Dispatchers.IO) { database.conversationDao().state() })
             assertEquals(listOf("built-in", "manual"), provider.models.map { it.modelId })
+            assertEquals(false, provider.responsesStripReasoningStatus)
             assertEquals(false, provider.hostedWebSearchEnabled)
             assertEquals(false, migratedMessage.isEdited)
             assertEquals(emptyList<RuntimeInFlightRunWithEvents>(), inFlightRuns)

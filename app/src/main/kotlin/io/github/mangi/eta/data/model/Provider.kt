@@ -46,6 +46,8 @@ sealed interface ProviderSetting {
     val customBody: List<CustomBody>
     val createdAt: Long
     val authMode: String
+    val responsesStripReasoningStatus: Boolean
+        get() = false
     val hostedWebSearchEnabled: Boolean
         get() = false
     val balanceOption: BalanceOption
@@ -77,6 +79,7 @@ data class OpenAiCompatibleProviderSetting(
     override val createdAt: Long = System.currentTimeMillis(),
     override val authMode: String = ProviderAuthMode.DEFAULT,
     val endpointMode: String = OpenAiEndpointMode.CHAT_COMPLETIONS,
+    override val responsesStripReasoningStatus: Boolean = false,
     override val hostedWebSearchEnabled: Boolean = false,
     override val balanceOption: BalanceOption = BalanceOption(),
 ) : ProviderSetting
@@ -124,6 +127,7 @@ data class CustomProviderSetting(
     override val createdAt: Long = System.currentTimeMillis(),
     override val authMode: String = ProviderAuthMode.DEFAULT,
     val endpointMode: String = OpenAiEndpointMode.CHAT_COMPLETIONS,
+    override val responsesStripReasoningStatus: Boolean = false,
     override val hostedWebSearchEnabled: Boolean = false,
     override val balanceOption: BalanceOption = BalanceOption(),
 ) : ProviderSetting

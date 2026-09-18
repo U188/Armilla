@@ -143,6 +143,7 @@ internal object RuntimeConfigRepository {
             anthropicVersion = (provider as? AnthropicProviderSetting)?.anthropicVersion
                 ?: AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
             openAiEndpointMode = endpointMode,
+            responsesStripReasoningStatus = provider.responsesStripReasoningStatus,
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             thinkingEnabled = reasoningEffort.enablesReasoning,
             reasoningEffort = reasoningEffort,

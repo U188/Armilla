@@ -44,6 +44,8 @@ internal data class ProviderEntity(
     @ColumnInfo(name = "endpoint_mode") val endpointMode: String,
     @ColumnInfo(name = "hosted_web_search_enabled", defaultValue = "0")
     val hostedWebSearchEnabled: Boolean,
+    @ColumnInfo(name = "responses_strip_reasoning_status", defaultValue = "0")
+    val responsesStripReasoningStatus: Boolean = false,
     @ColumnInfo(name = "anthropic_version") val anthropicVersion: String,
     @ColumnInfo(name = "balance_option_json", defaultValue = "'{}'")
     val balanceOptionJson: String = "{}",
@@ -127,6 +129,7 @@ internal fun ProviderSetting.toEntity(): ProviderEntity =
             is CustomProviderSetting -> endpointMode
             is AnthropicProviderSetting -> OpenAiEndpointMode.CHAT_COMPLETIONS
         },
+        responsesStripReasoningStatus = responsesStripReasoningStatus,
         hostedWebSearchEnabled = hostedWebSearchEnabled,
         balanceOptionJson = ProviderJson.encodeBalance(balanceOption),
         authMode = io.github.mangi.eta.data.model.ProviderAuthMode.parse(authMode),
@@ -186,6 +189,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             createdAt = provider.createdAt,
             authMode = io.github.mangi.eta.data.model.ProviderAuthMode.parse(provider.authMode),
             endpointMode = provider.endpointMode.ifBlank { OpenAiEndpointMode.CHAT_COMPLETIONS },
+            responsesStripReasoningStatus = provider.responsesStripReasoningStatus,
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),
         )
@@ -206,6 +210,7 @@ internal fun ProviderWithModels.toDomain(): ProviderSetting {
             createdAt = provider.createdAt,
             authMode = io.github.mangi.eta.data.model.ProviderAuthMode.parse(provider.authMode),
             endpointMode = provider.endpointMode.ifBlank { OpenAiEndpointMode.CHAT_COMPLETIONS },
+            responsesStripReasoningStatus = provider.responsesStripReasoningStatus,
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             balanceOption = ProviderJson.decodeBalance(provider.balanceOptionJson),
         )

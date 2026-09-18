@@ -13,6 +13,14 @@ internal object ResponsesRequestBuilder {
         sessionId: String = "",
     ): JSONObject {
         val input = buildInput(messages, config)
+        // Only modify the request copy, including both live and restored reasoning items.
+        // Preserve all reasoning payloads and statuses on other item types.
+        if (config.responsesStripReasoningStatus) {
+            for (index in 0 until input.length()) {
+                val item = input.optJSONObject(index) ?: continue
+                if (item.optString("type") == "reasoning") item.remove("status")
+            }
+        }
         val responseTools = buildTools(tools, config.hostedWebSearchEnabled)
         val instructions = OpenAiRequestMessages.responsesInstructions(messages)
             .ifBlank { config.systemPrompt }

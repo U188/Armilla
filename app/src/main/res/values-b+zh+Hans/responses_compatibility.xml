@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="provider_responses_strip_reasoning_status">兼容推理状态字段</string>
+    <string name="provider_responses_strip_reasoning_status_summary">用于不接受历史推理状态的 Responses 中转。仅在请求中移除 reasoning 条目的 status，保留推理内容与原始记录。默认关闭。</string>
+</resources>

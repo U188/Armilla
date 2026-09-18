@@ -24,6 +24,7 @@ internal data class ProviderConfigDraft(
     val authMode: String = ProviderAuthMode.DEFAULT,
     val isEnabled: Boolean,
     val endpointMode: String,
+    val responsesStripReasoningStatus: Boolean = false,
     val hostedWebSearchEnabled: Boolean,
     val anthropicVersion: String,
     val headers: List<ProviderHeaderDraft> = emptyList(),
@@ -42,6 +43,7 @@ internal data class ProviderConfigDraft(
                 is CustomProviderSetting -> provider.endpointMode
                 is AnthropicProviderSetting -> ""
             },
+            responsesStripReasoningStatus = provider.responsesStripReasoningStatus,
             hostedWebSearchEnabled = provider.hostedWebSearchEnabled,
             anthropicVersion = (provider as? AnthropicProviderSetting)?.anthropicVersion
                 ?: AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION,
@@ -60,6 +62,7 @@ internal val ProviderConfigDraftSaver = mapSaver(
             "authMode" to draft.authMode,
             "isEnabled" to draft.isEnabled,
             "endpointMode" to draft.endpointMode,
+            "responsesStripReasoningStatus" to draft.responsesStripReasoningStatus,
             "hostedWebSearchEnabled" to draft.hostedWebSearchEnabled,
             "anthropicVersion" to draft.anthropicVersion,
             "balanceOptionEnabled" to draft.balanceOption.enabled,
@@ -81,6 +84,7 @@ internal val ProviderConfigDraftSaver = mapSaver(
             authMode = ProviderAuthMode.parse(state["authMode"] as? String),
             isEnabled = state.getValue("isEnabled") as Boolean,
             endpointMode = state.getValue("endpointMode") as String,
+            responsesStripReasoningStatus = state["responsesStripReasoningStatus"] as? Boolean ?: false,
             hostedWebSearchEnabled = state.getValue("hostedWebSearchEnabled") as Boolean,
             anthropicVersion = state.getValue("anthropicVersion") as String,
             balanceOption = BalanceOption(
@@ -103,6 +107,7 @@ internal fun buildUpdatedProvider(
     authMode: String = ProviderAuthMode.DEFAULT,
     isEnabled: Boolean,
     endpointMode: String,
+    responsesStripReasoningStatus: Boolean = source.responsesStripReasoningStatus,
     hostedWebSearchEnabled: Boolean,
     anthropicVersion: String,
     customHeaders: List<CustomHeader>,
@@ -118,6 +123,7 @@ internal fun buildUpdatedProvider(
             authMode = ProviderAuthMode.parse(authMode),
             isEnabled = isEnabled,
             endpointMode = endpointMode,
+            responsesStripReasoningStatus = responsesStripReasoningStatus,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
         )
         is CustomProviderSetting -> source.copy(
@@ -129,6 +135,7 @@ internal fun buildUpdatedProvider(
             authMode = ProviderAuthMode.parse(authMode),
             isEnabled = isEnabled,
             endpointMode = endpointMode,
+            responsesStripReasoningStatus = responsesStripReasoningStatus,
             hostedWebSearchEnabled = hostedWebSearchEnabled,
         )
         is AnthropicProviderSetting -> source.copy(

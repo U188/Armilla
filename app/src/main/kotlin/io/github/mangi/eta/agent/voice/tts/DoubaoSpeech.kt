@@ -1,8 +1,8 @@
 package io.github.mangi.eta.agent.voice.tts
 
 import io.github.mangi.eta.data.model.Model
-import io.github.mangi.eta.data.model.ModelSource
 import io.github.mangi.eta.data.model.ProviderSetting
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import java.util.UUID
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONArray
@@ -30,13 +30,8 @@ internal object DoubaoSpeech {
             host == "volcengine.com"
     }
 
-    fun extraModels(provider: ProviderSetting): List<Model> {
-        if (!matchesEndpoint(provider.baseUrl)) return emptyList()
-        return listOf(
-            speechModel("seed-tts-2.0", "豆包语音合成 2.0"),
-            speechModel("seed-audio-1.0", "豆包音频生成 1.0"),
-        )
-    }
+    fun extraModels(provider: ProviderSetting): List<Model> =
+        SpeechSynthesisModels.catalogModels(provider)
 
     fun usesCreate(modelId: String): Boolean = "seed-audio" in modelId.lowercase()
 
@@ -81,15 +76,4 @@ internal object DoubaoSpeech {
                     ),
             )
             .toString()
-
-    private fun speechModel(id: String, displayName: String): Model =
-        Model(
-            id = id,
-            modelId = id,
-            displayName = displayName,
-            ownedBy = "volcengine",
-            isBuiltIn = true,
-            source = ModelSource.CATALOG,
-            outputModalities = listOf(Model.AUDIO_MODALITY),
-        )
 }

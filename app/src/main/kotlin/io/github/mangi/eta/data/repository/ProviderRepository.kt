@@ -15,6 +15,7 @@ import io.github.mangi.eta.data.model.RemovedProviderPolicy
 import io.github.mangi.eta.agent.model.oauth.ProviderOAuthStore
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.model.Settings
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.data.model.selectedOrFirstModel
 import io.github.mangi.eta.data.model.withApiKey
 import io.github.mangi.eta.data.model.withModels
@@ -40,7 +41,7 @@ internal object ProviderRepository {
     fun providersFlow(): Flow<List<ProviderSetting>> =
         dao().providersFlow().map { providers ->
             providers
-                .map { it.toDomain() }
+                .map { it.toDomain().withSpeechCatalog() }
                 .filterNot { RemovedProviderPolicy.isRemoved(it) }
                 .sortedBy(ProviderSetting::sortOrder)
         }
@@ -53,12 +54,12 @@ internal object ProviderRepository {
 
     suspend fun allProviders(): List<ProviderSetting> =
         dao().providers()
-            .map { it.toDomain() }
+            .map { it.toDomain().withSpeechCatalog() }
             .filterNot { RemovedProviderPolicy.isRemoved(it) }
             .sortedBy(ProviderSetting::sortOrder)
 
     suspend fun providerById(id: String): ProviderSetting? =
-        dao().providerById(id)?.toDomain()?.takeUnless { RemovedProviderPolicy.isRemoved(it) }
+        dao().providerById(id)?.toDomain()?.withSpeechCatalog()?.takeUnless { RemovedProviderPolicy.isRemoved(it) }
 
     suspend fun providerByModelId(modelId: String): ProviderSetting? =
         dao().providerByModelId(modelId)?.toDomain()?.takeUnless { RemovedProviderPolicy.isRemoved(it) }
@@ -259,4 +260,7 @@ internal object ProviderRepository {
             )
         }
     }
+
+    private fun ProviderSetting.withSpeechCatalog(): ProviderSetting =
+        withModels(SpeechSynthesisModels.mergeCatalog(this))
 }

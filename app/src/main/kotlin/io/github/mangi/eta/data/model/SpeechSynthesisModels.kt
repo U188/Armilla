@@ -1,5 +1,7 @@
 package io.github.mangi.eta.data.model
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
 /**
  * 识别专用 TTS 模型以隔离聊天选择器；名称不代表支持 OpenAI Speech 协议。
  */
@@ -7,6 +9,41 @@ internal object SpeechSynthesisModels {
     fun allowsSpeechEndpoint(provider: ProviderSetting): Boolean =
         provider !is AnthropicProviderSetting && !ProviderAuthMode.isOAuth(provider.authMode) &&
             !provider.baseUrl.contains("chatgpt.com", ignoreCase = true) && provider.isEnabled
+
+    fun isDoubaoSpeechHost(baseUrl: String): Boolean {
+        val host = baseUrl.trim().toHttpUrlOrNull()?.host.orEmpty().lowercase()
+        return host == "openspeech.bytedance.com" ||
+            host.endsWith(".volces.com") ||
+            host == "volces.com" ||
+            host.endsWith(".volcengine.com") ||
+            host == "volcengine.com"
+    }
+
+    fun catalogModels(provider: ProviderSetting): List<Model> {
+        if (!isDoubaoSpeechHost(provider.baseUrl)) return emptyList()
+        return listOf(
+            catalogModel("seed-tts-2.0", "豆包语音合成 2.0"),
+            catalogModel("seed-audio-1.0", "豆包音频生成 1.0"),
+        )
+    }
+
+    fun mergeCatalog(provider: ProviderSetting): List<Model> {
+        val extras = catalogModels(provider)
+        if (extras.isEmpty()) return provider.models
+        val have = provider.models.map { it.modelId.lowercase() }.toHashSet()
+        return extras.filter { it.modelId.lowercase() !in have } + provider.models
+    }
+
+    private fun catalogModel(id: String, displayName: String): Model =
+        Model(
+            id = id,
+            modelId = id,
+            displayName = displayName,
+            ownedBy = "volcengine",
+            isBuiltIn = true,
+            source = ModelSource.CATALOG,
+            outputModalities = listOf(Model.AUDIO_MODALITY),
+        )
 
     private val ID_MARKERS = listOf(
         "tts",

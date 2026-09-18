@@ -178,7 +178,7 @@ internal class CloudSpeechSynthesizer(
                 if (failed) "朗读接口返回了错误状态" else "朗读接口没有返回音频数据"
             }
             val decoded = DoubaoSpeech.decodeAudio(audioBytes)
-            speechCheck(decoded.bytes.size > 64) { "朗读接口没有返回音频数据" }
+            speechCheck(decoded.bytes.isNotEmpty()) { "朗读接口没有返回音频数据" }
             return decoded.bytes
         }
 

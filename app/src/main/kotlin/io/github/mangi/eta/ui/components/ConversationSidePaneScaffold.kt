@@ -97,6 +97,7 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import io.github.mangi.eta.R
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.ui.model.ConversationFolderUi
+import io.github.mangi.eta.ui.model.searchResults
 import io.github.mangi.eta.ui.model.ConversationPaneUiState
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.ConversationSummaryUi
@@ -347,14 +348,7 @@ private fun ConversationPanePanel(
 ) {
     val query = state.searchQuery.trim()
     val visibleConversations = remember(state.conversations, query) {
-        if (query.isBlank()) {
-            state.conversations
-        } else {
-            state.conversations.filter { conversation ->
-                conversation.title.contains(query, ignoreCase = true) ||
-                    conversation.preview.contains(query, ignoreCase = true)
-            }
-        }
+        state.searchResults()
     }
     val groups = remember(visibleConversations) { visibleConversations.groupForDrawer() }
     val profiles by AssistantRepository.profiles.collectAsState()

@@ -46,3 +46,13 @@ fun List<ConversationSummaryUi>.filterForFolder(selectedFolderId: String?): List
     } else {
         filter { it.folderId == selectedFolderId }
     }
+
+/** Always derive from the complete folder list, never from the previous search results. */
+internal fun ConversationPaneUiState.searchResults(): List<ConversationSummaryUi> {
+    val query = searchQuery.trim()
+    if (query.isEmpty()) return conversations
+    return conversations.filter {
+        it.title.contains(query, ignoreCase = true) ||
+            it.preview.contains(query, ignoreCase = true)
+    }
+}

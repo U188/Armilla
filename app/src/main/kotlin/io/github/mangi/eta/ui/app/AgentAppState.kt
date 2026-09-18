@@ -4256,18 +4256,12 @@ internal class AgentAppState(
                     folderId = conversationFolderIds[id],
                 )
             }
-        val query = conversationPaneState.searchQuery.trim()
         val folderVisible = summaries.filterForFolder(selectedFolderId)
         conversationPaneState = conversationPaneState.copy(
             selectedConversationId = selectedConversationId,
-            conversations = if (query.isBlank()) {
-                folderVisible
-            } else {
-                folderVisible.filter {
-                    it.title.contains(query, ignoreCase = true) ||
-                        it.preview.contains(query, ignoreCase = true)
-                }
-            },
+            // Keep the complete folder source. The pane derives search results on
+            // every edit; storing a filtered subset makes deletions unable to restore chats.
+            conversations = folderVisible,
             folders = conversationFolders,
             selectedFolderId = selectedFolderId,
             historyConversations = summaries,

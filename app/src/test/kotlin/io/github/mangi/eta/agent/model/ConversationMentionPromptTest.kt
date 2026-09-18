@@ -34,8 +34,21 @@ class ConversationMentionPromptTest {
     @Test fun malformedEnvelopeIsNotSilentlyConsumed() {
         val valid = AgentFileReferencePromptCodec.format("request", emptyList(), listOf(mention))
         val broken = valid.replace("[{", "[invalid{")
-        assertEquals(broken, AgentFileReferencePromptCodec.parse(broken).request)
+        val parsed = AgentFileReferencePromptCodec.parse(broken)
+        assertEquals("request", parsed.request)
+        assertTrue(parsed.conversations.isEmpty())
+        assertFalse(parsed.request.contains("Conversations mentioned"))
         val ordinary = "My text\n" + valid
         assertEquals(ordinary, AgentFileReferencePromptCodec.parse(ordinary).request)
+    }
+
+    @Test fun prettyPrintedJsonAndUserVisibleTextStaySeparate() {
+        val compact = AgentFileReferencePromptCodec.format("能看到吗", emptyList(), listOf(mention))
+        val pretty = compact.replace("[{", "[\n {").replace("}]", "}\n]")
+        val parsed = AgentFileReferencePromptCodec.parse(pretty)
+        assertEquals("能看到吗", parsed.request)
+        assertEquals(mention, parsed.conversations.single())
+        assertEquals("能看到吗", AgentFileReferencePromptCodec.visibleRequest(compact))
+        assertFalse(AgentFileReferencePromptCodec.visibleRequest(compact).contains("transcript"))
     }
 }

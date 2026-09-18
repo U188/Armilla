@@ -70,6 +70,9 @@ internal object AgentFileReferencePromptCodec {
 
     fun parse(content: String): AgentFileReferencePrompt {
         val marker = "$CONVERSATIONS_HEADER\n$CONTEXT_POLICY\n"
+        if (!content.startsWith(CONVERSATIONS_HEADER) && !content.startsWith(FILES_HEADER)) {
+            return parseFilesOnly(content)
+        }
         val start = content.indexOf(marker)
         if (start < 0) return parseFilesOnly(content)
         return runCatching {
@@ -79,20 +82,68 @@ internal object AgentFileReferencePromptCodec {
                 parseFilesOnly(prefix + REQUEST_HEADER).references.also { require(it.isNotEmpty()) }
             }
             val payloadStart = start + marker.length
-            val end = content.indexOf('\n', payloadStart)
-            require(end >= payloadStart && content.startsWith("\n\n$REQUEST_HEADER\n", end))
-            val payload = JSONArray(content.substring(payloadStart, end))
+            val (payload, jsonEnd) = readJsonArray(content, payloadStart)
+                ?: error("mentioned conversations are not a JSON array")
+            val requestPrefix = when {
+                content.startsWith("\n\n$REQUEST_HEADER\n", jsonEnd) -> "\n\n$REQUEST_HEADER\n"
+                content.startsWith("\n$REQUEST_HEADER\n", jsonEnd) -> "\n$REQUEST_HEADER\n"
+                else -> error("mentioned conversations are missing the request section")
+            }
             val conversations = (0 until payload.length()).map { i ->
                 val item = payload.getJSONObject(i)
                 MentionedConversation(item.getString("id"), item.getString("title"), item.getString("transcript"))
             }
             require(conversations.isNotEmpty())
             AgentFileReferencePrompt(
-                request = content.substring(end + "\n\n$REQUEST_HEADER\n".length),
+                request = content.substring(jsonEnd + requestPrefix.length),
                 references = references,
                 conversations = conversations,
             )
-        }.getOrElse { AgentFileReferencePrompt(content, emptyList()) }
+        }.getOrElse { salvageEnvelope(content) }
+    }
+
+    /** UI/copy/title must never fall back to the model-only envelope. */
+    fun visibleRequest(content: String): String = parse(content).request
+
+    fun isModelEnvelope(content: String): Boolean =
+        content.startsWith(CONVERSATIONS_HEADER) || content.startsWith(FILES_HEADER)
+
+    private fun salvageEnvelope(content: String): AgentFileReferencePrompt {
+        val token = "\n$REQUEST_HEADER\n"
+        val index = content.lastIndexOf(token)
+        val request = if (index >= 0) content.substring(index + token.length) else ""
+        return AgentFileReferencePrompt(request = request, references = emptyList())
+    }
+
+    private fun readJsonArray(source: String, start: Int): Pair<JSONArray, Int>? {
+        var index = start
+        while (index < source.length && source[index].isWhitespace()) index++
+        if (index >= source.length || source[index] != '[') return null
+        var depth = 0
+        var inString = false
+        var escape = false
+        for (cursor in index until source.length) {
+            val char = source[cursor]
+            if (inString) {
+                when {
+                    escape -> escape = false
+                    char == '\\' -> escape = true
+                    char == '"' -> inString = false
+                }
+                continue
+            }
+            when (char) {
+                '"' -> inString = true
+                '[' -> depth++
+                ']' -> {
+                    depth--
+                    if (depth == 0) {
+                        return JSONArray(source.substring(index, cursor + 1)) to (cursor + 1)
+                    }
+                }
+            }
+        }
+        return null
     }
 
     private fun formatFilesOnly(

@@ -2206,7 +2206,7 @@ internal class AgentAppState(
         images: List<PendingImageUi>,
     ) {
         try {
-            val apiPrompt = AgentFileReferencePromptCodec.parse(prompt).request.ifBlank { prompt }.trim()
+            val apiPrompt = AgentFileReferencePromptCodec.parse(prompt).request.trim()
             if (apiPrompt.isBlank()) {
                 error(appContext.getString(R.string.chat_image_prompt_required))
             }
@@ -2264,7 +2264,7 @@ internal class AgentAppState(
         images: List<PendingImageUi>,
     ) {
         try {
-            val apiPrompt = AgentFileReferencePromptCodec.parse(prompt).request.ifBlank { prompt }.trim()
+            val apiPrompt = AgentFileReferencePromptCodec.parse(prompt).request.trim()
             if (apiPrompt.isBlank()) {
                 error(appContext.getString(R.string.chat_video_prompt_required))
             }

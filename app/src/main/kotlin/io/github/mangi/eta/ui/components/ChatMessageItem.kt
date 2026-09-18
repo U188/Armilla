@@ -570,7 +570,9 @@ private fun UserMessageBubble(
     val visiblePrompt = remember(message.content) {
         AgentFileReferencePromptCodec.parse(message.content)
     }
-    val copyText = visiblePrompt.request.ifBlank { message.content }
+    val copyText = visiblePrompt.request.ifBlank {
+        visiblePrompt.conversations.joinToString(" ") { "@${it.title}" }
+    }
     val view = LocalView.current
 
     Column(

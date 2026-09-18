@@ -4038,12 +4038,16 @@ internal class AgentAppState(
         state: AgentChatHomeUiState,
         updateTimestamp: Boolean = true,
     ) {
+        val previous = conversationsById[conversationId]
         conversationsById = conversationsById + (conversationId to state)
         if (updateTimestamp) {
             conversationUpdatedAt = conversationUpdatedAt + (conversationId to System.currentTimeMillis())
         }
         if (conversationId == selectedConversationId) {
             homeState = state
+        }
+        if (previous?.isStreaming != state.isStreaming) {
+            refreshConversationSummaries()
         }
     }
 

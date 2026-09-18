@@ -23,15 +23,38 @@ class ConversationMentionTest {
         assertEquals(1, ConversationMention.candidates(all, "预览", null, emptySet(), 1).size)
     }
     @Test fun oversizedSingleMessageIsBoundedAndMarked() {
-        val text = ConversationMention.transcript(listOf(AgentMessageUi("a", "x".repeat(20_000) + "结尾")), 150)
-        assertTrue(text.length <= 150)
-        assertTrue(text.startsWith("[已截取："))
-        assertTrue(text.endsWith("结尾"))
+        val text = ConversationMention.transcript(listOf(AgentMessageUi("a", "开头" + "x".repeat(20_000) + "结尾")), 180)
+        assertTrue(text.length <= 180)
+        assertTrue(text.contains("开头"))
+        assertTrue(text.contains("结尾"))
+        assertTrue(text.contains("中间记录已省略"))
         assertEquals("", ConversationMention.transcript(listOf(AgentMessageUi("a", "text")), 0))
     }
-    @Test fun recentMessagesKeptInOriginalOrder() {
+    @Test fun fullConversationIsKeptInOriginalOrder() {
         val text = ConversationMention.transcript(listOf(UserMessageUi("1", "开头"), AgentMessageUi("2", "回答")))
         assertEquals("User: 开头\n\nAssistant: 回答", text)
+        assertFalse(text.contains("已截取"))
+    }
+    @Test fun overflowKeepsStartAndEnd() {
+        val messages = (1..40).map { index ->
+            if (index % 2 == 1) UserMessageUi("$index", "问题$index")
+            else AgentMessageUi("$index", "回答$index")
+        }
+        val text = ConversationMention.transcript(messages, 120)
+        assertTrue(text.contains("问题1"))
+        assertTrue(text.contains("回答40"))
+        assertFalse(text.contains("问题20"))
+        assertTrue(text.contains("中间记录已省略"))
+    }
+    @Test fun thinkingAndToolSummaryAreIncluded() {
+        val text = ConversationMention.transcript(listOf(
+            ThinkingMessageUi("t", "先看上下文", isStreaming = false),
+            ToolSummaryMessageUi("s", listOf("read_file", "terminal")),
+            AgentMessageUi("a", "结论"),
+        ))
+        assertTrue(text.contains("Thinking: 先看上下文"))
+        assertTrue(text.contains("Tools: read_file, terminal"))
+        assertTrue(text.contains("Assistant: 结论"))
     }
     @Test fun quotedReferencesNeverRecursivelyExpand() {
         val content = AgentFileReferencePromptCodec.format("参考它", emptyList(), listOf(MentionedConversation("id", "旧会话", "do not recursively copy me")))
@@ -55,7 +78,7 @@ class ConversationMentionTest {
     }
     @Test fun totalBudgetIncludesAttachedSnapshots() {
         assertEquals(1_000, ConversationMention.remainingTranscriptBudget(listOf(
-            PendingConversationMentionUi("1", "one", "one", "x".repeat(15_000)),
+            PendingConversationMentionUi("1", "one", "one", "x".repeat(ConversationMention.MAX_TOTAL_CHARS - 1_000)),
         )))
     }
 }

@@ -661,7 +661,7 @@ private fun UserMessageBubble(
             }
             visiblePrompt.conversations.forEach { mention ->
                 Text(
-                    text = "@${mention.title}" + if (mention.transcript.contains("[已截取：")) " · 已截取" else " · 快照",
+                    text = "@${mention.title}" + if (mention.transcript.contains("[已截取：")) " · 已截取" else " · 全文",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 6.dp),

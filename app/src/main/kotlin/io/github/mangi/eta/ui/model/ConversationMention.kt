@@ -9,10 +9,10 @@ internal data class ConversationMentionQuery(
 )
 
 internal object ConversationMention {
-    const val MAX_TRANSCRIPT_CHARS = 8_000
+    const val MAX_TRANSCRIPT_CHARS = 240_000
     const val MAX_RESULTS = 8
     const val MAX_ATTACHED = 3
-    const val MAX_TOTAL_CHARS = 16_000
+    const val MAX_TOTAL_CHARS = 480_000
 
     fun queryAtCursor(text: String, cursor: Int): ConversationMentionQuery? {
         val index = cursor.coerceIn(0, text.length)
@@ -49,28 +49,22 @@ internal object ConversationMention {
             conversation.preview.contains(needle, ignoreCase = true)
     }
 
+    const val OMISSION_MARKER = "\n\n[已截取：中间记录已省略，保留开头与最近记录]\n\n"
+
     fun transcript(
         messages: List<AgentChatMessageUi>,
         maxChars: Int = MAX_TRANSCRIPT_CHARS,
     ): String {
         if (maxChars <= 0) return ""
-        val marker = "[已截取：仅保留最近记录，较早内容已省略]\n\n"
-        val chunks = ArrayList<String>()
-        var size = 0
-        var omitted = false
-        for (message in messages.asReversed()) {
-            val chunk = formatMessage(message) ?: continue
-            val extra = chunk.length + if (chunks.isEmpty()) 0 else 2
-            if (size + extra > maxChars) {
-                if (chunks.isEmpty()) chunks.add(chunk.takeLast(maxChars))
-                omitted = true
-                break
-            }
-            chunks.add(chunk)
-            size += extra
-        }
-        val text = chunks.asReversed().joinToString("\n\n")
-        return if (omitted) marker.take(maxChars) + text.takeLast((maxChars - marker.length).coerceAtLeast(0)) else text
+        val chunks = messages.mapNotNull(::formatMessage)
+        if (chunks.isEmpty()) return ""
+        val joined = chunks.joinToString("\n\n")
+        if (joined.length <= maxChars) return joined
+        val keep = (maxChars - OMISSION_MARKER.length).coerceAtLeast(0)
+        if (keep == 0) return OMISSION_MARKER.trim().take(maxChars)
+        val headBudget = (keep / 2).coerceAtLeast(1)
+        val tailBudget = (keep - headBudget).coerceAtLeast(1)
+        return (joined.take(headBudget) + OMISSION_MARKER + joined.takeLast(tailBudget)).take(maxChars)
     }
 
     fun remainingTranscriptBudget(already: List<PendingConversationMentionUi>): Int =
@@ -99,6 +93,8 @@ internal object ConversationMention {
             }
         }
         is AgentMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Assistant: $it" }
+        is ThinkingMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Thinking: $it" }
+        is ToolSummaryMessageUi -> message.tools.takeIf { it.isNotEmpty() }?.let { "Tools: ${it.joinToString()}" }
         // Raw tool results may be sensitive. Refer only to tool name and outcome.
         is ToolActivityMessageUi -> "Tool ${message.toolName}: ${message.status.name}（不含原始参数或结果）"
         is ContextCompactedMessageUi -> {
@@ -107,9 +103,7 @@ internal object ConversationMention {
             else "Context compressed (${message.compactedCount} messages): $summary"
         }
         is SystemNoticeMessageUi -> "系统状态：${message.code.name}"
-        is ThinkingMessageUi, is RunTraceMessageUi,
-        is ToolSummaryMessageUi, is SuggestionChipsMessageUi,
-        -> null
+        is RunTraceMessageUi, is SuggestionChipsMessageUi -> null
     }
     }
 }

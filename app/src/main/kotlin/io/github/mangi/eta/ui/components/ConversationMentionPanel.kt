@@ -52,7 +52,7 @@ internal fun ConversationMentionPanel(
                             color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.body2)
                         Text(
                             text = when {
-                                mention.transcript.contains("[已截取：") -> "已截取最近记录 · ${mention.transcript.length} 字符"
+                                mention.transcript.contains("[已截取：") -> "已截取中间记录 · ${mention.transcript.length} 字符"
                                 mention.transcript.startsWith("[选择时快照：") -> "运行中会话快照 · ${mention.transcript.length} 字符"
                                 else -> "选择时快照 · ${mention.transcript.length} 字符"
                             },
@@ -73,7 +73,7 @@ internal fun ConversationMentionPanel(
         state.pending.map { it.conversationId }.toSet())
     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
         .clip(RoundedCornerShape(14.dp)).background(MiuixTheme.colorScheme.surfaceContainerHigh)) {
-        Text("引用其他会话 · 只读快照", modifier = Modifier.padding(12.dp), style = MiuixTheme.textStyles.body2,
+        Text("引用其他会话 · 尽量全文，只读快照", modifier = Modifier.padding(12.dp), style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         if (state.pending.size >= ConversationMention.MAX_ATTACHED || ConversationMention.remainingTranscriptBudget(state.pending) < 128) {
             Text("引用数量或内容已达上限，请先移除一个引用。", modifier = Modifier.padding(12.dp))

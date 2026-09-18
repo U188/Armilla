@@ -426,7 +426,12 @@ internal object AgentConversationCodec {
     ): AgentModelClient.ConversationMessage =
         message.copy(
             role = message.role.take(32),
-            content = if (message.turnId.isNotBlank()) message.content else message.content.take(MAX_CONTENT_CHARS),
+            content = when {
+                message.turnId.isNotBlank() -> message.content
+                AgentFileReferencePromptCodec.isModelEnvelope(message.content) ->
+                    message.content.take(AgentFileReferencePromptCodec.MAX_ENVELOPE_CHARS)
+                else -> message.content.take(MAX_CONTENT_CHARS)
+            },
             contentJson = sanitizeContentJson(message.contentJson, message.turnId.isNotBlank()),
             toolCallId = if (message.turnId.isNotBlank()) message.toolCallId else message.toolCallId.take(256),
             reasoningContent = if (message.turnId.isNotBlank()) message.reasoningContent else message.reasoningContent.take(MAX_REASONING_CHARS),

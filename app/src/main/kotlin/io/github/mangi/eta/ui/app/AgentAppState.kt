@@ -2640,7 +2640,7 @@ internal class AgentAppState(
         val source = conversationsById[conversationId] ?: return false
         val budget = minOf(ConversationMention.MAX_TRANSCRIPT_CHARS, ConversationMention.remainingTranscriptBudget(pending))
         if (pending.size >= ConversationMention.MAX_ATTACHED || budget < 128) {
-            Toast.makeText(appContext, "最多引用 3 个会话，总计不超过 16000 字符。", Toast.LENGTH_SHORT).show()
+            Toast.makeText(appContext, "最多引用 3 个会话，总内容过大时会省略中间记录。", Toast.LENGTH_SHORT).show()
             return false
         }
         val status = if (source.isStreaming) "[选择时快照：来源会话仍在运行，未包含后续输出]\n" else ""

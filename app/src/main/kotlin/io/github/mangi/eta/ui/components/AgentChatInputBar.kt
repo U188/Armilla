@@ -364,6 +364,7 @@ internal fun AgentChatInputBar(
                     )
                 }
 
+                Box(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -411,13 +412,6 @@ internal fun AgentChatInputBar(
                             )
                         }
 
-                        Spacer(modifier = Modifier.weight(1f))
-                        ChatSpeechIndicator(
-                            textFieldState = textFieldState,
-                            showGeneration = showMorphLoading,
-                            interactionBlocked = drawerBlocksIme,
-                            resetKey = isStreaming to isEditingMessage,
-                        )
                         Spacer(modifier = Modifier.weight(1f))
 
                         if (shouldShowLiveContextUsage(showContextUsage, contextSendBlocked, liveUsage)) {
@@ -531,6 +525,14 @@ internal fun AgentChatInputBar(
                                 }
                             }
                         }
+                }
+                    ChatSpeechIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        textFieldState = textFieldState,
+                        showGeneration = showMorphLoading,
+                        interactionBlocked = drawerBlocksIme,
+                        resetKey = isStreaming to isEditingMessage,
+                    )
                 }
             }
         }

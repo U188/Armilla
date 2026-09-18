@@ -48,6 +48,7 @@ internal fun ChatSpeechIndicator(
     showGeneration: Boolean,
     interactionBlocked: Boolean,
     resetKey: Any?,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -132,7 +133,7 @@ internal fun ChatSpeechIndicator(
     AnimatedVisibility(visible = SpeechInputPolicy.visible(showGeneration, pack.enabled)) {
         // Constant touch target avoids moving other composer buttons when the circle grows.
         Box(
-            modifier = Modifier.size(48.dp).clip(CircleShape)
+            modifier = modifier.size(48.dp).clip(CircleShape)
                 .semantics {
                     if (pack.enabled) {
                         contentDescription = label

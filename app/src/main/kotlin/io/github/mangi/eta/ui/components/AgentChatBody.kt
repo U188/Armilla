@@ -328,6 +328,9 @@ internal fun AgentChatBody(
             conversationMentions = conversationMentions,
             messageEdit = messageEdit,
             assistantId = assistantId,
+            voiceState = voiceState,
+            onStartVoiceMode = voiceController::start,
+            onStopVoiceMode = voiceController::stop,
             showEmptySuggestions = !isKeyboardVisible,
             keepBottomAnchored = keepBottomAnchored,
             onBottomAnchorChanged = { keepBottomAnchored = it },
@@ -393,6 +396,9 @@ private fun AgentChatScaffold(
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
     assistantId: String = "",
+    voiceState: VoiceModeState = VoiceModeState(),
+    onStartVoiceMode: (VoiceEntryMode) -> Unit = {},
+    onStopVoiceMode: () -> Unit = {},
     showEmptySuggestions: Boolean,
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,
@@ -476,8 +482,8 @@ private fun AgentChatScaffold(
                 messageEdit = messageEdit,
                 assistantId = assistantId,
                 voiceState = voiceState,
-                onStartVoiceMode = voiceController::start,
-                onStopVoiceMode = voiceController::stop,
+                onStartVoiceMode = onStartVoiceMode,
+                onStopVoiceMode = onStopVoiceMode,
                 onSubmit = onSubmit,
                 onReasoningEffortChange = onReasoningEffortChange,
                 onModelSelected = onModelSelected,
@@ -815,6 +821,11 @@ internal fun AgentConversationMessages(
     // 滚动层保持整屏，输入器作为后绘制浮层；输入器高度进入列表的
     // afterContentPadding，确保跟到底部时最后一行停在输入器上方。
     Box(modifier = modifier.clipToBounds()) {
+        val trailingWorkKey =
+            (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
+        val speechPrefaces = remember(visibleMessages, finalResultMessageIds) {
+            finalResultMessageIds.associateWith { id -> visibleTurnSpeechPreface(visibleMessages, id) }
+        }
         LazyColumn(
             state = scrollState,
             verticalArrangement = Arrangement.Bottom,
@@ -828,11 +839,6 @@ internal fun AgentConversationMessages(
             ),
             overscrollEffect = null,
         ) {
-            val trailingWorkKey =
-                (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
-            val speechPrefaces = remember(visibleMessages, finalResultMessageIds) {
-                finalResultMessageIds.associateWith { id -> visibleTurnSpeechPreface(visibleMessages, id) }
-            }
             timelineEntries.forEach { entry ->
                 when (entry) {
                     is AgentTimelineEntry.Message -> {

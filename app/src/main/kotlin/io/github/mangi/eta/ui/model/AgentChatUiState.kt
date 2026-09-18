@@ -80,6 +80,20 @@ internal fun SystemNoticeCode.isRetryableFailure(): Boolean =
 internal fun SystemNoticeCode.canContinueDisconnectedRun(): Boolean =
     this == SystemNoticeCode.RuntimeFailed
 
+internal fun List<AgentChatMessageUi>.stoppedDuringModelRetry(): Boolean {
+    val last = lastOrNull { message ->
+        when (message) {
+            is UserMessageUi -> !message.isSteerSupplement()
+            is AgentMessageUi, is SystemNoticeMessageUi -> true
+            else -> false
+        }
+    } ?: return false
+    if (last !is SystemNoticeMessageUi || last.code != SystemNoticeCode.Stopped) return false
+    val lastUser = indexOfLast { it is UserMessageUi && !(it as UserMessageUi).isSteerSupplement() }
+    val start = if (lastUser >= 0) lastUser + 1 else 0
+    return subList(start, size).any { it is SystemNoticeMessageUi && it.code == SystemNoticeCode.ModelRetry }
+}
+
 /** Last visible chat item after the original user turn, ignoring steer/resume supplements. */
 internal fun lastContinuableNotice(messages: List<AgentChatMessageUi>): SystemNoticeMessageUi? {
     val last = messages.lastOrNull { message ->
@@ -99,7 +113,7 @@ internal fun canContinuePausedGeneration(messages: List<AgentChatMessageUi>): Bo
 
 internal fun canContinueDisconnectedRun(messages: List<AgentChatMessageUi>): Boolean {
     val notice = lastContinuableNotice(messages) ?: return false
-    return notice.code.canContinueDisconnectedRun()
+    return notice.code.canContinueDisconnectedRun() || messages.stoppedDuringModelRetry()
 }
 
 @Immutable

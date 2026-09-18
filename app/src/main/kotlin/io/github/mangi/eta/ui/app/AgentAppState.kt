@@ -2690,7 +2690,16 @@ internal class AgentAppState(
                 runMessageProjector.failRunningTools(SYNTHETIC_STATUS_STOPPED, finalizedText)
             }
         }
-        replaceLatestAssistantWithNotice(runId, SystemNoticeCode.Stopped)
+        val retrying = conversationIdForRun(runId)
+            ?.let { conversationsById[it] }
+            ?.messages
+            .orEmpty()
+            .any { it is SystemNoticeMessageUi && it.code == SystemNoticeCode.ModelRetry }
+        replaceLatestAssistantWithNotice(
+            runId,
+            if (retrying) SystemNoticeCode.RuntimeFailed else SystemNoticeCode.Stopped,
+            detail = if (retrying) "已停止等待接口重试" else null,
+        )
         if (!imageGen) {
             snapshotPartialAssistantToHistory(runId)
         }

@@ -80,4 +80,36 @@ class DisconnectedContinueTest {
         assertTrue(state.hasStartedCurrentTurnOutput())
         assertFalse(canContinueDisconnectedRun(state.messages))
     }
+
+    @Test
+    fun stoppingWhileWaitingForApiRetryEnablesContinue() {
+        val messages = listOf(
+            UserMessageUi(id = "user-1", content = "任务"),
+            SystemNoticeMessageUi(
+                id = "assistant-run-1-retry-1",
+                code = SystemNoticeCode.ModelRetry,
+                detail = "模型请求暂时中断，2 秒后重试（1/3）",
+            ),
+            SystemNoticeMessageUi(id = "fail-1", code = SystemNoticeCode.Stopped),
+        )
+        assertTrue(messages.stoppedDuringModelRetry())
+        assertTrue(canContinueDisconnectedRun(messages))
+        assertFalse(AgentChatUiState(
+            messages = messages,
+            input = "",
+            isStreaming = false,
+            thinkingEnabled = false,
+        ).hasPartialAssistantAfterLastUser())
+    }
+
+    @Test
+    fun ordinaryStopWithoutRetryDoesNotLookLikeDisconnect() {
+        val messages = listOf(
+            UserMessageUi(id = "user-1", content = "任务"),
+            AgentMessageUi(id = "assistant-1", content = "写到一半"),
+            SystemNoticeMessageUi(id = "stop-1", code = SystemNoticeCode.Stopped),
+        )
+        assertFalse(messages.stoppedDuringModelRetry())
+        assertFalse(canContinueDisconnectedRun(messages))
+    }
 }

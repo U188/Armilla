@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="provider_responses_strip_reasoning_status">相容推理狀態欄位</string>
-    <string name="provider_responses_strip_reasoning_status_summary">用於不接受歷史推理狀態的 Responses 中轉。僅在請求中移除 reasoning 項目的 status，保留推理內容與原始記錄。預設關閉。</string>
-</resources>

@@ -1,7 +1,6 @@
 package io.github.mangi.eta.agent.model
 
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import io.github.mangi.eta.data.model.ReasoningEffort
 import org.json.JSONArray
 import org.json.JSONObject
@@ -14,18 +13,7 @@ internal object ResponsesRequestBuilder {
         sessionId: String = "",
     ): JSONObject {
         val input = buildInput(messages, config)
-        // Only modify the request copy, including both live and restored reasoning items.
-        // Preserve all reasoning payloads and statuses on other item types.
-        if (config.responsesStripReasoningStatus) {
-            for (index in 0 until input.length()) {
-                val item = input.optJSONObject(index) ?: continue
-                if (item.optString("type") == "reasoning") item.remove("status")
-            }
-        }
-        val responseTools = buildTools(
-            tools,
-            config.hostedWebSearchEnabled && hostedWebSearchAllowed(config.baseUrl),
-        )
+        val responseTools = buildTools(tools, config.hostedWebSearchEnabled)
         val instructions = OpenAiRequestMessages.responsesInstructions(messages)
             .ifBlank { config.systemPrompt }
         val request = JSONObject()
@@ -179,13 +167,6 @@ internal object ResponsesRequestBuilder {
                 }
             }
         }
-    }
-
-    internal fun hostedWebSearchAllowed(baseUrl: String): Boolean {
-        val host = baseUrl.trim().toHttpUrlOrNull()?.host.orEmpty().lowercase()
-        return host == "api.openai.com" ||
-            host.endsWith(".api.openai.com") ||
-            OpenAiCodexOAuth.isCodexEndpoint(baseUrl)
     }
 
     private fun buildTools(tools: JSONArray, hostedWebSearchEnabled: Boolean): JSONArray =

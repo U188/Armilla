@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="provider_responses_strip_reasoning_status">Reasoning status compatibility</string>
-    <string name="provider_responses_strip_reasoning_status_summary">For relays that reject historical reasoning status in Responses requests. Removes only the status field from reasoning items; keeps reasoning content and saved history unchanged. Off by default.</string>
-</resources>

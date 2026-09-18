@@ -350,15 +350,6 @@ private fun ProviderConfigTab(
                     if (draft.endpointMode == OpenAiEndpointMode.RESPONSES) {
                         HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
                         SwitchPreference(
-                            title = stringResource(R.string.provider_responses_strip_reasoning_status),
-                            summary = stringResource(R.string.provider_responses_strip_reasoning_status_summary),
-                            checked = draft.responsesStripReasoningStatus,
-                            onCheckedChange = {
-                                onDraftChange(draft.copy(responsesStripReasoningStatus = it))
-                            },
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                        SwitchPreference(
                             title = stringResource(R.string.ui_server_side_web_search_ddb8e0),
                             summary = stringResource(R.string.ui_allows_the_model_to_call_web_searches_provided_by_th_2f752f),
                             checked = draft.hostedWebSearchEnabled,

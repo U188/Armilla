@@ -29,7 +29,7 @@ class ResponsesReasoningStateTest {
     private fun input(messages: JSONArray, model: AgentModelClient.ModelConfig = config) =
         ResponsesRequestBuilder.build(model, messages, JSONArray()).getJSONArray("input")
 
-    @Test fun compatibilityStripsOnlyReasoningStatusFromLiveAndRestoredRequestCopies() {
+    @Test fun requestKeepsReasoningStatusAfterCompatibilitySwitchRemoved() {
         val reason = reasoning().put("status", "completed").put("encrypted_content", "opaque")
         val outputMessage = JSONObject().put("type", "message").put("role", "assistant")
             .put("status", "completed").put("content", JSONArray().put(
@@ -40,19 +40,11 @@ class ResponsesReasoningStateTest {
         ResponsesReasoningState.capture(live, config)
         for (message in listOf(live, saved(live))) {
             val sourceBefore = message.toString()
-            val messages = JSONArray().put(message)
-            val normal = input(messages)
-            assertEquals("completed", normal.getJSONObject(0).getString("status"))
-            val compatible = input(messages, config.copy(responsesStripReasoningStatus = true))
-            val projected = compatible.getJSONObject(0)
-            assertFalse(projected.has("status"))
+            val projected = input(JSONArray().put(message)).getJSONObject(0)
+            assertEquals("completed", projected.getString("status"))
             assertEquals("rs_1", projected.getString("id"))
             assertEquals("opaque", projected.getString("encrypted_content"))
-            assertEquals(reason.getJSONArray("content").toString(), projected.getJSONArray("content").toString())
             assertEquals(sourceBefore, message.toString())
-            // The entire input is otherwise identical, including tool calls and message statuses.
-            normal.getJSONObject(0).remove("status")
-            assertEquals(normal.toString(), compatible.toString())
         }
         assertEquals("completed", outputMessage.getString("status"))
     }

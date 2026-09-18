@@ -1131,7 +1131,7 @@ private fun VoiceModeStatusPanel(
             }
         }
         val detail = when {
-            state.phase == VoiceModePhase.Speaking && state.reply.isNotBlank() -> state.reply
+            state.reply.isNotBlank() -> state.reply
             state.transcript.isNotBlank() -> state.transcript
             else -> ""
         }

@@ -46,6 +46,18 @@ internal object SpeechSpeakableText {
     }
 
     /** maxChars counts Unicode code points: never split a surrogate pair. */
+    fun committedSentences(markdown: String, finalized: Boolean): List<String> {
+        val parts = sentences(markdown)
+        if (finalized || parts.isEmpty()) return parts
+        val text = speakable(markdown).trimEnd()
+        if (text.isEmpty()) return emptyList()
+        val last = text.codePointBefore(text.length)
+        val committed = last == '\n'.code ||
+            last.toChar() in "。！？；!?" ||
+            last == '.'.code
+        return if (committed) parts else parts.dropLast(1)
+    }
+
     fun sentences(markdown: String, maxChars: Int = MAX_SENTENCE_CHARS): List<String> {
         require(maxChars in 1..2_000)
         val text = speakable(markdown)

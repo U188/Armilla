@@ -8,6 +8,7 @@ import io.github.mangi.eta.agent.voice.offline.OfflineSpeechPack
 import io.github.mangi.eta.agent.voice.offline.OfflineSpeechSession
 import io.github.mangi.eta.agent.voice.tts.DoubaoSpeech
 import io.github.mangi.eta.agent.voice.tts.SpeechPlayback
+import io.github.mangi.eta.agent.voice.tts.SpeechSpeakableText
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.repository.ProviderRepository
 import java.util.UUID
@@ -122,19 +123,38 @@ internal class VoiceModeController(
                     withTimeout(20_000) {
                         chat.first { it.isStreaming || it.lastAgentId != baseline }
                     }
-                    val reply = withTimeout(240_000) {
-                        chat.first {
-                            !it.isStreaming && it.lastAgentId != baseline && it.lastAgentText.isNotBlank()
-                        }.lastAgentText
-                    }
                     val owner = "voice-mode-${UUID.randomUUID()}"
-                    mutableState.value = mutableState.value.copy(
-                        phase = VoiceModePhase.Speaking,
-                        reply = reply,
-                    )
-                    SpeechPlayback.speak(app, owner, reply)
-                    val playback = SpeechPlayback.state.first { it.owner != owner }
-                    playback.error?.let { error(it) }
+                    var spoken = 0
+                    withTimeout(240_000) {
+                        while (true) {
+                            val snap = chat.value
+                            val ready = SpeechSpeakableText.committedSentences(
+                                snap.lastAgentText,
+                                finalized = !snap.isStreaming && snap.lastAgentId != baseline,
+                            )
+                            val utterances = ready.drop(spoken)
+                            if (utterances.isNotEmpty()) {
+                                mutableState.value = mutableState.value.copy(
+                                    phase = VoiceModePhase.Speaking,
+                                    reply = snap.lastAgentText,
+                                )
+                                for (utterance in utterances) {
+                                    SpeechPlayback.speak(app, owner, utterance)
+                                    val playback = SpeechPlayback.state.first { it.owner != owner }
+                                    playback.error?.let { error(it) }
+                                }
+                                spoken = ready.size
+                            } else if (snap.lastAgentText.isNotBlank()) {
+                                mutableState.value = mutableState.value.copy(reply = snap.lastAgentText)
+                            }
+                            if (!snap.isStreaming && snap.lastAgentId != baseline) break
+                            chat.first {
+                                it.lastAgentText != snap.lastAgentText ||
+                                    it.isStreaming != snap.isStreaming ||
+                                    it.lastAgentId != snap.lastAgentId
+                            }
+                        }
+                    }
                     delay(300)
                 }
             } catch (cancelled: CancellationException) {

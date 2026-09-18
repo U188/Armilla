@@ -19,6 +19,7 @@ internal object ProviderSourceRegistry {
         ProviderSourceTypes.STEPFUN,
         ProviderSourceTypes.SILICONFLOW,
         ProviderSourceTypes.OPENROUTER,
+        ProviderSourceTypes.DOUBAO_SPEECH,
     )
 
     fun normalize(sourceType: String?): String {
@@ -84,6 +85,7 @@ internal object ProviderSourceRegistry {
             httpUrl.host.endsWith(".maas.aliyuncs.com") -> ProviderSourceTypes.BAILIAN
             httpUrl.host == "api.siliconflow.cn" -> ProviderSourceTypes.SILICONFLOW
             httpUrl.host == "openrouter.ai" -> ProviderSourceTypes.OPENROUTER
+            httpUrl.host == "openspeech.bytedance.com" -> ProviderSourceTypes.DOUBAO_SPEECH
             else -> null
         }
     }

@@ -32,6 +32,22 @@ internal class CloudSpeechSynthesizer(
             .build()
     }
 
+    suspend fun test(apiKey: String): String {
+        speechCheck(apiKey.isNotBlank()) { "请填写豆包语音 API Key" }
+        val bytes = synthesizeDoubao(
+            AgentModelClient.ModelConfig(
+                baseUrl = "https://openspeech.bytedance.com",
+                apiKey = apiKey,
+                model = "seed-tts-2.0",
+                systemPrompt = "",
+            ),
+            "你好",
+            "zh_female_vv_uranus_bigtts",
+        )
+        speechCheck(bytes.isNotEmpty()) { "语音接口没有返回音频" }
+        return "语音接口可用"
+    }
+
     suspend fun synthesize(config: AgentModelClient.ModelConfig, text: String, voice: String): ByteArray {
         speechCheck(text.isNotBlank()) { "没有可朗读的文字" }
         speechCheck(voice.isNotBlank()) { "请填写该接口支持的音色 ID" }

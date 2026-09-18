@@ -10,6 +10,11 @@ internal object SpeechSynthesisModels {
         provider !is AnthropicProviderSetting && !ProviderAuthMode.isOAuth(provider.authMode) &&
             !provider.baseUrl.contains("chatgpt.com", ignoreCase = true) && provider.isEnabled
 
+    fun isSpeechOnlyProvider(provider: ProviderSetting): Boolean {
+        if (provider.sourceType.equals(ProviderSourceTypes.DOUBAO_SPEECH, ignoreCase = true)) return true
+        return provider.baseUrl.trim().toHttpUrlOrNull()?.host.equals("openspeech.bytedance.com", ignoreCase = true)
+    }
+
     fun isDoubaoSpeechHost(baseUrl: String): Boolean {
         val host = baseUrl.trim().toHttpUrlOrNull()?.host.orEmpty().lowercase()
         return host == "openspeech.bytedance.com" ||

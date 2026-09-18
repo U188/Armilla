@@ -33,6 +33,7 @@ class AppRouteSerializationTest {
             AppRoute.ModelProviderDetail("provider"),
             AppRoute.ModelProviderNew(NewProviderType.OpenAiCompatible),
             AppRoute.ModelProviderNew(NewProviderType.Anthropic),
+            AppRoute.ModelProviderNew(NewProviderType.DoubaoSpeech),
         )
         val json = Json { ignoreUnknownKeys = true }
 

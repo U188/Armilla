@@ -27,6 +27,7 @@ internal object ProviderSourceTypes {
     const val STEPFUN = "stepfun"
     const val SILICONFLOW = "siliconflow"
     const val OPENROUTER = "openrouter"
+    const val DOUBAO_SPEECH = "doubao_speech"
 }
 
 @Serializable

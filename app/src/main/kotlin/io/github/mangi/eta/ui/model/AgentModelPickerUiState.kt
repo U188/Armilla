@@ -9,6 +9,7 @@ import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.data.model.ProviderSetting
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.agent.voice.tts.DoubaoSpeech
 import io.github.mangi.eta.data.provider.ProviderSourceRegistry
 import java.text.NumberFormat
@@ -75,6 +76,7 @@ internal object AgentModelPickerProjector {
         val groups = enabledProviders
             .asSequence()
             .filter { it.apiKey.isNotBlank() }
+            .filter { includeSpeechModels || !SpeechSynthesisModels.isSpeechOnlyProvider(it) }
             .mapNotNull { provider ->
                 val sourceType = ProviderSourceRegistry.resolve(provider)
                 val models = listedModels(provider, includeSpeechModels)

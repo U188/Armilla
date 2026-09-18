@@ -73,6 +73,7 @@ import io.github.mangi.eta.data.provider.ReasoningCapabilityResolver
 import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.agent.model.oauth.OpenAiCodexOAuth
 import io.github.mangi.eta.data.repository.RemoteModelFetcher
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.components.MiuixDialogActions
 import io.github.mangi.eta.ui.haptics.TouchHaptics
@@ -238,7 +239,7 @@ internal fun ProviderModelsTab(
                     ArrowPreference(
                         title = if (isFetching) context.getString(R.string.page_retrieving_a880c9) else context.getString(R.string.page_automatically_pull_from_remote_f883d0),
                         summary = stringResource(R.string.provider_models_endpoint_summary, provider.baseUrl),
-                        enabled = !isFetching && !isMutatingModel,
+                        enabled = !isFetching && !isMutatingModel && !SpeechSynthesisModels.isSpeechOnlyProvider(provider),
                         startAction = {
                             PreferenceIcon(
                                 icon = Icons.Rounded.CloudDownload,

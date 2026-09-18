@@ -48,6 +48,10 @@ import io.github.mangi.eta.data.model.ProviderAuthMode
 import io.github.mangi.eta.data.model.usesOAuth
 import io.github.mangi.eta.data.model.withModels
 import io.github.mangi.eta.data.model.ProviderSetting
+import io.github.mangi.eta.data.model.ProviderSourceTypes
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
+import io.github.mangi.eta.agent.voice.tts.CloudSpeechSynthesizer
+import io.github.mangi.eta.agent.voice.tts.SpeechPlaybackFailure
 import io.github.mangi.eta.data.model.withId
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.RemoteModelFetcher
@@ -122,6 +126,20 @@ internal fun ModelProviderDetailScreen(
                 id = "",
                 name = "",
                 baseUrl = "https://api.anthropic.com",
+            )
+            NewProviderType.DoubaoSpeech -> CustomProviderSetting(
+                id = "",
+                name = "豆包语音",
+                baseUrl = "https://openspeech.bytedance.com",
+                sourceType = ProviderSourceTypes.DOUBAO_SPEECH,
+                models = SpeechSynthesisModels.catalogModels(
+                    CustomProviderSetting(
+                        id = "draft",
+                        name = "豆包语音",
+                        baseUrl = "https://openspeech.bytedance.com",
+                        sourceType = ProviderSourceTypes.DOUBAO_SPEECH,
+                    ),
+                ),
             )
             null -> null
         }
@@ -302,7 +320,8 @@ private fun ProviderConfigTab(
                         )
                     }
                 }
-                if (provider !is AnthropicProviderSetting) {
+                val speechOnly = SpeechSynthesisModels.isSpeechOnlyProvider(provider)
+                if (provider !is AnthropicProviderSetting && !speechOnly) {
                     HorizontalDivider()
                     WindowSpinnerPreference(
                         items = listOf(
@@ -468,12 +487,12 @@ private fun ProviderConfigTab(
                                 if (isNew) {
                                     val newId = provider.id.ifBlank { ProviderRepository.newId() }
                                     val toSave = built.withId(newId).let { saved ->
-                                        if (saved.usesOAuth && saved.models.isEmpty()) {
-                                            saved.withModels(
-                                                OpenAiCodexOAuth.defaultModels(),
-                                            )
-                                        } else {
-                                            saved
+                                        when {
+                                            saved.usesOAuth && saved.models.isEmpty() ->
+                                                saved.withModels(OpenAiCodexOAuth.defaultModels())
+                                            SpeechSynthesisModels.isSpeechOnlyProvider(saved) && saved.models.none { SpeechSynthesisModels.matches(it) } ->
+                                                saved.withModels(SpeechSynthesisModels.mergeCatalog(saved))
+                                            else -> saved
                                         }
                                     }
                                     val added = ProviderRepository.addProvider(toSave)
@@ -634,6 +653,14 @@ private suspend fun testConnection(
     provider: ProviderSetting,
 ): String {
     io.github.mangi.eta.data.model.RemovedProviderPolicy.requireSupported(provider)
+    if (SpeechSynthesisModels.isSpeechOnlyProvider(provider)) {
+        return runCatching { CloudSpeechSynthesizer().test(provider.apiKey) }.getOrElse { throwable ->
+            context.getString(
+                R.string.provider_error,
+                (throwable as? SpeechPlaybackFailure)?.message ?: "语音接口不可用",
+            )
+        }
+    }
     if (provider.usesOAuth && OpenAiCodexOAuth.isCodexEndpoint(provider.baseUrl)) {
         val token = OpenAiCodexOAuth.validAccessToken(context, provider.id) ?: provider.apiKey
         return context.getString(

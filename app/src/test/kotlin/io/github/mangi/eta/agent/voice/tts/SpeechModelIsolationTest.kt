@@ -41,4 +41,15 @@ class SpeechModelIsolationTest {
         assertTrue(ids.contains("doubao-seed-2-1-pro-260915"))
         assertEquals("seed-tts-2.0", speech.selectedModel?.modelId)
     }
+
+    @Test fun openspeechProviderHiddenFromChatPicker() {
+        val speech = OpenAiCompatibleProviderSetting(
+            id = "s", name = "豆包语音", baseUrl = "https://openspeech.bytedance.com", apiKey = "key",
+            models = listOf(Model("seed-tts-2.0", "seed-tts-2.0", "tts")),
+        )
+        val chat = AgentModelPickerProjector.project(listOf(speech), "s", "seed-tts-2.0")
+        assertTrue(chat.providerGroups.isEmpty())
+        val picker = AgentModelPickerProjector.project(listOf(speech), "s", "seed-tts-2.0", includeSpeechModels = true)
+        assertEquals(listOf("seed-tts-2.0"), picker.providerGroups.single().models.map { it.modelId })
+    }
 }

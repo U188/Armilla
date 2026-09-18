@@ -20,4 +20,16 @@ class SpeechSynthesisModelsTest {
         assertFalse(SpeechSynthesisModels.allowsSpeechEndpoint(OpenAiCompatibleProviderSetting("a", "a", "https://example.com", authMode = ProviderAuthMode.OAUTH)))
         assertTrue(SpeechSynthesisModels.allowsSpeechEndpoint(CustomProviderSetting("a", "a", "https://example.com/v1")))
     }
+
+    @Test fun openspeechIsSpeechOnly() {
+        val provider = OpenAiCompatibleProviderSetting(
+            id = "d", name = "豆包语音", baseUrl = "https://openspeech.bytedance.com", apiKey = "k",
+        )
+        assertTrue(SpeechSynthesisModels.isSpeechOnlyProvider(provider))
+        assertFalse(
+            SpeechSynthesisModels.isSpeechOnlyProvider(
+                provider.copy(baseUrl = "https://ark.cn-beijing.volces.com/api/coding/v3"),
+            ),
+        )
+    }
 }

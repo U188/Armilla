@@ -20,9 +20,10 @@ import org.junit.Test
 class DoubaoSpeechTest {
     private val mp3 = byteArrayOf(73, 68, 51, 4, 0, 0, 0, 0, 0, 0, 0)
     private val config = AgentModelClient.ModelConfig(
-        baseUrl = "https://ark.cn-beijing.volces.com/api/coding/v3",
+        baseUrl = "https://openspeech.bytedance.com",
         apiKey = "volc-key",
         model = "seed-audio-1.0",
+        providerSourceType = "doubao-speech",
         systemPrompt = "never send",
     )
 

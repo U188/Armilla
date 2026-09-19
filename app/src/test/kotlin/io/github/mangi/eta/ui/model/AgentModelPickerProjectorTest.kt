@@ -369,45 +369,16 @@ class AgentModelPickerProjectorTest {
     }
 
     @Test
-    fun shouldShowLiveContextUsage_showsRingForEmptyConversationDraft() {
-        val emptyDraft = AgentContextUsageUi(contextTokens = 0, contextWindow = 8_000)
-        val typing = AgentContextUsageUi(contextTokens = 12, contextWindow = 8_000)
-        val noWindow = AgentContextUsageUi(contextTokens = 12, contextWindow = null)
-        assertFalse(
-            shouldShowLiveContextUsage(
-                showContextUsage = false,
-                contextSendBlocked = false,
-                usage = emptyDraft,
-            )
+    fun emptyDraftWithoutLimitHasNoInventedPercentage() {
+        assertNull(contextUsageProgress(0, null))
+        assertNull(contextUsageProgress(null, null))
+        assertEquals(0f, contextUsageProgress(0, 8000))
+        val summary = formatContextUsage(
+            AgentContextUsageUi(contextTokens = 0, contextWindow = null),
+            noLimitText = "Unknown limit",
         )
-        assertTrue(
-            shouldShowLiveContextUsage(
-                showContextUsage = false,
-                contextSendBlocked = false,
-                usage = typing,
-            )
-        )
-        assertFalse(
-            shouldShowLiveContextUsage(
-                showContextUsage = false,
-                contextSendBlocked = false,
-                usage = noWindow,
-            )
-        )
-        assertTrue(
-            shouldShowLiveContextUsage(
-                showContextUsage = true,
-                contextSendBlocked = false,
-                usage = emptyDraft,
-            )
-        )
-        assertTrue(
-            shouldShowLiveContextUsage(
-                showContextUsage = false,
-                contextSendBlocked = true,
-                usage = AgentContextUsageUi(contextTokens = 99, contextWindow = 100),
-            )
-        )
+        assertTrue(summary.contains("Unknown limit"))
+        assertFalse(summary.contains("%"))
     }
 
     @Test

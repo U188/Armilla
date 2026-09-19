@@ -114,7 +114,6 @@ import io.github.mangi.eta.ui.screens.assistants.AssistantPickerDialog
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 import io.github.mangi.eta.ui.model.liveContextUsage
 import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
-import io.github.mangi.eta.ui.model.shouldShowLiveContextUsage
 import io.github.mangi.eta.ui.model.ConversationMentionInputUi
 import io.github.mangi.eta.ui.model.PendingFileReferenceUi
 import io.github.mangi.eta.ui.model.PendingImageUi
@@ -482,14 +481,12 @@ internal fun AgentChatInputBar(
                             Spacer(modifier = Modifier.weight(1f))
                         }
 
-                        if (shouldShowLiveContextUsage(showContextUsage, contextSendBlocked, liveUsage)) {
-                            AgentContextUsageButton(
-                                usage = liveUsage,
-                                sendBlocked = contextSendBlocked,
-                            )
-
-                            Spacer(modifier = Modifier.width(2.dp))
-                        }
+                        // Keep context details accessible even for an empty draft or an unknown limit.
+                        AgentContextUsageButton(
+                            usage = liveUsage,
+                            sendBlocked = contextSendBlocked,
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
 
                         AgentModelPickerButton(
                             state = modelPickerState,

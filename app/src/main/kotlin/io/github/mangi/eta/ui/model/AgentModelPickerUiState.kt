@@ -369,16 +369,6 @@ internal fun shouldBlockSendForContextWindow(
     usage: AgentContextUsageUi,
 ): Boolean = !autoCompressEnabled && isContextWindowExceeded(usage)
 
-internal fun shouldShowLiveContextUsage(
-    showContextUsage: Boolean,
-    contextSendBlocked: Boolean,
-    usage: AgentContextUsageUi,
-): Boolean {
-    if (showContextUsage || contextSendBlocked) return true
-    val tokens = usage.contextTokens ?: 0
-    return usage.contextWindow != null && tokens > 0
-}
-
 internal fun contextUsageProgress(contextTokens: Int?, contextWindow: Int?): Float? {
     if (contextTokens == null || contextTokens < 0 || contextWindow == null || contextWindow <= 0) {
         return null

@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DoubaoDuplexProtocolTest {
+    @Test fun sessionEnablesSecondPassRecognitionAtTopLevel() {
+        val event = DoubaoDuplexProtocol.sessionCreate("voice", "instructions")
+        assertTrue(event.getJSONObject("extension").getJSONObject("asr")
+            .getJSONObject("extra").getBoolean("enable_asr_twopass"))
+        assertFalse(event.getJSONObject("session").has("extension"))
+    }
+
     @Test fun apiKeyAuthDoesNotSendLegacyHeaders() {
         val request = DoubaoDuplexProtocol.request("test-key")
         assertEquals("test-key", request.header("X-Api-Key"))

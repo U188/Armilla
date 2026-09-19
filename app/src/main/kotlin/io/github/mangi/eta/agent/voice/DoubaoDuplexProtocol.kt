@@ -16,6 +16,12 @@ internal object DoubaoDuplexProtocol {
         .put("type", "session.create")
         .put("event_id", UUID.randomUUID().toString())
         .put(
+            "extension",
+            JSONObject().put("asr", JSONObject().put("extra",
+                JSONObject().put("enable_asr_twopass", true),
+            )),
+        )
+        .put(
             "session",
             JSONObject()
                 .put("model", "1.2.6.1")

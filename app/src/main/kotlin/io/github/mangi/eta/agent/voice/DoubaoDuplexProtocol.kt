@@ -6,6 +6,10 @@ import java.util.UUID
 
 /** API-key authentication must not be mixed with legacy TTS app/access headers. */
 internal object DoubaoDuplexProtocol {
+    // Never inherit a voice from another provider's ordinary TTS configuration.
+    fun resolveVoice(configured: String): String = configured.trim()
+        .ifBlank { "zh_female_xiaohe_jupiter_bigtts" }
+
     // Match the official web demo: ASR events are current hypotheses, not append-only text.
     fun eventText(event: JSONObject): String =
         listOf("text", "delta", "transcript", "content")

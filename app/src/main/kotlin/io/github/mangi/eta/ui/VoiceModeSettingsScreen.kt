@@ -43,7 +43,6 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
     var voice by remember {
         mutableStateOf(
             Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE)
-                .ifBlank { Prefs.getString(Prefs.Keys.AGENT_TTS_VOICE) }
                 .ifBlank { VoiceModeController.DEFAULT_DUPLEX_VOICE },
         )
     }

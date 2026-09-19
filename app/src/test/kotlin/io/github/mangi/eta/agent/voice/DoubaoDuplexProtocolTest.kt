@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DoubaoDuplexProtocolTest {
+    @Test fun realtimeVoiceUsesIndependentDefault() {
+        assertEquals("zh_female_xiaohe_jupiter_bigtts", DoubaoDuplexProtocol.resolveVoice(""))
+        assertEquals("zh_female_xiaohe_jupiter_bigtts", DoubaoDuplexProtocol.resolveVoice("  "))
+        assertEquals("custom_voice_id", DoubaoDuplexProtocol.resolveVoice(" custom_voice_id "))
+    }
+
     @Test fun audioFieldTakesPriorityWithLegacyDeltaFallback() {
         assertEquals("AAABAA==", DoubaoDuplexProtocol.audioPayload(
             org.json.JSONObject().put("audio", "AAABAA==").put("delta", "ignored")))

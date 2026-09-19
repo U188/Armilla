@@ -213,9 +213,7 @@ internal class VoiceModeController(
                 check(DoubaoSpeech.isOpenspeech(provider.baseUrl)) { "实时通话只能使用豆包语音提供商" }
                 val apiKey = provider.apiKey.trim()
                 check(apiKey.isNotBlank()) { "豆包语音提供商尚未配置 API Key" }
-                val voice = Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE)
-                    .ifBlank { Prefs.getString(Prefs.Keys.AGENT_TTS_VOICE) }
-                    .ifBlank { DEFAULT_DUPLEX_VOICE }
+                val voice = DoubaoDuplexProtocol.resolveVoice(Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE))
                 val instructions = Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_INSTRUCTIONS)
                     .ifBlank { DEFAULT_DUPLEX_INSTRUCTIONS }
                 mutableState.value = VoiceModeState(VoiceEntryMode.DOUBAO_DUPLEX, VoiceModePhase.Connecting)

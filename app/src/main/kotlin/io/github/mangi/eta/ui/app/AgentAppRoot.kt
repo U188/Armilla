@@ -804,7 +804,10 @@ fun AgentAppRoot(
                 io.github.mangi.eta.ui.SpeechSettingsScreen(onBack = ::popRoute)
             }
             entry<AppRoute.VoiceModeSettings>(swipeDismiss = swipeDismiss) {
-                io.github.mangi.eta.ui.VoiceModeSettingsScreen(onBack = ::popRoute)
+                io.github.mangi.eta.ui.VoiceModeSettingsScreen(
+                    onBack = ::popRoute,
+                    onOpenReadAloud = { pushRoute(AppRoute.TtsSettings) },
+                )
             }
             entry<AppRoute.AppearanceSettings>(swipeDismiss = swipeDismiss) {
                 AppearanceSettingsScreen(onBack = ::popRoute)

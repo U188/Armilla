@@ -8,6 +8,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import io.github.mangi.eta.agent.voice.DoubaoRealtimeVoices
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,7 +39,7 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
-internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
+internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> Unit) {
     var defaultMode by remember {
         mutableStateOf(VoiceEntryMode.fromWireValue(Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE)))
     }
@@ -83,7 +87,7 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
                     title = stringResource(R.string.voice_mode_universal),
                     summary = stringResource(R.string.voice_mode_universal_settings_summary),
                     insideMargin = PaddingValues(16.dp),
-                    onClick = {},
+                    onClick = onOpenReadAloud,
                 )
                 Text(
                     text = stringResource(R.string.voice_mode_universal_settings_hint),
@@ -196,13 +200,16 @@ private fun VoiceModeListDialog(
                 Text(emptyText, modifier = Modifier.padding(18.dp))
             }
             rows.forEach { (value, label) ->
-                Text(
-                    text = if (value == selected) "✓  $label" else label,
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelect(value) }
+                        .selectable(selected = value == selected, role = Role.RadioButton, onClick = { onSelect(value) })
                         .padding(horizontal = 16.dp, vertical = 14.dp),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = label, modifier = Modifier.weight(1f))
+                    if (value == selected) Text(text = "✓", modifier = Modifier.padding(start = 16.dp))
+                }
             }
         }
     }

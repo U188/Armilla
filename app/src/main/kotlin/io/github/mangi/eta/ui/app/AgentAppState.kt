@@ -2644,7 +2644,11 @@ internal class AgentAppState(
                         source.messages, budget - status.length, appContext.filesDir, conversationId, evidence,
                     )
                 }
-                if (ownerVersion != fileAttachmentOwnerVersion || conversationId !in conversationsById) return@launch
+                if (ownerVersion != fileAttachmentOwnerVersion) return@launch
+                if (conversationId !in conversationsById) {
+                    removeConversationMention(mentionId)
+                    return@launch
+                }
                 val current = homeState.pendingConversationMentions
                 if (current.none { it.id == mentionId }) return@launch
                 val remaining = ConversationMention.remainingTranscriptBudget(current.filterNot { it.id == mentionId })

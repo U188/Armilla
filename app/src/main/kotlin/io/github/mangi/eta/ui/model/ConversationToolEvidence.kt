@@ -66,6 +66,8 @@ $result"""
         val identity = identities[messageId] ?: return null
         val all = candidates[messageId].orEmpty()
         val exact = all.filter { it.turn == identity.run }
-        return (if (exact.isNotEmpty()) exact else all).singleOrNull()?.original
+        // Modern turn metadata is authoritative. Only truly legacy (untagged) history
+        // may use the unique-ID fallback; never substitute another run's result.
+        return (if (exact.isNotEmpty()) exact else all.filter { it.turn.isBlank() }).singleOrNull()?.original
     }
 }

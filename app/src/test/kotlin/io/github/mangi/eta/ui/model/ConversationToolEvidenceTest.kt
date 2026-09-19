@@ -76,6 +76,18 @@ class ConversationToolEvidenceTest {
         }
         assertNull(ambiguous.original(legacy.id))
     }
+    @Test fun singleDifferentTurnIsNotTreatedAsLegacy() {
+        val message = tool()
+        val evidence = ConversationToolEvidence(listOf(message)).apply {
+            add(history("wrong", turn = "run-b"), "history")
+        }
+        assertNull(evidence.original(message.id))
+        val legacy = ConversationToolEvidence(listOf(message)).apply {
+            add(history("legacy", turn = ""), "history")
+        }
+        assertEquals("legacy", legacy.original(message.id)?.result)
+    }
+
     @Test fun prunedHistoryFallsBackToVerifiedSourceArchiveOnly() {
         val message = tool()
         val evidence = ConversationToolEvidence(listOf(message)).apply {

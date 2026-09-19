@@ -20,6 +20,18 @@ class UserTerminalControllerTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
+    @Test fun longSessionCommandRetainsEnvironment() {
+        val controller = UserTerminalController(NoopLogger)
+        try {
+            val open = controller.openSession(TerminalEnvironment.ANDROID, cwd = temporaryFolder.root.path, identity = "user") as UserTerminalController.OpenResult.Ready
+            val command = "# " + "padding".repeat(4000) + "\nexport ETA_LONG_VALUE=retained"
+            assertEquals(0, controller.exec(open.sessionId, command) { _, _ -> }.exitCode)
+            val output = StringBuilder()
+            controller.exec(open.sessionId, "printf %s \"\$ETA_LONG_VALUE\"") { text, _ -> output.append(text) }
+            assertEquals("retained", output.toString())
+        } finally { controller.close() }
+    }
+
     @Test
     fun sessionKeepsCwdAndEnvironmentAcrossExec() {
         val controller = UserTerminalController(NoopLogger)

@@ -60,6 +60,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
             }
         }
     }
+    key(mode, step) {
     io.github.mangi.eta.ui.components.MiuixScaffoldPage(
     title = when { mode == "create" -> "制作声音 · 第 ${step + 1}/3 步"; mode == "import" -> "导入控制台声音"; page == "asr" -> "识别方式"; page == "voices" -> "我的声音"; else -> "帮助与诊断" },
     onBack = { if (!busy) back() },
@@ -233,6 +234,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
         }
 
     } }
+    }
 
 @Composable
 private fun VoiceConsoleHelp() {

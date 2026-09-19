@@ -38,6 +38,18 @@ class DetachedTaskSupervisorTest {
         }
     }
 
+    @Test fun longDaemonCommandKeepsOriginalRecordAndProducesOutput() {
+        val supervisor = newSupervisor()
+        val command = "cat <<'END' >/dev/null\n" + "长命令内容\n".repeat(20000) + "END\nprintf long-daemon-ok"
+        val result = supervisor.start(command, temporaryFolder.root.path, "user", TerminalEnvironment.ANDROID)
+        assertTrue("$result", result is DaemonStartResult.Started)
+        val task = (result as DaemonStartResult.Started).task
+        assertEquals(command, task.command)
+        assertTrue(awaitExited(supervisor, task.id))
+        assertTrue(File(task.logPath).readText().contains("long-daemon-ok"))
+        supervisor.stop(task.id)
+    }
+
     @Test
     fun deniedForegroundLeaseNeverStartsProcess() {
         val marker = File(temporaryFolder.root, "must-not-exist")

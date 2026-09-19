@@ -32,3 +32,21 @@ ASR 与复刻各保存自己的 API Key；不会继承朗读或实时会话配�
 - https://docs.volcengine.com/docs/DoubaoVoice/HTTPChunkedSSEUnidirectionalStreaming-V3?lang=zh
 
 真实云端鉴权、计费权限、音质和录音端到端行为需要配置账户后实机验证；协议单测与编译不能替代这些验证。
+
+
+## 免费/预付费槽位与后付费创建
+
+默认选择已有/免费槽位，传控制台真实 `S_…` 作为 `speaker_id`，不发送 `custom_speaker_id`。
+可以直接填写 ID，或通过 AK/SK 同步 Unknown、Training、Success、Active 四种状态的槽位。
+目录数据不代表可合成；仍由 get_voice 校验训练状态和模型能力。单个查询失败会保留带错误提示的目录条目。
+训练前明确提示可能覆盖原声音、消耗训练次数；重新训练清除旧试听、能力与正式使用确认，防止使用旧状态。
+后付费是显式选项，只在该选项下自动生成 custom_speaker_id，不因槽位 ID 缺失或请求失败自动切换。
+45000030 提示检查同项目声音复刻权限与单独的后付费音色服务；上传明确 4xx 拒绝显示“请求被拒绝”，网络/5xx 未确认不自动重训。
+训练成功后的查询失败保留最近已知状态，不把查询拒绝误标成训练拒绝。
+
+官方依据：
+- https://docs.volcengine.com/docs/DoubaoVoice/Soundreplicationorderingandusageguide?lang=zh （免费音色归入预付费；后付费需单独开通）
+- https://docs.volcengine.com/docs/DoubaoVoice/tone-training-http?lang=zh （V3 X-Api-Key；speaker_id 与 custom_speaker_id）
+- https://docs.volcengine.com/docs/DoubaoVoice/BatchListMegaTTSTrainStatus-PageQuerySpeakerIDStatus?lang=zh （Unknown 等状态）
+
+尚未使用真实音色执行训练，免费额度是否适用和资源授权仍需真实账户验证。

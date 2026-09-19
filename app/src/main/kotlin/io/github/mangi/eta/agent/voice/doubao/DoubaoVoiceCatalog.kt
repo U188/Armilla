@@ -37,7 +37,7 @@ internal object DoubaoVoiceCatalog {
     fun list(ak: String, sk: String, project: String): List<Pair<String, String>> {
         require(ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank()) { "请填写 AK、SK 和项目名" }
         val result = linkedMapOf<String, String>()
-        for (state in listOf("Success", "Active")) {
+        for (state in listOf("Unknown", "Training", "Success", "Active")) {
             for (page in 1..20) {
                 val body = JSONObject().put("ProjectName", project).put("State", state).put("PageNumber", page).put("PageSize", 100).toString()
                 val root = AgentHttpClient.modelClient.newBuilder().addInterceptor(DoubaoDiagnostics).build().newCall(signedRequest(ak, sk, body, Instant.now())).execute().use { response ->

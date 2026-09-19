@@ -28,7 +28,10 @@ internal fun DoubaoVoiceSettings() {
     var cloneKey by remember { mutableStateOf("") }
     var ak by remember { mutableStateOf("") }
     var sk by remember { mutableStateOf("") }
-    var project by remember { mutableStateOf("") }
+    var project by remember { mutableStateOf("default") }
+    var postpaid by remember { mutableStateOf(false) }
+    var slotId by remember { mutableStateOf("") }
+    var pendingTraining by remember { mutableStateOf<Triple<String, String, String?>?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var consent by remember { mutableStateOf(false) }
@@ -40,10 +43,12 @@ internal fun DoubaoVoiceSettings() {
     }
     DisposableEffect(Unit) { onDispose { player?.release() } }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null && !busy) scope.launch {
+        val training = pendingTraining
+        pendingTraining = null
+        if (uri != null && !busy && training != null) scope.launch {
             busy = true
             try {
-                PersonalVoices.create(context.applicationContext, uri, name, config.cloneKey)
+                PersonalVoices.create(context.applicationContext, uri, training.first, training.second, training.third)
                 Toast.makeText(context, "已创建复刻任务，可在下方查询进度", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -87,15 +92,31 @@ internal fun DoubaoVoiceSettings() {
         OutlinedTextField(cloneKey, { cloneKey = it }, label = { Text("声音复刻 API Key") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(onClick = { DoubaoVoiceConfig.save(context, config.copy(cloneKey = cloneKey)) }) { Text("保存复刻配置") }
         OutlinedTextField(name, { name = it.take(80) }, label = { Text("音色名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Text("选择清晰的单人录音（WAV / MP3 / OGG / M4A / AAC，不超过 10 MiB）。自动创建后付费音色 ID；试听文本会收取合成费，首次正式使用会收取音色费用。未正式使用的音色 7 天后可能被服务端删除。")
+        Row {
+            RadioButton(!postpaid, { postpaid = false; consent = false })
+            Text("已有/免费槽位", Modifier.padding(top = 12.dp))
+            RadioButton(postpaid, { postpaid = true; consent = false })
+            Text("新建后付费", Modifier.padding(top = 12.dp))
+        }
+        if (!postpaid) {
+            OutlinedTextField(slotId, { slotId = it.trim(); consent = false }, label = { Text("控制台音色 ID（S_…）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Text("免费赠送音色也属于已有槽位。从控制台音色库复制 ID，或在下方同步后选择槽位。使用与音色相同项目的 API Key。训练会消耗次数并可能覆盖此槽位原有声音，请核对 ID。")
+            voices.filter { it.account == PersonalVoices.account(config.cloneKey) && it.id.startsWith("S_") }.forEach { slot ->
+                TextButton(onClick = { slotId = slot.id; consent = false }) { Text("使用 ${slot.name}（${slot.id}）") }
+            }
+        } else Text("需额外开通同项目的后付费音色服务；仅开通声音复刻 2.0 不足以创建自定义 ID。首次正式合成可能收取音色费用；未正式使用的音色 7 天后可能删除。")
+        Text("选择清晰的单人录音（WAV / MP3 / OGG / M4A / AAC，不超过 10 MiB）。试听合成按账户额度/计费规则结算。")
         Row {
             Checkbox(consent, { consent = it })
-            Text("我有权使用该声音样本，并了解上述费用", Modifier.padding(top = 12.dp))
+            Text("我有权使用该声音样本，已核对槽位并了解训练次数、覆盖及费用说明", Modifier.padding(top = 12.dp))
         }
-        Button(onClick = { picker.launch(arrayOf("audio/*")) }, enabled = consent && name.isNotBlank() && config.cloneKey.isNotBlank() && !busy) {
+        Button(onClick = {
+            pendingTraining = Triple(name, config.cloneKey, if (postpaid) null else slotId.trim())
+            picker.launch(arrayOf("audio/*"))
+        }, enabled = consent && name.isNotBlank() && config.cloneKey.isNotBlank() && !busy && (postpaid || slotId.matches(Regex("S_[A-Za-z0-9_-]+")))) {
             Text(if (busy) "正在读取样本" else "选择录音并复刻")
         }
-        Text("已购买音色：通过控制台 AK/SK 拉取，无需填写音色 ID。AK/SK 仅在本页临时使用，不保存。导入后仍用复刻 API Key 校验可用性。")
+        Text("已有音色（含未训练槽位）：通过控制台 AK/SK 拉取，或直接填写控制台 ID。AK/SK 仅在本页临时使用，不保存。导入后仍用复刻 API Key 校验可用性。")
         OutlinedTextField(ak, { ak = it }, label = { Text("Access Key ID") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         OutlinedTextField(sk, { sk = it }, label = { Text("Secret Access Key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         OutlinedTextField(project, { project = it }, label = { Text("火山项目名称") }, modifier = Modifier.fillMaxWidth())
@@ -110,12 +131,12 @@ internal fun DoubaoVoiceSettings() {
                     Toast.makeText(context, e.message ?: "同步失败", Toast.LENGTH_LONG).show()
                 } finally { importBusy = false }
             }
-        }) { Text(if (importBusy) "正在同步" else "拉取已购买音色") }
+        }) { Text(if (importBusy) "正在同步" else "同步已有音色/槽位") }
         Text("下方列出本机复刻或已同步的音色；查询状态只读，不会重新训练。")
         voices.filter { it.account == PersonalVoices.account(config.cloneKey) }.forEach { voice ->
             HorizontalDivider()
             Text(voice.name, style = MaterialTheme.typography.titleSmall)
-            Text(when (voice.status) { 0 -> "服务端未找到"; 1 -> "训练中"; 2 -> "训练成功"; 3 -> "训练失败"; 4 -> "已正式使用"; else -> "请求待确认" })
+            Text(when (voice.status) { -2 -> "请求被拒绝"; 0 -> "服务端未找到"; 1 -> "训练中"; 2 -> "训练成功"; 3 -> "训练失败"; 4 -> "已正式使用"; else -> "请求待确认" })
             if (voice.error.isNotBlank()) Text(voice.error, color = MaterialTheme.colorScheme.error)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { PersonalVoices.refresh(voice, config.cloneKey) }) { Text("查询状态") }

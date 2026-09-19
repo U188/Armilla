@@ -44,10 +44,10 @@ internal object PersonalVoices {
     private fun decode(j: JSONObject) = Voice(j.getString("id"), j.getString("name"), j.getString("account"), j.optInt("status", -1),
         j.optJSONArray("models")?.let { a -> (0 until a.length()).map { a.getInt(it) }.toSet() }.orEmpty(),
         j.optString("demo"), j.optString("error"), j.optBoolean("accepted"))
-    @Synchronized private fun save(voice: Voice) {
+    @Synchronized private fun save(voice: Voice, preserveAccepted: Boolean = true) {
         check(loaded)
         val stored = mutable.value.firstOrNull { it.id == voice.id && it.account == voice.account }
-        val resolved = voice.copy(accepted = voice.accepted || stored?.accepted == true)
+        val resolved = voice.copy(accepted = voice.accepted || (preserveAccepted && stored?.accepted == true))
         val list = mutable.value.filterNot { it.id == voice.id && it.account == voice.account } + resolved
         val array = JSONArray().also { a -> list.forEach { v -> a.put(JSONObject().put("id", v.id).put("name", v.name)
             .put("account", v.account).put("status", v.status).put("models", JSONArray(v.models.toList()))
@@ -62,7 +62,7 @@ internal object PersonalVoices {
         if (!id.startsWith("etaClone") && !id.startsWith("S_")) return null
         return requireNotNull(find(id, key)?.takeIf { it.tts && it.accepted }) { "个人音色不可用，请检查训练状态、账户和首次使用确认" }
     }
-    private fun identity(voice: Voice) = if (voice.id.startsWith("S_")) JSONObject().put("speaker_id", voice.id)
+    internal fun identity(voice: Voice) = if (voice.id.startsWith("S_")) JSONObject().put("speaker_id", voice.id)
         else JSONObject().put("speaker_id", "custom_speaker_id").put("custom_speaker_id", voice.id)
     suspend fun importPurchased(key: String, ak: String, sk: String, project: String): Int = withContext(Dispatchers.IO) {
         check(loaded)
@@ -71,7 +71,10 @@ internal object PersonalVoices {
             val existing = find(id, key)
             val voice = existing ?: Voice(id, name, account(key))
             // Catalog metadata alone cannot prove model compatibility. Verify with the synthesis credential.
-            save(updated(voice, request("get_voice", key, identity(voice))))
+            // Keep catalog entries even when an unused slot has no trained voice yet.
+            // A catalog entry alone never grants synthesis eligibility.
+            try { save(updated(voice, request("get_voice", key, identity(voice)))) }
+            catch (e: Exception) { save(voice.copy(error = e.message ?: "音色尚未通过查询校验")) }
         }
         list.size
     }
@@ -88,8 +91,12 @@ internal object PersonalVoices {
             }
             val json = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
             DoubaoDiagnostics.business("clone.$path", json, listOf(key))
-            check(response.isSuccessful && json.optInt("code", 0) in listOf(0, 20000000)) {
-                "豆包请求失败：HTTP ${response.code}，错误码 ${json.optInt("code", -1)}：${DoubaoDiagnostics.sanitize(json.optString("message"), listOf(key))}"
+            if (!response.isSuccessful || json.optInt("code", 0) !in listOf(0, 20000000)) {
+                val detail = DoubaoDiagnostics.sanitize(json.optString("message"), listOf(key))
+                val hint = if (json.optInt("code") == 45000030) {
+                    "；资源未授权：免费/预付费槽位请使用控制台 S_ 音色 ID；自定义 ID 需在同项目单独开通后付费音色服务。若已有槽位也被拒绝，请核对 API Key 所属项目与声音复刻权限。"
+                } else ""
+                throw VoiceRequestException(response.code, "豆包请求失败：HTTP ${response.code}，错误码 ${json.optInt("code", -1)}：$detail$hint")
             }
             json
         }
@@ -109,9 +116,15 @@ internal object PersonalVoices {
             finally { synchronized(running) { running.remove(voice.id) } }
         }
     }
-    suspend fun create(context: Context, uri: Uri, name: String, key: String): String = withContext(Dispatchers.IO) {
+    internal class VoiceRequestException(val http: Int, message: String) : IllegalStateException(message)
+    internal fun trainingIdentity(slotId: String?): String {
+        if (slotId == null) return "etaClone" + UUID.randomUUID().toString().replace("-", "")
+        return slotId.trim().also { require(it.matches(Regex("S_[A-Za-z0-9_-]+"))) { "请填写控制台已有的 S_ 音色 ID，不能自行编造" } }
+    }
+    suspend fun create(context: Context, uri: Uri, name: String, key: String, slotId: String?): String = withContext(Dispatchers.IO) {
         load(context)
         require(key.isNotBlank() && name.isNotBlank())
+        val id = trainingIdentity(slotId)
         val format = when (context.contentResolver.getType(uri)) {
             "audio/wav", "audio/x-wav" -> "wav"
             "audio/mpeg" -> "mp3"
@@ -126,22 +139,29 @@ internal object PersonalVoices {
             out.toByteArray()
         } ?: error("无法读取音频")
         require(bytes.isNotEmpty())
-        val voice = Voice("etaClone" + UUID.randomUUID().toString().replace("-", ""), name.trim(), account(key))
+        val voice = Voice(id, name.trim(), account(key))
         // Durable identity BEFORE upload. An interrupted upload is queried, never automatically retrained.
-        save(voice)
-        synchronized(running) { running.add(voice.id) }
+        synchronized(running) { check(running.add(voice.id)) { "此音色已有任务进行中，请先查询状态" } }
+        try { save(voice, preserveAccepted = false) } catch (e: Exception) { synchronized(running) { running.remove(voice.id) }; bytes.fill(0); throw e }
         scope.launch {
+            var latest = voice
+            var uploadReturned = false
             try {
                 val response = request("voice_clone", key, identity(voice).put("audio", JSONObject()
                     .put("data", Base64.encodeToString(bytes, Base64.NO_WRAP)).put("format", format)).put("language", 0)
                     .put("extra_params", JSONObject().put("demo_text", "你好，这是我的个人音色试听。")))
-                var current = updated(voice, response); save(current)
+                uploadReturned = true
+                var current = updated(voice, response); latest = current; save(current)
                 repeat(30) {
                     if (current.status != 1) return@launch
                     delay(4000)
-                    current = updated(current, request("get_voice", key, identity(current))); save(current)
+                    current = updated(current, request("get_voice", key, identity(current))); latest = current; save(current)
                 }
-            } catch (e: Exception) { save(voice.copy(error = (e.message ?: "请求未确认") + "；请查询状态，不会自动重复训练")) }
+            } catch (e: Exception) {
+                val rejected = !uploadReturned && e is VoiceRequestException && e.http in 400..499
+                save(latest.copy(status = if (rejected) -2 else latest.status,
+                    error = (e.message ?: "请求未确认") + if (rejected) "；本次请求被拒绝，不会自动重试" else "；请查询状态，不会自动重复训练"))
+            }
             finally { bytes.fill(0); synchronized(running) { running.remove(voice.id) } }
         }
         voice.id

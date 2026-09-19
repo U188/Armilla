@@ -34,9 +34,10 @@ internal object DoubaoVoiceCatalog {
             .header("Authorization", "HMAC-SHA256 Credential=$ak/$scope, SignedHeaders=$headers, Signature=$signature")
             .post(body.toRequestBody("application/json; charset=UTF-8".toMediaType())).build()
     }
-    fun list(ak: String, sk: String, project: String): List<Pair<String, String>> {
+    data class Slot(val id: String, val name: String, val state: String, val remaining: Int)
+    fun list(ak: String, sk: String, project: String): List<Slot> {
         require(ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank()) { "请填写 AK、SK 和项目名" }
-        val result = linkedMapOf<String, String>()
+        val result = linkedMapOf<String, Slot>()
         for (state in listOf("Unknown", "Training", "Success", "Active")) {
             for (page in 1..20) {
                 val body = JSONObject().put("ProjectName", project).put("State", state).put("PageNumber", page).put("PageSize", 100).toString()
@@ -51,12 +52,12 @@ internal object DoubaoVoiceCatalog {
                 val data = root.getJSONObject("Result"); val items = data.optJSONArray("Statuses") ?: break
                 for (i in 0 until items.length()) {
                     val item = items.getJSONObject(i); val id = item.optString("SpeakerID")
-                    if (id.startsWith("S_")) result[id] = item.optString("Alias").ifBlank { id }
+                    if (id.startsWith("S_")) result[id] = Slot(id, item.optString("Alias").ifBlank { id }, item.optString("State", state), item.optInt("AvailableTrainingTimes", -1))
                 }
                 if (page * 100 >= data.optInt("TotalCount", items.length()) || items.length() == 0) break
                 check(page < 20) { "音色超过 2000 条，请按项目缩小查询范围" }
             }
         }
-        return result.map { it.key to it.value }
+        return result.values.toList()
     }
 }

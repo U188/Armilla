@@ -20,7 +20,10 @@ import java.util.concurrent.TimeUnit
 
 internal object PersonalVoices {
     data class Voice(val id: String, val name: String, val account: String, val status: Int = -1,
-        val models: Set<Int> = emptySet(), val demo: String = "", val error: String = "", val accepted: Boolean = false) {
+        val models: Set<Int> = emptySet(), val demo: String = "", val error: String = "", val accepted: Boolean = false, val catalogState: String = "", val remaining: Int = -1) {
+        val canTrain get() = status != 1 && status != 4 && catalogState !in setOf("Training", "Active", "Expired", "Reclaimed") && remaining != 0
+        val unused get() = catalogState == "Unknown" && status !in 1..4
+
         val ready get() = status == 2 || status == 4
         val tts get() = ready && models.any { it == 4 || it == 5 }
     }
@@ -43,7 +46,7 @@ internal object PersonalVoices {
     }
     private fun decode(j: JSONObject) = Voice(j.getString("id"), j.getString("name"), j.getString("account"), j.optInt("status", -1),
         j.optJSONArray("models")?.let { a -> (0 until a.length()).map { a.getInt(it) }.toSet() }.orEmpty(),
-        j.optString("demo"), j.optString("error"), j.optBoolean("accepted"))
+        j.optString("demo"), j.optString("error"), j.optBoolean("accepted"), j.optString("catalogState"), j.optInt("remaining", -1))
     @Synchronized private fun save(voice: Voice, preserveAccepted: Boolean = true) {
         check(loaded)
         val stored = mutable.value.firstOrNull { it.id == voice.id && it.account == voice.account }
@@ -51,7 +54,7 @@ internal object PersonalVoices {
         val list = mutable.value.filterNot { it.id == voice.id && it.account == voice.account } + resolved
         val array = JSONArray().also { a -> list.forEach { v -> a.put(JSONObject().put("id", v.id).put("name", v.name)
             .put("account", v.account).put("status", v.status).put("models", JSONArray(v.models.toList()))
-            .put("demo", v.demo).put("error", v.error).put("accepted", v.accepted)) } }
+            .put("demo", v.demo).put("error", v.error).put("accepted", v.accepted).put("catalogState", v.catalogState).put("remaining", v.remaining)) } }
         val file = AtomicFile(root); val out = file.startWrite()
         try { out.write(array.toString().toByteArray()); file.finishWrite(out) } catch (e: Exception) { file.failWrite(out); throw e }
         mutable.value = list
@@ -76,9 +79,10 @@ internal object PersonalVoices {
     suspend fun importPurchased(key: String, ak: String, sk: String, project: String): Int = withContext(Dispatchers.IO) {
         check(loaded)
         val list = DoubaoVoiceCatalog.list(ak, sk, project)
-        list.forEach { (id, name) ->
+        list.forEach { slot ->
+            val id = slot.id; val name = slot.name
             val existing = find(id, key)
-            val voice = existing ?: Voice(id, name, account(key))
+            val voice = (existing ?: Voice(id, name, account(key))).copy(catalogState = slot.state, remaining = slot.remaining)
             // Catalog metadata alone cannot prove model compatibility. Verify with the synthesis credential.
             // Keep catalog entries even when an unused slot has no trained voice yet.
             // A catalog entry alone never grants synthesis eligibility.
@@ -113,7 +117,9 @@ internal object PersonalVoices {
     private fun updated(v: Voice, j: JSONObject): Voice {
         val items = j.optJSONArray("speaker_status") ?: JSONArray()
         val models = (0 until items.length()).map { items.getJSONObject(it).optInt("model_type") }.toSet()
-        return v.copy(status = j.optInt("status", -1), models = models,
+        val status = j.optInt("status", -1)
+        val catalogState = when (status) { 1 -> "Training"; 2 -> "Success"; 4 -> "Active"; 3 -> ""; else -> v.catalogState }
+        return v.copy(status = status, catalogState = catalogState, models = models, remaining = j.optInt("available_training_times", v.remaining),
             demo = (0 until items.length()).map { items.getJSONObject(it) }.firstOrNull { it.optInt("model_type") in setOf(4, 5) }?.optString("demo_audio").orEmpty(), error = "")
     }
     fun refresh(voice: Voice, key: String) {
@@ -134,6 +140,7 @@ internal object PersonalVoices {
         load(context)
         require(key.isNotBlank() && name.isNotBlank())
         val id = trainingIdentity(slotId)
+        if (slotId != null) require(find(id, key)?.canTrain != false) { "此音色正在制作、已锁定或次数耗尽，请选择其他名额" }
         val format = when (context.contentResolver.getType(uri)) {
             "audio/wav", "audio/x-wav" -> "wav"
             "audio/mpeg" -> "mp3"

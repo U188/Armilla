@@ -21,6 +21,8 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val diagnostics by io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics.state.collectAsState()
+    var showSync by remember { mutableStateOf(false) }
+    var manualId by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf<String?>(null) }
     var step by remember { mutableIntStateOf(0) }
@@ -33,9 +35,6 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
     val voices by PersonalVoices.state.collectAsState()
     var asrKey by remember { mutableStateOf("") }
     var cloneKey by remember { mutableStateOf("") }
-    var ak by remember { mutableStateOf("") }
-    var sk by remember { mutableStateOf("") }
-    var project by remember { mutableStateOf("default") }
     var postpaid by remember { mutableStateOf(false) }
     var slotId by remember { mutableStateOf("") }
     var importBusy by remember { mutableStateOf(false) }
@@ -124,8 +123,8 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                             VoiceConsoleHelp()
                         } else Text("账户已配置")
                         TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "收起账户设置" else "更换账户 / 高级设置") }
-                        Button(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "import"; step = 0; postpaid = false; advanced = false; notice = "" }) { Text("导入控制台已有声音") }
-                        OutlinedButton(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "create"; step = 0; postpaid = false; advanced = false; audio = null; fileName = ""; consent = false; notice = "" }) { Text("用录音制作声音") }
+                        Button(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "import"; step = 0; slotId = ""; manualId = false; showSync = false; postpaid = false; advanced = false; notice = "" }) { Text("导入控制台已有声音") }
+                        OutlinedButton(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "create"; step = 0; slotId = ""; manualId = false; showSync = false; postpaid = false; advanced = false; audio = null; fileName = ""; consent = false; notice = "" }) { Text("用录音制作声音") }
                         if (config.cloneKey.isBlank()) Text("先保存 API Key，才能添加声音。")
                     }
                     if (mode != null && step == 0) {
@@ -141,15 +140,42 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                             }
                         }
                         if (!postpaid || mode == "import") {
-                            OutlinedTextField(slotId, { slotId = it.trim(); consent = false }, label = { Text("控制台音色 ID（S_…）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                            Text("从豆包控制台 → 音色库复制 ID；免费赠送的名额也在这里。需要与已配置 Key 属于同一项目。")
-                            VoiceConsoleHelp()
-                            voices.filter { it.account == PersonalVoices.account(config.cloneKey) && it.id.startsWith("S_") }.forEach { slot ->
-                                TextButton(onClick = { slotId = slot.id; consent = false }) { Text("使用 ${slot.name}（${slot.id}）") }
+                            val slots = voices.filter { it.account == PersonalVoices.account(config.cloneKey) && it.id.startsWith("S_") }
+                                .sortedWith(compareByDescending<PersonalVoices.Voice> { it.unused }.thenBy { it.name })
+                            Text(if (mode == "create") "选择一个音色名额" else "选择已制作的声音", style = MaterialTheme.typography.titleMedium)
+                            if (slots.isEmpty()) {
+                                Text("还没有同步名额，不代表你的免费名额用完了。")
+                                Text("可以连接火山账户读取名额，也可以从控制台复制一次音色 ID。")
                             }
+                            slots.forEachIndexed { index, slot ->
+                                val usable = mode == "import" || slot.canTrain
+                                OutlinedButton(enabled = usable && !importBusy, onClick = { slotId = slot.id; consent = false; manualId = false }, modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text((if (slotId == slot.id) "已选 · " else "") + if (slot.name == slot.id) "音色名额 ${index + 1}" else slot.name)
+                                        Text(when {
+                                            slot.status == 1 || slot.catalogState == "Training" -> "正在制作，暂不能重复提交"
+                                            slot.status == 4 || slot.catalogState == "Active" -> "已锁定，不能再次制作"
+                                            slot.remaining == 0 -> "训练次数已用完"
+                                            slot.unused -> "尚未制作 · 优先使用"
+                                            slot.ready -> "已有声音 · 再次制作可能覆盖"
+                                            else -> "状态待确认"
+                                        }, style = MaterialTheme.typography.bodySmall)
+                                        Text(if (slot.remaining >= 0) "剩余 ${slot.remaining} 次训练" else "训练次数待查询", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                            Button(enabled = !importBusy, onClick = { showSync = !showSync }, modifier = Modifier.fillMaxWidth()) { Text(if (showSync) "收起同步设置" else "查找我的音色名额") }
+                            if (showSync) VoiceSlotSync(config.cloneKey, onBusy = { importBusy = it }, onResult = { notice = it })
+                            TextButton(onClick = { manualId = !manualId; slotId = ""; consent = false }) { Text(if (manualId) "收起手动填写" else "备用方式：从控制台复制 ID") }
+                            if (manualId) {
+                                Text("控制台 → 音色库 → 我的音色 → 预付费音色。把“已复刻”筛选改为“全部”或未复刻选项，找未使用名额；复制 S_ 开头的 ID。无需先在网页上传录音。")
+                                VoiceConsoleHelp()
+                                OutlinedTextField(slotId, { slotId = it.trim(); consent = false }, label = { Text("粘贴复制的音色 ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            }
+                            if (slotId.isNotBlank()) Text(if (mode == "import") "已选择声音，点击导入即可。" else "已选择音色名额。下一步选择录音，不会立即上传。", style = MaterialTheme.typography.bodySmall)
                         } else Text("需额外开通同项目的后付费音色服务；仅开通声音复刻 2.0 不足以创建自定义 ID。首次正式合成可能收取音色费用；未正式使用的音色 7 天后可能删除。")
                         if (mode == "import") {
-                            Button(enabled = !busy && slotId.matches(Regex("S_[A-Za-z0-9_-]+")), onClick = {
+                            Button(enabled = !busy && !importBusy && slotId.matches(Regex("S_[A-Za-z0-9_-]+")), onClick = {
                                 busy = true
                                 scope.launch {
                                     try { PersonalVoices.importExisting(config.cloneKey, slotId, name); mode = null; notice = "已导入，可在列表中试听或查看状态。" }
@@ -157,8 +183,8 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                                     finally { busy = false }
                                 }
                             }) { Text(if (busy) "正在查询…" else "导入声音") }
-                        } else Button(enabled = name.isNotBlank() && (postpaid || slotId.matches(Regex("S_[A-Za-z0-9_-]+"))), onClick = { step = 1; notice = "" }) { Text("下一步：选择录音") }
-                        if (slotId.isBlank() && !postpaid) Text("请从控制台的音色库复制 S_ 开头的 ID。", style = MaterialTheme.typography.bodySmall)
+                        } else Button(enabled = !importBusy && name.isNotBlank() && (postpaid || (slotId.matches(Regex("S_[A-Za-z0-9_-]+")) && (PersonalVoices.find(slotId, config.cloneKey)?.canTrain != false))), onClick = { step = 1; notice = "" }) { Text("下一步：选择录音") }
+                        if (slotId.isBlank() && !postpaid) Text("先选择上面的名额；没有列表时，点“查找我的音色名额”。", style = MaterialTheme.typography.bodySmall)
                     }
                     if (mode == "create" && step == 1) {
                         Text("选择清晰的单人录音，尽量没有音乐和噪声。支持 WAV、MP3、OGG、M4A、AAC，不超过 10 MiB。")
@@ -169,7 +195,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                     }
                     if (mode == "create" && step == 2) {
                         Text("声音名称：$name")
-                        Text(if (postpaid) "新建后付费音色" else "使用音色：$slotId")
+                        Text(if (postpaid) "新建后付费音色" else "使用音色：${PersonalVoices.find(slotId, config.cloneKey)?.name ?: slotId}")
                         Text(if (postpaid) "需单独开通后付费音色服务；试听按账户规则计费，首次正式合成可能收取音色费。" else "录音会上传豆包，消耗此音色的训练次数，并可能覆盖原来的声音。试听按账户额度或计费规则结算。")
                         Row { Checkbox(consent, { consent = it }, enabled = !busy); Text("我有权使用该录音，并确认以上操作", Modifier.weight(1f).padding(top = 12.dp)) }
                         Button(enabled = consent && !busy, onClick = {
@@ -183,22 +209,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                         }) { Text(if (busy) "正在提交…" else "确认上传并制作") }
                     }
                     if (mode == null && advanced) {
-                        Text("已有音色（含未训练槽位）：通过控制台 AK/SK 拉取，或直接填写控制台 ID。AK/SK 仅在本页临时使用，不保存。导入后仍用复刻 API Key 校验可用性。")
-                        OutlinedTextField(ak, { ak = it }, label = { Text("Access Key ID") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(sk, { sk = it }, label = { Text("Secret Access Key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(project, { project = it }, label = { Text("火山项目名称") }, modifier = Modifier.fillMaxWidth())
-                        Button(enabled = !importBusy && ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank() && config.cloneKey.isNotBlank(), onClick = {
-                            scope.launch {
-                                importBusy = true
-                                try {
-                                    val count = PersonalVoices.importPurchased(config.cloneKey, ak.trim(), sk.trim(), project.trim())
-                                    Toast.makeText(context, "已同步 $count 个音色", Toast.LENGTH_LONG).show()
-                                } catch (e: Exception) {
-                                    if (e is kotlinx.coroutines.CancellationException) throw e
-                                    Toast.makeText(context, e.message ?: "同步失败", Toast.LENGTH_LONG).show()
-                                } finally { importBusy = false }
-                            }
-                        }) { Text(if (importBusy) "正在同步" else "同步已有音色/槽位") }
+                        VoiceSlotSync(config.cloneKey, onBusy = { importBusy = it }, onResult = { notice = it })
                     }
                     if (mode == null) {
                         Text("下方列出本机复刻或已同步的音色；查询状态只读，不会重新训练。")
@@ -243,4 +254,45 @@ private fun VoiceConsoleHelp() {
         context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://console.volcengine.com/speech/new/overview?projectName=default")))
     }) { Text("打开豆包控制台") }
     Text("获取 Key：控制台 → API Key。获取音色 ID：控制台 → 音色库。二者需属于同一项目。", style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var ak by remember { mutableStateOf("") }
+    var sk by remember { mutableStateOf("") }
+    var project by remember { mutableStateOf("default") }
+    var projectOptions by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) { onDispose { onBusy(false) } }
+    Text("首次同步需要火山账户的访问密钥（AK / SK）。它与豆包 API Key 不同，只用于读取音色列表，不会购买或训练。", style = MaterialTheme.typography.bodySmall)
+    TextButton(onClick = {
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://console.volcengine.com/iam/keymanage/")))
+    }) { Text("打开火山访问密钥管理") }
+    Text("在访问密钥管理中获取 Access Key ID 和 Secret Access Key，分别粘贴到下面。不要发到聊天里。", style = MaterialTheme.typography.bodySmall)
+    OutlinedTextField(ak, { ak = it }, label = { Text("Access Key ID（AK）") }, enabled = !busy,
+        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(sk, { sk = it }, label = { Text("Secret Access Key（SK）") }, enabled = !busy,
+        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+    TextButton(enabled = !busy, onClick = { projectOptions = !projectOptions }) { Text("项目：$project · 更改") }
+    if (projectOptions) {
+        Text("与豆包控制台左上角的项目、已配置的 API Key 保持一致。一般使用 default。", style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(project, { project = it }, label = { Text("项目名称") }, enabled = !busy, singleLine = true)
+    }
+    Button(enabled = !busy && apiKey.isNotBlank() && ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank(), modifier = Modifier.fillMaxWidth(), onClick = {
+        busy = true; onBusy(true)
+        val savedKey = apiKey; val accessKey = ak.trim(); val secretKey = sk.trim(); val selectedProject = project.trim()
+        scope.launch {
+            try {
+                val count = PersonalVoices.importPurchased(savedKey, accessKey, secretKey, selectedProject)
+                onResult(if (count == 0) "此项目未查到音色名额。请核对控制台左上角项目；免费字数额度不代表一定有音色名额。" else "已同步 $count 个名额，返回上方列表选择。未使用名额优先排列；查询失败的条目会标为待确认。")
+                ak = ""; sk = ""
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                onResult(e.message ?: "同步失败，请检查访问密钥及项目权限")
+            } finally { busy = false; onBusy(false) }
+        }
+    }) { Text(if (busy) "正在查找名额…" else "读取我的名额") }
+    Text("AK/SK 不保存，收起此表单或离开页面即清空。", style = MaterialTheme.typography.bodySmall)
 }

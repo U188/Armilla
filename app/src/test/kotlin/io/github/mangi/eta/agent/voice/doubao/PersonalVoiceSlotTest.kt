@@ -10,6 +10,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class PersonalVoiceSlotTest {
+    @Test fun unusedSlotsAreSelectableWithoutClaimingSynthesisReady() {
+        val slot = PersonalVoices.Voice("S_unused", "slot", "account", catalogState = "Unknown", remaining = 15)
+        assertTrue(slot.unused)
+        assertTrue(slot.canTrain)
+        assertFalse(slot.tts)
+        assertFalse(slot.copy(status = 2).unused)
+    }
+    @Test fun unavailableSlotsCannotBeSelectedForTraining() {
+        val slot = PersonalVoices.Voice("S_slot", "slot", "account")
+        listOf("Training", "Active", "Expired", "Reclaimed").forEach { assertFalse(slot.copy(catalogState = it).canTrain) }
+        assertFalse(slot.copy(status = 1).canTrain)
+        assertFalse(slot.copy(status = 4).canTrain)
+        assertFalse(slot.copy(remaining = 0).canTrain)
+        assertTrue(slot.copy(status = 2, remaining = 3).canTrain)
+    }
+
     @Test fun prepaidAndFreeSlotUseExistingSpeakerWithoutCustomIdentity() {
         val id = PersonalVoices.trainingIdentity(" S_free123 ")
         val body = PersonalVoices.identity(PersonalVoices.Voice(id, "免费音色", "account"))

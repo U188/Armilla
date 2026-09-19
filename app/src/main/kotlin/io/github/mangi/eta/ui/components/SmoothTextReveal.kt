@@ -325,7 +325,10 @@ internal class SmoothTextRevealNode(
         state = next
         clearPathCache()
         cachedVisibleHeight = -1
-        if (isAttached) state.attach(this)
+        if (isAttached) {
+            state.attach(this)
+            onRevealDataChanged()
+        }
     }
 
     fun onRevealDataChanged() {
@@ -345,7 +348,10 @@ internal class SmoothTextRevealNode(
         constraints: Constraints,
     ): MeasureResult {
         val placeable = measurable.measure(constraints)
-        val visibleHeight = state.visibleHeightPx().coerceAtMost(placeable.height)
+        // Reattached/replaced Markdown nodes may not have delivered onTextLayout yet.
+        // Missing reveal metadata must not collapse an already measured paragraph to zero.
+        val visibleHeight = if (state.drawSnapshot() == null) placeable.height
+            else state.visibleHeightPx().coerceAtMost(placeable.height)
         cachedVisibleHeight = visibleHeight
         val measuredHeight = visibleHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
         return layout(placeable.width, measuredHeight) {
@@ -354,7 +360,11 @@ internal class SmoothTextRevealNode(
     }
 
     override fun ContentDrawScope.draw() {
-        val snapshot = state.drawSnapshot() ?: return
+        val snapshot = state.drawSnapshot()
+        if (snapshot == null) {
+            drawContent()
+            return
+        }
         val contentScope = this
         val targetCount = snapshot.boundaries.lastIndex
         if (targetCount <= 0 || snapshot.progress >= targetCount) {

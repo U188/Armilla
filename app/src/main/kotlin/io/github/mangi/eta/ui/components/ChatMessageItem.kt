@@ -1078,6 +1078,7 @@ private fun StreamingMarkdown(
     val parseAsStreaming = isStreaming || isPaused
     val currentIsStreaming by rememberUpdatedState(parseAsStreaming)
     val currentPaused by rememberUpdatedState(isPaused)
+    val currentFreezeReveal by rememberUpdatedState(freezeReveal)
     val restoreGeneration = state.restoreState.generation
     val view = LocalView.current
 
@@ -1213,7 +1214,7 @@ private fun StreamingMarkdown(
                         currentContent = currentContent,
                     )
                 ) {
-                    if (state.restoreState.animationsAllowed(currentPaused)) {
+                    if (state.restoreState.animationsAllowed(currentPaused) && !currentFreezeReveal) {
                         revealCoordinator.resumeAnimationsAfterCatchUp()
                     }
                 }

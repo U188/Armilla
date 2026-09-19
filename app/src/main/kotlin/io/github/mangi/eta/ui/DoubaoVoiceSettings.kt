@@ -62,8 +62,10 @@ internal fun DoubaoVoiceSettings() {
         }
         Button(onClick = { DoubaoVoiceConfig.save(context, config.copy(asrKey = asrKey)) }) { Text("保存 ASR 配置") }
         Row {
-            Switch(config.cloudAsr, { enabled -> DoubaoVoiceConfig.save(context, config.copy(cloudAsr = enabled)) }, enabled = config.asrKey.isNotBlank())
-            Text(if (config.cloudAsr) "使用豆包 ASR" else "使用离线识别", Modifier.padding(12.dp))
+            RadioButton(!config.cloudAsr, { DoubaoVoiceConfig.save(context, config.copy(cloudAsr = false)) })
+            Text("离线识别", Modifier.padding(top = 12.dp))
+            RadioButton(config.cloudAsr, { DoubaoVoiceConfig.save(context, config.copy(cloudAsr = true)) })
+            Text("豆包 ASR", Modifier.padding(top = 12.dp))
         }
         HorizontalDivider()
         Text("个人音色与声音复刻", style = MaterialTheme.typography.titleMedium)

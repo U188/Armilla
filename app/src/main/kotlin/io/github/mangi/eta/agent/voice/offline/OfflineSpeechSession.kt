@@ -35,7 +35,7 @@ internal object OfflineSpeechSession {
         var recognizer: SherpaNcnn? = null
         var recorder: AudioRecord? = null
         try {
-            check(OfflineSpeechPack.state.value.enabled && OfflineSpeechPack.state.value.ready)
+            check(io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.value.inputEnabled && OfflineSpeechPack.state.value.ready)
             val dir = OfflineSpeechPack.directory(context)
             // Recheck sizes before passing paths to native code; full hashes were verified at startup/download.
             check(SpeechModelManifest.assets.all { File(dir, it.name).length() == it.bytes })

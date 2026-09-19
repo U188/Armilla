@@ -1,6 +1,6 @@
 package io.github.mangi.eta.ui
 
-import android.widget.Toast
+import io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,23 +30,21 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
     val state by OfflineSpeechPack.state.collectAsState()
+    val config by DoubaoVoiceConfig.state.collectAsState()
     var confirmDownload by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { OfflineSpeechPack.initialize(context) }
+    LaunchedEffect(Unit) { DoubaoVoiceConfig.load(context); OfflineSpeechPack.initialize(context) }
     MiuixScaffoldPage(title = stringResource(R.string.speech_title), onBack = onBack) {
-        item(key = "doubao_voice") { DoubaoVoiceSettings() }
         item(key = "speech_enable") {
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                 SwitchPreference(
                     title = stringResource(R.string.speech_enable),
-                    summary = stringResource(if (state.ready) R.string.speech_enabled_summary else R.string.speech_requires_pack),
+                    summary = "统一控制聊天听写和普通语音对话的识别；当前引擎：" + if (config.cloudAsr) "豆包 ASR" else "离线识别",
                     insideMargin = PaddingValues(16.dp),
-                    checked = state.enabled,
-                    enabled = state.ready && !state.checking && !state.downloading,
+                    checked = config.inputEnabled,
+                    enabled = true,
                     onCheckedChange = { enabled ->
                         TouchHaptics.click(view)
-                        if (!OfflineSpeechPack.setEnabled(context, enabled)) {
-                            Toast.makeText(context, R.string.speech_requires_pack, Toast.LENGTH_SHORT).show()
-                        }
+                        DoubaoVoiceConfig.save(context, config.copy(inputEnabled = enabled))
                     },
                 )
             }
@@ -81,8 +79,9 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
                 }
             }
         }
+        item(key = "doubao_voice") { DoubaoVoiceSettings() }
         item(key = "speech_privacy") {
-            Text(stringResource(R.string.speech_privacy),
+            Text(if (config.cloudAsr) "点击后收音，音频发送至豆包识别；文字留在输入框，不自动发送。离开聊天或切到后台停止收音。" else stringResource(R.string.speech_privacy),
                 modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

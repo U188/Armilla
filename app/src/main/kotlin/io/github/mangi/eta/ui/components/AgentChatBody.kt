@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -111,6 +112,8 @@ import io.github.mangi.eta.ui.model.isResumeAfterCompress
 import io.github.mangi.eta.ui.model.isSteerSupplement
 import kotlin.math.exp
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -284,8 +287,15 @@ internal fun AgentChatBody(
         if (messageEdit != null || billedContextTokens != null) 0
         else countUncommittedLiveTokens(visibleMessages)
     }
-    val previewGallery = remember(visibleMessages, pendingImages) {
-        collectPreviewableChatImages(visibleMessages, pendingImages)
+    val imageSourceCache = remember { ChatImageSourceCache() }
+    val previewGallery by produceState<List<String>>(emptyList(), visibleMessages, pendingImages) {
+        // This used to parse EVERY historical reply synchronously on each text delta.
+        // Cancelling this producer prevents obsolete galleries from being published.
+        value = withContext(Dispatchers.Default) {
+            collectPreviewableChatImages(visibleMessages, pendingImages) { message ->
+                imageSourceCache.sources(message.id, message.content)
+            }
+        }
     }
     ChatImagePreviewHost(gallery = previewGallery) {
         AgentChatScaffold(

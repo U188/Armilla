@@ -231,7 +231,8 @@ internal fun collectMarkdownImageNodes(node: ASTNode): List<ASTNode> {
 
 
 internal fun collectMarkdownImageSources(content: String): List<String> {
-    if (content.isBlank()) return emptyList()
+    // All Markdown image forms (inline and reference) require this opener.
+    if (!content.contains("![")) return emptyList()
     val root = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(content)
     return collectMarkdownImageNodes(root)
         .mapNotNull { markdownImageDestination(content, it) }

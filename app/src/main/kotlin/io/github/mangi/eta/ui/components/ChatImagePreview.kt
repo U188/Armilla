@@ -110,6 +110,7 @@ internal fun previewGalleryFor(source: String, gallery: List<String>): List<Stri
 internal fun collectPreviewableChatImages(
     messages: List<AgentChatMessageUi>,
     pendingImages: List<PendingImageUi> = emptyList(),
+    imageSources: (AgentMessageUi) -> List<String> = { collectMarkdownImageSources(it.content) },
 ): List<String> {
     val out = LinkedHashSet<String>()
     messages.forEach { message ->
@@ -119,7 +120,7 @@ internal fun collectPreviewableChatImages(
                     message.fullImageSourceAt(index).trim().takeIf { it.isNotEmpty() }?.let(out::add)
                 }
             }
-            is AgentMessageUi -> collectMarkdownImageSources(message.content).forEach(out::add)
+            is AgentMessageUi -> imageSources(message).forEach(out::add)
             else -> Unit
         }
     }

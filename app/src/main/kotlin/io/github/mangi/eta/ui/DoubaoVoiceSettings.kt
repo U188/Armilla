@@ -21,6 +21,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val diagnostics by io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics.state.collectAsState()
+    var deleteVoice by remember { mutableStateOf<PersonalVoices.Voice?>(null) }
     var showSync by remember { mutableStateOf(false) }
     var manualId by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
@@ -58,6 +59,16 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                 if (audio == uri) fileName = display ?: "已选择录音"
             }
         }
+    }
+    deleteVoice?.let { voice ->
+        AlertDialog(onDismissRequest = { deleteVoice = null }, title = { Text("移除“${voice.name}”？") },
+            text = { Text("仅删除本机记录，不删除云端音色，也不取消已提交的云端任务。若朗读正在使用它，移除后需重新选择声音。可从控制台再次导入。") },
+            confirmButton = { TextButton(onClick = {
+                try { PersonalVoices.removeLocal(voice); player?.release(); player = null; notice = "已移除本机记录" }
+                catch (_: Exception) { notice = "本机记录删除失败，请重试" }
+                deleteVoice = null
+            }) { Text("移除记录") } },
+            dismissButton = { TextButton(onClick = { deleteVoice = null }) { Text("取消") } })
     }
     key(mode, step) {
     io.github.mangi.eta.ui.components.MiuixScaffoldPage(
@@ -123,8 +134,8 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                             VoiceConsoleHelp()
                         } else Text("账户已配置")
                         TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "收起账户设置" else "更换账户 / 高级设置") }
-                        Button(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "import"; step = 0; slotId = ""; manualId = false; showSync = false; postpaid = false; advanced = false; notice = "" }) { Text("导入控制台已有声音") }
-                        OutlinedButton(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "create"; step = 0; slotId = ""; manualId = false; showSync = false; postpaid = false; advanced = false; audio = null; fileName = ""; consent = false; notice = "" }) { Text("用录音制作声音") }
+                        Button(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "import"; name = ""; step = 0; slotId = ""; manualId = false; showSync = false; postpaid = false; advanced = false; notice = "" }) { Text("导入控制台已有声音") }
+                        OutlinedButton(enabled = config.cloneKey.isNotBlank(), onClick = { mode = "create"; name = ""; step = 0; slotId = ""; manualId = false; showSync = false; postpaid = false; advanced = false; audio = null; fileName = ""; consent = false; notice = "" }) { Text("用录音制作声音") }
                         if (config.cloneKey.isBlank()) Text("先保存 API Key，才能添加声音。")
                     }
                     if (mode != null && step == 0) {
@@ -164,7 +175,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                                     }
                                 }
                             }
-                            Button(enabled = !importBusy, onClick = { showSync = !showSync }, modifier = Modifier.fillMaxWidth()) { Text(if (showSync) "收起同步设置" else "查找我的音色名额") }
+                            Button(enabled = !importBusy, onClick = { showSync = !showSync; notice = "" }, modifier = Modifier.fillMaxWidth()) { Text(if (showSync) "收起同步设置" else "查找我的音色名额") }
                             if (showSync) VoiceSlotSync(config.cloneKey, onBusy = { importBusy = it }, onResult = { notice = it })
                             TextButton(onClick = { manualId = !manualId; slotId = ""; consent = false }) { Text(if (manualId) "收起手动填写" else "备用方式：从控制台复制 ID") }
                             if (manualId) {
@@ -235,6 +246,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                                     }
                                 }) { Text("试听") }
                             }
+                            TextButton(enabled = !importBusy, onClick = { deleteVoice = voice }) { Text("移除本机记录") }
                             if (voice.tts && !voice.accepted) TextButton(onClick = { PersonalVoices.accept(voice) }) { Text("确认音色，允许正式合成（可能产生音色费用）") }
                             if (voice.accepted) Text("已允许正式使用；在朗读音色列表中选择。需使用同一个 API Key 账户。")
                         }
@@ -263,6 +275,8 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
     var ak by remember { mutableStateOf("") }
     var sk by remember { mutableStateOf("") }
     var project by remember { mutableStateOf("default") }
+    var resultText by remember { mutableStateOf("") }
+    var failed by remember { mutableStateOf(false) }
     var projectOptions by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     DisposableEffect(Unit) { onDispose { onBusy(false) } }
@@ -281,18 +295,20 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
         OutlinedTextField(project, { project = it }, label = { Text("项目名称") }, enabled = !busy, singleLine = true)
     }
     Button(enabled = !busy && apiKey.isNotBlank() && ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank(), modifier = Modifier.fillMaxWidth(), onClick = {
-        busy = true; onBusy(true)
+        busy = true; onBusy(true); resultText = ""; failed = false; onResult("")
         val savedKey = apiKey; val accessKey = ak.trim(); val secretKey = sk.trim(); val selectedProject = project.trim()
         scope.launch {
             try {
                 val count = PersonalVoices.importPurchased(savedKey, accessKey, secretKey, selectedProject)
-                onResult(if (count == 0) "此项目未查到音色名额。请核对控制台左上角项目；免费字数额度不代表一定有音色名额。" else "已同步 $count 个名额，返回上方列表选择。未使用名额优先排列；查询失败的条目会标为待确认。")
+                resultText = if (count == 0) "此项目未查到音色名额。请核对控制台左上角项目；免费字数额度不代表一定有音色名额。" else "已同步 $count 个名额，返回上方列表选择。未使用名额优先排列；查询失败的条目会标为待确认。"
                 ak = ""; sk = ""
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                onResult(e.message ?: "同步失败，请检查访问密钥及项目权限")
+                failed = true
+                resultText = e.message ?: "同步失败，请检查访问密钥及项目权限"
             } finally { busy = false; onBusy(false) }
         }
     }) { Text(if (busy) "正在查找名额…" else "读取我的名额") }
+    if (resultText.isNotBlank()) Text(resultText, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
     Text("AK/SK 不保存，收起此表单或离开页面即清空。", style = MaterialTheme.typography.bodySmall)
 }

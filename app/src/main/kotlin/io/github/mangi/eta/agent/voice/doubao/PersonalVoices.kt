@@ -30,6 +30,7 @@ internal object PersonalVoices {
     private val mutable = MutableStateFlow<List<Voice>>(emptyList())
     val state = mutable.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val removed = mutableSetOf<Pair<String, String>>()
     private val running = mutableSetOf<String>()
     private var loaded = false
     private lateinit var root: File
@@ -49,9 +50,13 @@ internal object PersonalVoices {
         j.optString("demo"), j.optString("error"), j.optBoolean("accepted"), j.optString("catalogState"), j.optInt("remaining", -1))
     @Synchronized private fun save(voice: Voice, preserveAccepted: Boolean = true) {
         check(loaded)
+        if ((voice.account to voice.id) in removed) return
         val stored = mutable.value.firstOrNull { it.id == voice.id && it.account == voice.account }
         val resolved = voice.copy(accepted = voice.accepted || (preserveAccepted && stored?.accepted == true))
         val list = mutable.value.filterNot { it.id == voice.id && it.account == voice.account } + resolved
+        persist(list)
+    }
+    @Synchronized private fun persist(list: List<Voice>) {
         val array = JSONArray().also { a -> list.forEach { v -> a.put(JSONObject().put("id", v.id).put("name", v.name)
             .put("account", v.account).put("status", v.status).put("models", JSONArray(v.models.toList()))
             .put("demo", v.demo).put("error", v.error).put("accepted", v.accepted).put("catalogState", v.catalogState).put("remaining", v.remaining)) } }
@@ -59,6 +64,12 @@ internal object PersonalVoices {
         try { out.write(array.toString().toByteArray()); file.finishWrite(out) } catch (e: Exception) { file.failWrite(out); throw e }
         mutable.value = list
     }
+    @Synchronized fun removeLocal(voice: Voice) {
+        check(loaded)
+        persist(mutable.value.filterNot { it.id == voice.id && it.account == voice.account })
+        removed.add(voice.account to voice.id)
+    }
+    @Synchronized private fun allowImport(id: String, key: String) { removed.remove(account(key) to id) }
     fun accept(voice: Voice) { save(voice.copy(accepted = true)) }
     fun find(id: String, key: String) = state.value.firstOrNull { it.id == id && it.account == account(key) }
     fun selected(id: String, key: String): Voice? {
@@ -71,6 +82,7 @@ internal object PersonalVoices {
         check(loaded)
         require(key.isNotBlank()) { "请先保存豆包账户" }
         val speakerId = trainingIdentity(id)
+        allowImport(speakerId, key)
         val previous = find(speakerId, key)
         val voice = previous?.copy(name = name.trim().ifBlank { previous.name })
             ?: Voice(speakerId, name.trim().ifBlank { speakerId }, account(key))
@@ -81,6 +93,7 @@ internal object PersonalVoices {
         val list = DoubaoVoiceCatalog.list(ak, sk, project)
         list.forEach { slot ->
             val id = slot.id; val name = slot.name
+            allowImport(id, key)
             val existing = find(id, key)
             val voice = (existing ?: Voice(id, name, account(key))).copy(catalogState = slot.state, remaining = slot.remaining)
             // Catalog metadata alone cannot prove model compatibility. Verify with the synthesis credential.
@@ -140,6 +153,7 @@ internal object PersonalVoices {
         load(context)
         require(key.isNotBlank() && name.isNotBlank())
         val id = trainingIdentity(slotId)
+        allowImport(id, key)
         if (slotId != null) require(find(id, key)?.canTrain != false) { "此音色正在制作、已锁定或次数耗尽，请选择其他名额" }
         val format = when (context.contentResolver.getType(uri)) {
             "audio/wav", "audio/x-wav" -> "wav"

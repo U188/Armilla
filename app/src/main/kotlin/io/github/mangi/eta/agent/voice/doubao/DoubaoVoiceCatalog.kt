@@ -34,6 +34,22 @@ internal object DoubaoVoiceCatalog {
             .header("Authorization", "HMAC-SHA256 Credential=$ak/$scope, SignedHeaders=$headers, Signature=$signature")
             .post(body.toRequestBody("application/json; charset=UTF-8".toMediaType())).build()
     }
+    internal fun responseError(http: Int, root: JSONObject, secrets: List<String>): String? {
+        val meta = root.optJSONObject("ResponseMetadata")
+        val error = meta?.optJSONObject("Error")
+        if (http in 200..299 && error == null) return null
+        val code = DoubaoDiagnostics.sanitize(error?.optString("Code").orEmpty(), secrets)
+        val message = DoubaoDiagnostics.sanitize(error?.optString("Message").orEmpty(), secrets)
+        val requestId = DoubaoDiagnostics.sanitize(meta?.optString("RequestId").orEmpty(), secrets)
+        val hint = when {
+            code.contains("Signature", true) -> "签名校验失败：请核对 AK/SK 是否为同一对；也可能是客户端签名实现问题。"
+            code.contains("Expired", true) || code.contains("Time", true) -> "请求时间无效：请检查手机自动日期与时间。"
+            http == 401 -> "访问密钥鉴权失败：请使用火山访问密钥管理中的 AK/SK，不是豆包 API Key，并检查密钥是否有效。"
+            http == 403 -> "账户没有查询权限，请核对项目及子账户 IAM 授权。"
+            else -> "读取失败，未取得音色列表。"
+        }
+        return "$hint\nHTTP $http · $code\n$message\n请求标识：$requestId"
+    }
     data class Slot(val id: String, val name: String, val state: String, val remaining: Int)
     fun list(ak: String, sk: String, project: String): List<Slot> {
         require(ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank()) { "请填写 AK、SK 和项目名" }
@@ -42,13 +58,15 @@ internal object DoubaoVoiceCatalog {
             for (page in 1..20) {
                 val body = JSONObject().put("ProjectName", project).put("State", state).put("PageNumber", page).put("PageSize", 100).toString()
                 val root = AgentHttpClient.modelClient.newBuilder().addInterceptor(DoubaoDiagnostics).build().newCall(signedRequest(ak, sk, body, Instant.now())).execute().use { response ->
-                    check(response.isSuccessful) { "音色列表 HTTP ${response.code}" }
                     val source = response.body.source()
                     check(!source.request(2L * 1024 * 1024 + 1)) { "音色列表响应过大" }
-                    JSONObject(source.readUtf8())
+                    val json = runCatching { JSONObject(source.readUtf8()) }.getOrDefault(JSONObject())
+                    responseError(response.code, json, listOf(ak, sk))?.let {
+                        DoubaoDiagnostics.mark("catalog.rejected", it)
+                        error(it)
+                    }
+                    json
                 }
-                val error = root.optJSONObject("ResponseMetadata")?.optJSONObject("Error")
-                check(error == null) { "音色列表错误：${error?.optString("Code")}" }
                 val data = root.getJSONObject("Result"); val items = data.optJSONArray("Statuses") ?: break
                 for (i in 0 until items.length()) {
                     val item = items.getJSONObject(i); val id = item.optString("SpeakerID")

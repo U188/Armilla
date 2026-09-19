@@ -10,6 +10,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class PersonalVoiceSlotTest {
+    @Test fun emptySyncedSlotsStayOutOfMyVoicesIncludingLegacyNotFoundRecords() {
+        val slot = PersonalVoices.Voice("S_unused", "slot", "account", catalogState = "Unknown", remaining = 15)
+        assertFalse(slot.showInMyVoices)
+        assertFalse(slot.copy(status = 0, error = "服务端未找到").showInMyVoices)
+        assertTrue(slot.canTrain)
+        listOf(1, 2, 3, 4).forEach { assertTrue(slot.copy(status = it).showInMyVoices) }
+        // Locally submitted or manually imported records retain their recovery controls.
+        assertTrue(slot.copy(catalogState = "", status = -1).showInMyVoices)
+        assertTrue(slot.copy(catalogState = "", status = -2).showInMyVoices)
+    }
+
     @Test fun unusedSlotsAreSelectableWithoutClaimingSynthesisReady() {
         val slot = PersonalVoices.Voice("S_unused", "slot", "account", catalogState = "Unknown", remaining = 15)
         assertTrue(slot.unused)

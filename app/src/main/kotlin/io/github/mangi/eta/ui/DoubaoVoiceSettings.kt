@@ -134,7 +134,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                             }
                         }
                         if (!postpaid || mode == "import") {
-                            val slots = voices.filter { it.account == PersonalVoices.account(config.cloneKey) && it.id.startsWith("S_") }
+                            val slots = voices.filter { it.account == PersonalVoices.account(config.cloneKey) && it.id.startsWith("S_") && (mode == "create" || it.showInMyVoices) }
                                 .sortedWith(compareByDescending<PersonalVoices.Voice> { it.unused }.thenBy { it.name })
                             Text(if (mode == "create") "选择一个音色名额" else "选择已制作的声音", style = MaterialTheme.typography.titleMedium)
                             if (slots.isEmpty()) {
@@ -206,8 +206,10 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                         VoiceSlotSync(config.cloneKey, onBusy = { importBusy = it }, onResult = { notice = it })
                     }
                     if (mode == null) {
-                        Text("下方列出本机复刻或已同步的音色；查询状态只读，不会重新训练。")
-                        voices.filter { it.account == PersonalVoices.account(config.cloneKey) }.forEach { voice ->
+                        Text("这里显示已制作的声音及制作任务。未训练的空名额请到“用录音制作声音”中选择。")
+                        val myVoices = voices.filter { it.account == PersonalVoices.account(config.cloneKey) && it.showInMyVoices }
+                        if (myVoices.isEmpty()) Text("还没有个人声音，可以导入已有声音或用录音制作。")
+                        myVoices.forEach { voice ->
                             HorizontalDivider()
                             Text(voice.name, style = MaterialTheme.typography.titleSmall)
                             Text(when (voice.status) { -2 -> "请求被拒绝"; 0 -> "服务端未找到"; 1 -> "训练中"; 2 -> "训练成功"; 3 -> "训练失败"; 4 -> "已正式使用"; else -> "请求待确认" })
@@ -294,7 +296,7 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
         scope.launch {
             try {
                 val count = PersonalVoices.importPurchased(savedKey, accessKey, secretKey, selectedProject)
-                resultText = if (count == 0) "此项目未查到音色名额。请核对控制台左上角项目；免费字数额度不代表一定有音色名额。" else "已同步 $count 个名额，返回上方列表选择。未使用名额优先排列；查询失败的条目会标为待确认。"
+                resultText = if (count == 0) "此项目未查到音色名额。请核对控制台左上角项目；免费字数额度不代表一定有音色名额。" else "已同步 $count 个名额。空名额仅在制作声音时显示；已制作声音可在“我的声音”查看。"
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 failed = true

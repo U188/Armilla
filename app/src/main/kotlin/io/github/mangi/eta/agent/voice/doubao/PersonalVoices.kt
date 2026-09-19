@@ -24,6 +24,9 @@ internal object PersonalVoices {
         val canTrain get() = status != 1 && status != 4 && catalogState !in setOf("Training", "Active", "Expired", "Reclaimed") && remaining != 0
         val unused get() = catalogState == "Unknown" && status !in 1..4
 
+        // Empty catalog slots remain selectable for training, not personal voice entries.
+        val showInMyVoices get() = !unused
+
         val ready get() = status == 2 || status == 4
         val tts get() = ready && models.any { it == 4 || it == 5 }
     }
@@ -96,9 +99,12 @@ internal object PersonalVoices {
             allowImport(id, key)
             val existing = find(id, key)
             val voice = (existing ?: Voice(id, name, account(key))).copy(catalogState = slot.state, remaining = slot.remaining)
-            // Catalog metadata alone cannot prove model compatibility. Verify with the synthesis credential.
-            // Keep catalog entries even when an unused slot has no trained voice yet.
-            // A catalog entry alone never grants synthesis eligibility.
+            // Empty slots have no trained voice to query; retain quota without a false error.
+            if (voice.unused) {
+                save(voice.copy(error = "", demo = "", models = emptySet(), accepted = false), preserveAccepted = false)
+                return@forEach
+            }
+            // Trained voices still need verification with the synthesis credential.
             try { save(updated(voice, request("get_voice", key, identity(voice)))) }
             catch (e: Exception) { save(voice.copy(error = e.message ?: "音色尚未通过查询校验")) }
         }

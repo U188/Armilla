@@ -1040,7 +1040,6 @@ private fun StableMarkdown(
  * 与组合解耦后，item 重建只是重新挂接效果，渲染进度原样保留。
  */
 internal class StreamingMarkdownState {
-    var browsedDuringStream = false
     var revealedContent by mutableStateOf<String?>(null)
     val parserSession = StreamingGfmParserSession()
     val revealCoordinator = SmoothTextRevealCoordinator().apply { pauseAnimationsAndCatchUp() }
@@ -1092,13 +1091,7 @@ private fun StreamingMarkdown(
         }
     }
 
-    // Once manually browsing this answer, do not replay or shrink its existing text.
-    // Keep the same coordinator/nodes; new deltas become visible immediately.
-    SideEffect {
-        if (freezeReveal) state.browsedDuringStream = true
-        if (state.browsedDuringStream) revealCoordinator.restoreHistoryThrough(content.length)
-    }
-    val animationsAllowed = state.restoreState.animationsAllowed(isPaused) && !freezeReveal && !state.browsedDuringStream
+    val animationsAllowed = state.restoreState.animationsAllowed(isPaused) && !freezeReveal
     LaunchedEffect(revealCoordinator, animationsAllowed, currentContent) {
         if (animationsAllowed) {
             revealCoordinator.resumeAnimationsWithoutCatchingUp()
@@ -1221,7 +1214,7 @@ private fun StreamingMarkdown(
                         currentContent = currentContent,
                     )
                 ) {
-                    if (state.restoreState.animationsAllowed(currentPaused) && !currentFreezeReveal && !state.browsedDuringStream) {
+                    if (state.restoreState.animationsAllowed(currentPaused) && !currentFreezeReveal) {
                         revealCoordinator.resumeAnimationsAfterCatchUp()
                     }
                 }

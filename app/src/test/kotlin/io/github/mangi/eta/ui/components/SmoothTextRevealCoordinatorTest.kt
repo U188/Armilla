@@ -126,6 +126,42 @@ class SmoothTextRevealCoordinatorTest {
         assertEquals(0f, coordinator.drawSnapshot(newKey)!!.progress, 0f)
     }
 
+    @Test fun scrollPauseThenResumeKeepsOldTextAndAnimatesNextDelta() = runBlocking {
+        val coordinator = SmoothTextRevealCoordinator()
+        val key = RevealBlockKey(0)
+        val node = attach(coordinator, key, "已有文字")
+        coordinator.pauseAnimationsAndCatchUp()
+        val duringScroll = "已有文字滑动期间新增"
+        coordinator.updateLayout(key, node, duringScroll, layout(duringScroll))
+        assertEquals(duringScroll.length.toFloat(), coordinator.drawSnapshot(key)!!.progress, 0f)
+        coordinator.resumeAnimationsWithoutCatchingUp()
+        val afterScroll = duringScroll + "恢复后的新文字"
+        coordinator.updateLayout(key, node, afterScroll, layout(afterScroll))
+        assertEquals(duringScroll.length.toFloat(), coordinator.drawSnapshot(key)!!.progress, 0f)
+        assertFalse(coordinator.drained.value)
+        val clock = TestFrameClock()
+        val job = launch(clock, start = CoroutineStart.UNDISPATCHED) { coordinator.runFrameClock() }
+        try {
+            clock.send(0L)
+            clock.send(50_000_000L)
+            yield()
+            assertTrue(coordinator.drawSnapshot(key)!!.progress > duringScroll.length)
+        } finally { job.cancelAndJoin() }
+    }
+
+    @Test fun scrollReattachDoesNotResetAlreadyVisibleText() {
+        val coordinator = SmoothTextRevealCoordinator()
+        val key = RevealBlockKey(0)
+        val node = attach(coordinator, key, "已有文字")
+        coordinator.pauseAnimationsAndCatchUp()
+        coordinator.detach(key, node)
+        val text = "已有文字以及滑动期间收到的内容"
+        attach(coordinator, key, text)
+        coordinator.resumeAnimationsWithoutCatchingUp()
+        assertEquals(text.length.toFloat(), coordinator.drawSnapshot(key)!!.progress, 0f)
+        assertTrue(coordinator.drained.value)
+    }
+
     private fun attach(
         coordinator: SmoothTextRevealCoordinator,
         key: RevealBlockKey,

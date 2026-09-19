@@ -4375,14 +4375,17 @@ internal class AgentAppState(
         }
     }
 
+    // Copy the active conversation once; later edits remain local to each conversation.
     private fun newDraftChatState(): AgentChatHomeUiState =
         emptyChatState(false)
             .copy(
                 providerId = currentBoundProviderId(),
                 modelId = currentBoundModelId(),
                 assistantId = currentBoundAssistantId(),
+                reasoningEffort = homeState.reasoningEffort,
+                thinkingEnabled = homeState.reasoningEffort.enablesReasoning,
+                availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
             )
-            .withPreferredReasoningEffort()
 
     private fun restoreConversationRuntimeModel() {
         modelBindingGeneration++

@@ -172,12 +172,36 @@ class AgentChatScrollPolicyTest {
     }
 
     @Test
+    fun draggingWhileAtBottomDisablesFollowing() {
+        assertFalse(
+            resolveKeepBottomAnchored(
+                current = true,
+                isUserDragging = true,
+                isAtBottom = true,
+            )
+        )
+    }
+
+    @Test
+    fun tinyDragAtBottomDoesNotResumeFollowing() {
+        assertFalse(
+            resolveKeepBottomAnchored(
+                current = false,
+                isUserDragging = false,
+                isAtBottom = true,
+                hasLeftBottom = false,
+            )
+        )
+    }
+
+    @Test
     fun landingOnBottomAfterUserScrollEnablesFollowing() {
         assertTrue(
             resolveKeepBottomAnchored(
                 current = false,
                 isUserDragging = false,
                 isAtBottom = true,
+                hasLeftBottom = true,
             )
         )
     }
@@ -189,8 +213,16 @@ class AgentChatScrollPolicyTest {
                 current = false,
                 isUserDragging = false,
                 isAtBottom = true,
+                hasLeftBottom = true,
             )
         )
+    }
+
+    @Test
+    fun streamingScrollableListDoesNotPinFromBottom() {
+        assertFalse(shouldPinConversationToBottom(isStreaming = true, isScrollable = true))
+        assertTrue(shouldPinConversationToBottom(isStreaming = true, isScrollable = false))
+        assertTrue(shouldPinConversationToBottom(isStreaming = false, isScrollable = true))
     }
 
     @Test

@@ -614,17 +614,22 @@ internal fun AgentConversationMessages(
             }
     }
 
+    var hasLeftBottom by remember { mutableStateOf(false) }
     LaunchedEffect(scrollState) {
         snapshotFlow {
-            resolveKeepBottomAnchored(
-                current = currentAnchor.value,
-                isUserDragging = isUserScrolling,
-                isAtBottom = scrollState.isConversationAtBottom(),
-            )
+            Triple(isUserScrolling, scrollState.isConversationAtBottom(), currentAnchor.value)
         }
             .distinctUntilChanged()
-            .collect { next ->
-                if (next != currentAnchor.value) onBottomAnchorChanged(next)
+            .collect { (userScrolling, atBottom, anchored) ->
+                if (userScrolling && !atBottom) hasLeftBottom = true
+                val next = resolveKeepBottomAnchored(
+                    current = anchored,
+                    isUserDragging = userScrolling,
+                    isAtBottom = atBottom,
+                    hasLeftBottom = hasLeftBottom,
+                )
+                if (next && atBottom) hasLeftBottom = false
+                if (next != anchored) onBottomAnchorChanged(next)
             }
     }
 
@@ -809,9 +814,20 @@ internal fun AgentConversationMessages(
         val speechPrefaces = remember(visibleMessages, finalResultMessageIds) {
             finalResultMessageIds.associateWith { id -> visibleTurnSpeechPreface(visibleMessages, id) }
         }
+        val isListScrollable by remember {
+            derivedStateOf { scrollState.canScrollForward || scrollState.canScrollBackward }
+        }
+        var streamFilledViewport by remember { mutableStateOf(false) }
+        LaunchedEffect(isStreaming, isListScrollable) {
+            streamFilledViewport = if (isStreaming) streamFilledViewport || isListScrollable else false
+        }
         LazyColumn(
             state = scrollState,
-            verticalArrangement = Arrangement.Bottom,
+            verticalArrangement = if (shouldPinConversationToBottom(isStreaming, streamFilledViewport)) {
+                Arrangement.Bottom
+            } else {
+                Arrangement.Top
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .scrollEndHaptic()
@@ -1297,12 +1313,19 @@ internal fun resolveKeepBottomAnchored(
     current: Boolean,
     isUserDragging: Boolean,
     isAtBottom: Boolean,
+    hasLeftBottom: Boolean = false,
 ): Boolean = when {
-    // 只有手指拖走才停跟底。流式长高时 sentinel 会短暂离开视口，不能当成用户上滑。
-    isUserDragging -> isAtBottom
-    isAtBottom -> true
+    // 手指一开始拖就停跟底；流式长高让 sentinel 离开视口时不能当成用户上滑。
+    isUserDragging -> false
+    // 只有真正滑离过底部再回来，才重新贴底，避免轻触后被跟底拽回去。
+    isAtBottom && (current || hasLeftBottom) -> true
     else -> current
 }
+
+internal fun shouldPinConversationToBottom(
+    isStreaming: Boolean,
+    isScrollable: Boolean,
+): Boolean = !(isStreaming && isScrollable)
 
 internal fun resolveBottomFollowEnabled(
     isStreaming: Boolean,

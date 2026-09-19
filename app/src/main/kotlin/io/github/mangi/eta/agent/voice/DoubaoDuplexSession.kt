@@ -25,7 +25,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import okhttp3.Request
+import okio.ByteString
+import io.github.mangi.eta.core.AndroidAgentLogger
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -49,6 +50,8 @@ internal class DoubaoDuplexSession(
     @Volatile private var closed = false
     private var transcript = ""
     private var reply = ""
+    private var receivedAudioBytes = 0L
+    private var writtenAudioBytes = 0L
 
     private val client = AgentHttpClient.modelClient.newBuilder()
         .pingInterval(20, TimeUnit.SECONDS)
@@ -95,7 +98,11 @@ internal class DoubaoDuplexSession(
                     "response.output_audio.started" -> onState(state(VoiceModePhase.Speaking))
                     "response.output_audio.delta" -> {
                         val bytes = Base64.decode(event.optString("delta"), Base64.DEFAULT)
-                        if (bytes.isNotEmpty()) output.send(bytes)
+                        if (bytes.isNotEmpty()) {
+                            if (receivedAudioBytes == 0L) AndroidAgentLogger.info("Duplex: first audio bytes=${bytes.size}")
+                            receivedAudioBytes += bytes.size
+                            output.send(bytes)
+                        }
                     }
                     "response.output_audio.done", "response.done", "response.canceled" -> {
                         onState(state(VoiceModePhase.Listening))
@@ -188,7 +195,9 @@ internal class DoubaoDuplexSession(
                 var offset = 0
                 while (offset < bytes.size) {
                     val written = track.write(bytes, offset, bytes.size - offset, AudioTrack.WRITE_BLOCKING)
-                    check(written >= 0) { "实时语音播放失败" }
+                    check(written > 0) { "实时语音播放失败：AudioTrack write=$written" }
+                    if (writtenAudioBytes == 0L) AndroidAgentLogger.info("Duplex: first playback write=$written route=${track.routedDevice?.type}")
+                    writtenAudioBytes += written
                     offset += written
                 }
             }
@@ -234,7 +243,26 @@ internal class DoubaoDuplexSession(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            runCatching { JSONObject(text) }.onSuccess { events.trySend(it) }
+            acceptEvent(text)
+        }
+
+        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            acceptEvent(bytes.utf8())
+        }
+
+        private fun acceptEvent(text: String) {
+            runCatching { JSONObject(text) }
+                .onSuccess { event ->
+                    if (event.optString("type") == "response.output_audio.done") {
+                        AndroidAgentLogger.info("Duplex: audio done receivedBytes=$receivedAudioBytes writtenBytes=$writtenAudioBytes")
+                    }
+                    events.trySend(event)
+                }
+                .onFailure {
+                    AndroidAgentLogger.warn("Duplex: invalid JSON event frame")
+                    events.trySend(JSONObject().put("type", "error").put("error",
+                        JSONObject().put("message", "实时语音事件解析失败")))
+                }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {

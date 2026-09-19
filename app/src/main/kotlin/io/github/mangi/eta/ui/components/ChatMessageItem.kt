@@ -1101,7 +1101,7 @@ private fun StreamingMarkdown(
     }
 
     LaunchedEffect(revealCoordinator, view) {
-        revealCoordinator.setOnRevealAdvanced { TouchHaptics.generationTick(view) }
+        // Haptics follow live model deltas at chat scope, not visible reveal animation.
         try {
             revealCoordinator.runFrameClock()
         } finally {

@@ -66,7 +66,6 @@ import io.github.mangi.eta.data.repository.AgentMemoryRepository
 import io.github.mangi.eta.data.repository.EtaBackupExportOptions
 import io.github.mangi.eta.data.repository.EtaBackupRepository
 import io.github.mangi.eta.data.repository.EtaBackupSummary
-import io.github.mangi.eta.data.repository.ModelRepository
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.AssistantRepository
@@ -428,6 +427,7 @@ internal class AgentAppState(
             bindingRefreshAfterArchive = true
             return
         }
+        val initializingDraftBinding = selectedConversationId == null && homeState.modelId.isBlank() && homeState.providerId.isBlank()
         if (homeState.modelId.isBlank() && homeState.providerId.isBlank() && selectionProviders.isNotEmpty()) {
             updateCurrentConversation(homeState.copy(providerId = defaultProviderId.orEmpty(), modelId = defaultModelId.orEmpty()))
             if (selectedConversationId != null) persistConversations()
@@ -441,7 +441,9 @@ internal class AgentAppState(
         currentReasoningCapabilities = if (provider != null && model != null)
             RuntimeConfigRepository.buildRuntimeConfig(provider, model, assistant = null).reasoningCapabilities else null
         // Display effective choices, but retain the user's saved preference until they explicitly change it.
-        val next = homeState.copy(availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty())
+        val next = if (initializingDraftBinding && model != null) {
+            homeState.withPreferredReasoningEffort()
+        } else homeState.copy(availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty())
         if (next != homeState) {
             val conversationId = selectedConversationId
             if (conversationId == null) homeState = next else updateConversation(conversationId, next, updateTimestamp = false)
@@ -459,7 +461,7 @@ internal class AgentAppState(
     private fun preferredReasoningEffortForCurrentModel(): ReasoningEffort {
         val preferred = modelPickerState.selectedModel?.preferredReasoningEffort
             ?: ReasoningEffort.OFF
-        return currentReasoningCapabilities?.normalize(preferred) ?: ReasoningEffort.OFF
+        return ConversationReasoningPolicy.resolve(preferred, currentReasoningCapabilities)
     }
 
     private fun AgentChatHomeUiState.withPreferredReasoningEffort(): AgentChatHomeUiState {
@@ -469,41 +471,6 @@ internal class AgentAppState(
             reasoningEffort = normalized,
             availableReasoningEfforts = currentReasoningCapabilities?.selectableEfforts.orEmpty(),
         )
-    }
-
-    private fun persistPreferredReasoningEffort(effort: ReasoningEffort) {
-        val selected = modelPickerState.selectedModel ?: return
-        if (selected.preferredReasoningEffort != effort) {
-            modelPickerState = modelPickerState.copy(
-                selectedModel = selected.copy(preferredReasoningEffort = effort),
-                providerGroups = modelPickerState.providerGroups.map { group ->
-                    if (group.providerId != selected.providerId) {
-                        group
-                    } else {
-                        group.copy(
-                            models = group.models.map { model ->
-                                if (model.id == selected.id) {
-                                    model.copy(preferredReasoningEffort = effort)
-                                } else {
-                                    model
-                                }
-                            },
-                        )
-                    }
-                },
-            )
-        }
-        scope.launch(Dispatchers.IO) {
-            val provider = ProviderRepository.providerById(selected.providerId) ?: return@launch
-            val model = provider.models.firstOrNull { it.id == selected.id } ?: return@launch
-            if (model.preferredReasoningEffort == effort) return@launch
-            runCatching {
-                ModelRepository.saveModel(
-                    selected.providerId,
-                    model.copy(preferredReasoningEffort = effort),
-                )
-            }
-        }
     }
 
     fun refreshRuntimeResults() {
@@ -1020,7 +987,7 @@ internal class AgentAppState(
     fun updateReasoningEffort(effort: ReasoningEffort) {
         if (rejectConversationArchiveMutation()) return
         if (homeState.isStreaming && !homeState.isPaused) return
-        val normalized = currentReasoningCapabilities?.normalize(effort) ?: ReasoningEffort.OFF
+        val normalized = ConversationReasoningPolicy.resolve(effort, currentReasoningCapabilities)
         if (normalized == homeState.reasoningEffort) return
         if (homeState.isPaused) abandonPausedRun()
         updateCurrentConversation(
@@ -1030,7 +997,6 @@ internal class AgentAppState(
             )
         )
         if (selectedConversationId != null) persistConversations()
-        persistPreferredReasoningEffort(normalized)
     }
 
     fun selectModel(modelId: String, providerId: String = "") {
@@ -1042,11 +1008,15 @@ internal class AgentAppState(
         if (homeState.isPaused) abandonPausedRun()
         modelBindingGeneration++
         val config = RuntimeConfigRepository.buildRuntimeConfig(provider, model, assistant = null)
+        val previousEffort = homeState.reasoningEffort
+        val nextEffort = ConversationReasoningPolicy.resolve(previousEffort, config.reasoningCapabilities)
         updateCurrentConversation(homeState.copy(providerId = provider.id, modelId = model.id,
-            reasoningEffort = config.effectiveReasoningEffort, thinkingEnabled = config.effectiveReasoningEffort.enablesReasoning,
+            reasoningEffort = nextEffort, thinkingEnabled = nextEffort.enablesReasoning,
             livePromptTokens = null))
         billedOverheadTokens = null
         refreshBoundModelPicker()
+        if (nextEffort != previousEffort) Toast.makeText(appContext,
+            "已按新模型支持的档位调整当前对话的思考深度", Toast.LENGTH_SHORT).show()
         if (selectedConversationId != null) persistConversations()
     }
 
@@ -1653,7 +1623,7 @@ internal class AgentAppState(
             appliedRuntimeRunIds = emptyList(),
             messageEdit = null,
             livePromptTokens = null,
-        ).withPreferredReasoningEffort()
+        )
         val sourceTitle = conversationTitles[sourceId].orEmpty().ifBlank {
             appContext.getString(R.string.conversation_unnamed)
         }
@@ -2060,7 +2030,7 @@ internal class AgentAppState(
             val permittedReasoningEffort = if (
                 agentBooleanForUi(Prefs.Keys.AGENT_THINKING_ENABLED)
             ) {
-                runConfig.reasoningCapabilities?.normalize(reasoningEffort) ?: ReasoningEffort.OFF
+                ConversationReasoningPolicy.resolve(reasoningEffort, runConfig.reasoningCapabilities)
             } else {
                 ReasoningEffort.OFF
             }

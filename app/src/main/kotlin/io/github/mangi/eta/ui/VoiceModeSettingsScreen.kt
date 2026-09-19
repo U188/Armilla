@@ -106,7 +106,8 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
                 Text(stringResource(R.string.voice_mode_doubao), modifier = Modifier.padding(16.dp))
                 ArrowPreference(
                     title = stringResource(R.string.realtime_choose_voice),
-                    summary = voices.firstOrNull { it.id == voice }?.let { "${it.name} · ${it.id}" } ?: voice,
+                    summary = (voices + DoubaoRealtimeVoices.catalog).firstOrNull { it.id == voice }?.name
+                        ?: stringResource(R.string.realtime_choose_voice),
                     onClick = { voicePicker = true },
                 )
                 ArrowPreference(
@@ -148,7 +149,7 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
     VoiceModeListDialog(
         show = voicePicker,
         title = stringResource(R.string.realtime_choose_voice),
-        rows = voices.map { it.id to "${it.name}\n${it.id}" },
+        rows = voices.map { it.id to it.name },
         selected = voice,
         onDismiss = { voicePicker = false },
         onSelect = { value ->

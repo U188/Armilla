@@ -1,5 +1,6 @@
 package io.github.mangi.eta.ui.components
 
+import io.github.mangi.eta.ui.model.AgentChatMessageUi
 import io.github.mangi.eta.ui.model.AgentMessageUi
 import io.github.mangi.eta.ui.model.ThinkingMessageUi
 import io.github.mangi.eta.ui.model.ToolActivityMessageUi
@@ -10,6 +11,31 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class VisibleTurnSpeechPrefaceTest {
+    @Test fun bulkPrefacesMatchIndividualScansWithLinearHistoryVisits() {
+        val history = buildList<AgentChatMessageUi> {
+            repeat(1000) { turn ->
+                add(UserMessageUi(id = "u$turn", content = "question"))
+                add(AgentMessageUi(id = "mid$turn", content = "  preface $turn  "))
+                add(UserMessageUi(id = "u-supplement-$turn", content = "more"))
+                add(AgentMessageUi(id = "final$turn", content = "answer"))
+            }
+        }
+        var visits = 0
+        val counted = object : AbstractList<AgentChatMessageUi>() {
+            override val size get() = history.size
+            override fun get(index: Int): AgentChatMessageUi { visits++; return history[index] }
+        }
+        val ids = (0 until 1000).mapTo(linkedSetOf()) { "final$it" }
+        val actual = visibleTurnSpeechPrefaces(counted, ids)
+        assertEquals(history.size, visits)
+        visits = 0
+        val oldResult = ids.associateWith { visibleTurnSpeechPreface(counted, it) }
+        assertEquals(oldResult, actual)
+        assertEquals(2_002_000, visits) // old per-answer rescans versus 4,000 above
+        println("preface history visits: old=$visits new=${history.size}; equal output for 1,000 turns")
+        assertEquals("preface 999", actual["final999"])
+    }
+
     @Test fun readsVisibleAssistantTextAndSkipsThinking() {
         val messages = listOf(
             UserMessageUi(id = "u", content = "第三项是什么"),

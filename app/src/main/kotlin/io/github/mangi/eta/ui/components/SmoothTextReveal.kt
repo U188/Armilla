@@ -5,8 +5,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
@@ -384,7 +382,9 @@ internal class SmoothTextRevealNode(
                 clipPath(path) {
                     alphaPaint.alpha = partialAlpha
                     drawContext.canvas.saveLayer(
-                        Rect(Offset.Zero, size),
+                        // Only the fading grapheme needs an offscreen alpha layer.
+                        // A paragraph-sized layer grows with the answer on every frame.
+                        path.getBounds(),
                         alphaPaint,
                     )
                     try {

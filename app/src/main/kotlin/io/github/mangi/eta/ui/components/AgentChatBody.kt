@@ -582,7 +582,9 @@ internal fun AgentConversationMessages(
     onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val timelineEntries = remember(visibleMessages) { visibleMessages.toTimelineEntries() }
+    val timelineEntries = remember(visibleMessages) {
+        StreamPerformanceDiagnostics.measure("timeline.project", visibleMessages.size.toLong()) { visibleMessages.toTimelineEntries() }
+    }
     LaunchedEffect(scrollToMessageId, timelineEntries) {
         val target = scrollToMessageId ?: return@LaunchedEffect
         val index = timelineEntries.indexOfFirst { entry ->
@@ -840,7 +842,9 @@ internal fun AgentConversationMessages(
         val trailingWorkKey =
             (timelineEntries.lastOrNull() as? AgentTimelineEntry.WorkProcess)?.key
         val speechPrefaces = remember(visibleMessages, finalResultMessageIds) {
-            finalResultMessageIds.associateWith { id -> visibleTurnSpeechPreface(visibleMessages, id) }
+            StreamPerformanceDiagnostics.measure("timeline.prefaces", visibleMessages.size.toLong()) {
+                visibleTurnSpeechPrefaces(visibleMessages, finalResultMessageIds)
+            }
         }
         val isListScrollable by remember {
             derivedStateOf { scrollState.canScrollForward || scrollState.canScrollBackward }
@@ -866,49 +870,48 @@ internal fun AgentConversationMessages(
             ),
             overscrollEffect = null,
         ) {
-            timelineEntries.forEach { entry ->
+            items(
+                items = timelineEntries,
+                key = { it.key },
+                contentType = { if (it is AgentTimelineEntry.Message) "message" else "work-process" },
+            ) { entry ->
                 when (entry) {
                     is AgentTimelineEntry.Message -> {
-                        item(
-                            key = entry.key,
-                            contentType = "message",
-                        ) {
-                            val message = entry.message
-                            ChatMessageItem(
-                                message = message,
-                                speechPreface = (message as? AgentMessageUi)?.let { speechPrefaces[it.id] }.orEmpty(),
-                                retainedStreamingState = (message as? AgentMessageUi)
-                                    ?.takeIf { it.isStreaming || streamingMarkdownStates.containsKey(it.id) }
-                                    ?.let { agentMessage ->
-                                        streamingMarkdownStates.getOrPut(agentMessage.id) {
-                                            StreamingMarkdownState()
-                                        }
-                                    },
-                                onSuggestionClick = onSuggestionClick,
-                                onRunTraceClick = onRunTraceClick,
-                                onOpenBrowser = onOpenBrowser,
-                                showBrowserShortcut = message is ToolActivityMessageUi &&
-                                    message.toolName == "browser_use" &&
-                                    message.id == currentBrowserMessageId,
-                                enableLivePreview = !isStreaming,
-                                showCopyAction = message !is AgentMessageUi ||
-                                    message.id in finalResultMessageIds,
-                                showMessageActions = message.id in finalResultMessageIds,
-                                messageActionsEnabled = messageActionsEnabled && !isStreaming && !isPaused,
-                                branchEnabled = branchEnabled,
-                                isEditing = message.id == editTargetMessageId,
-                                onEditMessage = onEditMessage,
-                                onDeleteMessage = onDeleteMessage,
-                                onRegenerateMessage = onRegenerateMessage,
-                                onBranchMessage = onBranchMessage,
-                                isPaused = isPaused,
-                                modifier = if (isStreaming) Modifier else Modifier.animateItem(
-                                    fadeInSpec = tween(durationMillis = 180),
-                                    placementSpec = null,
-                                    fadeOutSpec = null,
-                                ),
-                            )
-                        }
+                        val message = entry.message
+                        ChatMessageItem(
+                            message = message,
+                            speechPreface = (message as? AgentMessageUi)?.let { speechPrefaces[it.id] }.orEmpty(),
+                            retainedStreamingState = (message as? AgentMessageUi)
+                                ?.takeIf { it.isStreaming || streamingMarkdownStates.containsKey(it.id) }
+                                ?.let { agentMessage ->
+                                    streamingMarkdownStates.getOrPut(agentMessage.id) {
+                                        StreamingMarkdownState()
+                                    }
+                                },
+                            onSuggestionClick = onSuggestionClick,
+                            onRunTraceClick = onRunTraceClick,
+                            onOpenBrowser = onOpenBrowser,
+                            showBrowserShortcut = message is ToolActivityMessageUi &&
+                                message.toolName == "browser_use" &&
+                                message.id == currentBrowserMessageId,
+                            enableLivePreview = !isStreaming,
+                            showCopyAction = message !is AgentMessageUi ||
+                                message.id in finalResultMessageIds,
+                            showMessageActions = message.id in finalResultMessageIds,
+                            messageActionsEnabled = messageActionsEnabled && !isStreaming && !isPaused,
+                            branchEnabled = branchEnabled,
+                            isEditing = message.id == editTargetMessageId,
+                            onEditMessage = onEditMessage,
+                            onDeleteMessage = onDeleteMessage,
+                            onRegenerateMessage = onRegenerateMessage,
+                            onBranchMessage = onBranchMessage,
+                            isPaused = isPaused,
+                            modifier = if (isStreaming) Modifier else Modifier.animateItem(
+                                fadeInSpec = tween(durationMillis = 180),
+                                placementSpec = null,
+                                fadeOutSpec = null,
+                            ),
+                        )
                     }
 
                     is AgentTimelineEntry.WorkProcess -> {
@@ -919,26 +922,22 @@ internal fun AgentConversationMessages(
                                 }
                             }
                         }
-                        item(
-                            key = entry.key,
-                            contentType = "work-process",
-                        ) {
-                            AgentWorkProcess(
-                                id = entry.key,
-                                messages = entry.messages,
-                                onOpenBrowser = onOpenBrowser,
-                                currentBrowserMessageId = currentBrowserMessageId,
-                                retainedStreamingStates = streamingMarkdownStates,
-                                isPaused = isPaused,
-                                isTrailing = entry.key == trailingWorkKey,
-                                turnStreaming = isStreaming,
-                                modifier = if (isStreaming) Modifier else Modifier.animateItem(
-                                    fadeInSpec = tween(durationMillis = 180),
-                                    placementSpec = null,
-                                    fadeOutSpec = null,
-                                ),
-                            )
-                        }
+
+                        AgentWorkProcess(
+                            id = entry.key,
+                            messages = entry.messages,
+                            onOpenBrowser = onOpenBrowser,
+                            currentBrowserMessageId = currentBrowserMessageId,
+                            retainedStreamingStates = streamingMarkdownStates,
+                            isPaused = isPaused,
+                            isTrailing = entry.key == trailingWorkKey,
+                            turnStreaming = isStreaming,
+                            modifier = if (isStreaming) Modifier else Modifier.animateItem(
+                                fadeInSpec = tween(durationMillis = 180),
+                                placementSpec = null,
+                                fadeOutSpec = null,
+                            ),
+                        )
                     }
                 }
             }
@@ -1103,6 +1102,25 @@ internal fun resolveFinalResultMessageIds(
         lastAgentMessageId?.let(ids::add)
     }
     return ids
+}
+
+/** One traversal for all final bubbles, rather than one history scan per answer. */
+internal fun visibleTurnSpeechPrefaces(
+    messages: List<AgentChatMessageUi>,
+    finalIds: Set<String>,
+): Map<String, String> {
+    if (finalIds.isEmpty()) return emptyMap()
+    val result = HashMap<String, String>(finalIds.size)
+    val parts = ArrayList<String>()
+    for (message in messages) {
+        if (message.id in finalIds) result[message.id] = parts.joinToString("\n\n")
+        when (message) {
+            is UserMessageUi -> if (!message.isSteerSupplement()) parts.clear()
+            is AgentMessageUi -> message.content.trim().takeIf { it.isNotBlank() }?.let(parts::add)
+            else -> Unit
+        }
+    }
+    return result
 }
 
 /** Visible assistant bubbles in the same turn, excluding collapsed thinking. */

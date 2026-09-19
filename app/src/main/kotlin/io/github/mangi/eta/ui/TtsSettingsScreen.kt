@@ -57,6 +57,8 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     val playback by SpeechPlayback.state.collectAsState()
     val sample = stringResource(R.string.tts_sample)
     LaunchedEffect(cloud, providerId, selectedProvider?.id, engine, modelId, catalog, voice) {
+        // A missing/expired personal voice must not silently become a public voice.
+        if (voice.startsWith("etaClone") || voice.startsWith("S_")) return@LaunchedEffect
         if (!SpeechVoices.shouldReplaceStoredVoice(
                 cloud = cloud,
                 providerId = providerId,

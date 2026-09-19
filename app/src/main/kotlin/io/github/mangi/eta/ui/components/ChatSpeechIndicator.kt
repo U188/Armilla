@@ -53,6 +53,9 @@ internal fun ChatSpeechIndicator(
     onLongClick: (() -> Unit)? = null,
     onUnavailableClick: (() -> Unit)? = null,
     forceVisible: Boolean = false,
+    suspendCapture: Boolean = false,
+    startRequest: Int = 0,
+    onIdleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -67,7 +70,7 @@ internal fun ChatSpeechIndicator(
     var listening by remember { mutableStateOf(false) }
     var pendingPermission by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<SpeechDraft?>(null) }
-    val allowed by rememberUpdatedState(speechEnabled && (if (cloudConfig.cloudAsr) cloudConfig.asrKey.isNotBlank() else pack.ready) && !interactionBlocked)
+    val allowed by rememberUpdatedState(speechEnabled && (if (cloudConfig.cloudAsr) cloudConfig.asrKey.isNotBlank() else pack.ready) && !interactionBlocked && !suspendCapture)
 
     fun stop() {
         pendingPermission = false
@@ -137,6 +140,19 @@ internal fun ChatSpeechIndicator(
         onDispose { lifecycle.removeObserver(observer); stop() }
     }
 
+    fun requestStart() {
+        if (!allowed) return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()
+        else { pendingPermission = true; permission.launch(Manifest.permission.RECORD_AUDIO) }
+    }
+    var handledStartRequest by remember { mutableIntStateOf(startRequest) }
+    LaunchedEffect(startRequest) {
+        if (startRequest != handledStartRequest) {
+            handledStartRequest = startRequest
+            requestStart()
+        }
+    }
+
     val diameter by animateDpAsState(if (active) 40.dp else 24.dp, spring(dampingRatio = 0.65f), label = "speechDiameter")
     val label = stringResource(if (active) R.string.speech_stop else R.string.speech_start)
     val status = stringResource(if (listening) R.string.speech_listening else R.string.speech_preparing)
@@ -150,20 +166,21 @@ internal fun ChatSpeechIndicator(
             modifier = Modifier.size(48.dp).clip(CircleShape)
                 .semantics {
                     if (speechEnabled) {
-                        contentDescription = label
+                        contentDescription = if (!active && onIdleClick != null) context.getString(R.string.voice_mode_choose) else label
                         if (active) stateDescription = status
                     }
                 }
                 .then(if (speechEnabled || forceVisible) Modifier.combinedClickable(
-                    enabled = allowed || active || onLongClick != null || onUnavailableClick != null,
+                    enabled = !interactionBlocked && (allowed || active || onLongClick != null || onUnavailableClick != null || onIdleClick != null),
                     role = Role.Button,
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
                     onLongClick = onLongClick,
                     onClick = {
                         TouchHaptics.click(view)
-                        if (!allowed && !active) onUnavailableClick?.invoke()
-                        else if (active || pendingPermission) stop()
+                        if (active || pendingPermission) stop()
+                        else if (onIdleClick != null) onIdleClick()
+                        else if (!allowed) onUnavailableClick?.invoke()
                         else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()
                         else { pendingPermission = true; permission.launch(Manifest.permission.RECORD_AUDIO) }
                     },

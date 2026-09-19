@@ -19,6 +19,31 @@ class SpeechMasterSwitchTest {
         context.getSharedPreferences("doubao_voice", Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences("offline_speech", Context.MODE_PRIVATE).edit().clear().commit()
     }
+    @Test fun conversationRemainsReadyWhenDictationIsOff() {
+        DoubaoVoiceConfig.save(context, DoubaoVoiceConfig.Config(
+            cloudAsr = true, asrKey = "test", inputEnabled = false,
+            conversationEnabled = true, duplexEnabled = false,
+        ))
+        DoubaoVoiceConfig.load(context)
+        assertFalse(SpeechInputSession.ready())
+        assertTrue(SpeechInputSession.ready(io.github.mangi.eta.agent.voice.VoiceEntryMode.UNIVERSAL))
+        assertFalse(DoubaoVoiceConfig.state.value.duplexEnabled)
+    }
+    @Test fun independentSwitchesPersistWithoutClearingCredentials() {
+        DoubaoVoiceConfig.save(context, DoubaoVoiceConfig.Config(
+            cloudAsr = true, asrKey = "test", cloneKey = "clone",
+            inputEnabled = false, conversationEnabled = false, duplexEnabled = false,
+        ))
+        DoubaoVoiceConfig.load(context)
+        val config = DoubaoVoiceConfig.state.value
+        assertFalse(config.inputEnabled)
+        assertFalse(config.conversationEnabled)
+        assertFalse(config.duplexEnabled)
+        assertEquals("test", config.asrKey)
+        assertEquals("clone", config.cloneKey)
+        assertTrue(io.github.mangi.eta.agent.voice.VoiceEntryPolicy.modes(config).isEmpty())
+    }
+
     @Test fun enabledCloudMigratesButExplicitOffSurvivesReloadAndEngineSelection() {
         context.getSharedPreferences("doubao_voice", Context.MODE_PRIVATE).edit().putBoolean("asr", true).putString("asr_key", "test").commit()
         DoubaoVoiceConfig.load(context)

@@ -246,6 +246,11 @@ internal fun TopBarOverflowMenu(
                 )
             }
         }
+    ConversationTokenUsageDialog(
+        show = showTokenUsageDialog,
+        usage = tokenUsage,
+        onDismiss = { showTokenUsageDialog = false },
+    )
     }
 
     CompressConversationDialog(
@@ -261,11 +266,7 @@ internal fun TopBarOverflowMenu(
         onOpenHit = onOpenHistoryHit,
         showConversationTitle = false,
     )
-    ConversationTokenUsageDialog(
-        show = showTokenUsageDialog,
-        usage = tokenUsage,
-        onDismiss = { showTokenUsageDialog = false },
-    )
+
 }
 
 @Composable

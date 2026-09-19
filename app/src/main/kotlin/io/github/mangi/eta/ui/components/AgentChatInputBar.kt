@@ -1,5 +1,16 @@
 package io.github.mangi.eta.ui.components
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.material3.DropdownMenuItem
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -940,10 +951,13 @@ private fun VoiceEntryButton(
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val mode = pendingMode
         pendingMode = null
-        if (granted && mode != null) onStartVoiceMode(mode)
+        if (granted && mode != null && io.github.mangi.eta.agent.voice.VoiceEntryPolicy.enabled(
+                io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.value, mode)) onStartVoiceMode(mode)
         else if (!granted && mode != null) Toast.makeText(context, R.string.speech_permission_denied, Toast.LENGTH_LONG).show()
     }
     fun startMode(mode: VoiceEntryMode) {
+        if (!io.github.mangi.eta.agent.voice.VoiceEntryPolicy.enabled(
+                io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.value, mode)) return
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             onStartVoiceMode(mode)
         } else {
@@ -951,36 +965,34 @@ private fun VoiceEntryButton(
             permission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
-    var defaultConfigured by remember {
-        mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE).isNotBlank())
+    val config by io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.collectAsState()
+    val modes = io.github.mangi.eta.agent.voice.VoiceEntryPolicy.modes(config)
+    val canChoose = io.github.mangi.eta.agent.voice.VoiceEntryPolicy.canChoose(config)
+    var dictationStartRequest by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.load(context) }
+    LaunchedEffect(modes) {
+        if (!canChoose) picker = false
+        if (pendingMode !in modes) pendingMode = null
+        if (voiceState.mode != null && voiceState.mode !in modes) onStopVoiceMode()
     }
-    var defaultMode by remember {
-        mutableStateOf(VoiceEntryMode.fromWireValue(Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE)))
-    }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    androidx.compose.runtime.DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                val persisted = Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE)
-                defaultConfigured = persisted.isNotBlank()
-                defaultMode = VoiceEntryMode.fromWireValue(persisted)
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+    LaunchedEffect(resetKey, interactionBlocked) {
+        pendingMode = null
+        picker = false
     }
     val active = voiceState.active || voiceState.error != null
-    if (defaultConfigured && defaultMode == VoiceEntryMode.DICTATION && !active) {
+    val choose: (() -> Unit)? = if (canChoose) ({ TouchHaptics.click(view); picker = true }) else null
+    Box {
+    if (VoiceEntryMode.DICTATION in modes && !active) {
         ChatSpeechIndicator(
             textFieldState = textFieldState,
             showGeneration = showGeneration,
             interactionBlocked = interactionBlocked,
             resetKey = resetKey,
-            onLongClick = {
-                TouchHaptics.click(view)
-                picker = true
-            },
-            onUnavailableClick = { picker = true },
+            onLongClick = choose,
+            onUnavailableClick = choose,
+            onIdleClick = choose,
+            suspendCapture = picker,
+            startRequest = dictationStartRequest,
             forceVisible = true,
         )
     } else {
@@ -988,30 +1000,22 @@ private fun VoiceEntryButton(
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .semantics {
-                    contentDescription = if (active) {
-                        context.getString(R.string.voice_mode_stop)
-                    } else {
-                        context.getString(R.string.voice_mode_open)
-                    }
-                }
-                .combinedClickable(
+                .then(if (modes.isNotEmpty() || active) Modifier.semantics {
+                    contentDescription = context.getString(if (active) R.string.voice_mode_stop else R.string.voice_mode_open)
+                }.combinedClickable(
                     enabled = !interactionBlocked,
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
-                    onLongClick = {
-                        TouchHaptics.click(view)
-                        if (active) onStopVoiceMode() else picker = true
-                    },
+                    onLongClick = if (!active) choose else null,
                     onClick = {
                         TouchHaptics.click(view)
                         when {
                             active -> onStopVoiceMode()
-                            !defaultConfigured -> picker = true
-                            else -> startMode(defaultMode)
+                            modes.size == 1 -> io.github.mangi.eta.agent.voice.VoiceEntryPolicy.directMode(config)?.let(::startMode)
+                            modes.size > 1 -> picker = true
                         }
                     },
-                ),
+                ) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             ContainedMorphLoadingIndicator(
@@ -1021,63 +1025,42 @@ private fun VoiceEntryButton(
         }
     }
     VoiceEntryPickerDialog(
-        show = picker,
-        selected = defaultMode,
+        show = picker && canChoose,
+        modes = modes,
         onDismiss = { picker = false },
         onSelect = { mode ->
-            defaultMode = mode
-            defaultConfigured = true
-            Prefs.putString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE, mode.wireValue)
             picker = false
-            if (mode != VoiceEntryMode.DICTATION) startMode(mode)
+            if (mode in modes) {
+                if (mode == VoiceEntryMode.DICTATION) dictationStartRequest++ else startMode(mode)
+            }
         },
     )
+    }
 }
 
 @Composable
 private fun VoiceEntryPickerDialog(
     show: Boolean,
-    selected: VoiceEntryMode,
+    modes: List<VoiceEntryMode>,
     onDismiss: () -> Unit,
     onSelect: (VoiceEntryMode) -> Unit,
 ) {
-    WindowDialog(
-        show = show,
-        title = stringResource(R.string.voice_mode_choose),
+    EtaDropdownMenu(
+        expanded = show,
         onDismissRequest = onDismiss,
+        preferAbove = true,
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            listOf(
-                Triple(VoiceEntryMode.DICTATION, Icons.Rounded.KeyboardVoice, R.string.voice_mode_dictation),
-                Triple(VoiceEntryMode.UNIVERSAL, Icons.Rounded.RecordVoiceOver, R.string.voice_mode_universal),
-                Triple(VoiceEntryMode.DOUBAO_DUPLEX, Icons.Rounded.GraphicEq, R.string.voice_mode_doubao),
-            ).forEach { (mode, icon, label) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable { onSelect(mode) }
-                        .padding(horizontal = 14.dp, vertical = 13.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp),
-                        tint = if (mode == selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = stringResource(label),
-                        modifier = Modifier.padding(start = 12.dp),
-                        color = MiuixTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-            Text(
-                text = stringResource(R.string.voice_mode_long_press_hint),
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        listOf(
+            Triple(VoiceEntryMode.DICTATION, Icons.Rounded.KeyboardVoice, R.string.voice_mode_dictation),
+            Triple(VoiceEntryMode.UNIVERSAL, Icons.Rounded.RecordVoiceOver, R.string.voice_mode_universal),
+            Triple(VoiceEntryMode.DOUBAO_DUPLEX, Icons.Rounded.GraphicEq, R.string.voice_mode_doubao),
+        ).filter { it.first in modes }.forEach { (mode, icon, label) ->
+            DropdownMenuItem(
+                modifier = Modifier.heightIn(min = 40.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                text = { Text(stringResource(label), style = MiuixTheme.textStyles.body2) },
+                leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                onClick = { onSelect(mode) },
             )
         }
     }
@@ -1136,13 +1119,48 @@ private fun VoiceModeStatusPanel(
             },
         ).joinToString("\n")
         if (detail.isNotBlank()) {
-            Text(
-                text = detail,
-                maxLines = 4,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                style = MiuixTheme.textStyles.body2,
-                modifier = Modifier.padding(start = 30.dp, end = 8.dp, bottom = 4.dp),
-            )
+            VoiceTranscript(detail, resetKey = state.mode)
         }
     }
+}
+
+@Composable
+private fun VoiceTranscript(detail: String, resetKey: Any?) {
+    val scroll = rememberScrollState()
+    var follow by remember(resetKey) { mutableStateOf(true) }
+    var userGesture by remember(resetKey) { mutableStateOf(false) }
+    val connection = remember(scroll, resetKey) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y != 0f) {
+                    userGesture = true
+                    follow = false
+                }
+                return Offset.Zero
+            }
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && userGesture) follow = !scroll.canScrollForward
+                return Offset.Zero
+            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (userGesture) {
+                    follow = !scroll.canScrollForward
+                    userGesture = false
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+    LaunchedEffect(scroll, resetKey) {
+        snapshotFlow { Triple(scroll.maxValue, follow, scroll.isScrollInProgress) }.collectLatest { (end, enabled, moving) ->
+            if (enabled && !moving && end > 0) scroll.scrollTo(end)
+        }
+    }
+    Text(
+        text = detail,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        style = MiuixTheme.textStyles.body2,
+        modifier = Modifier.padding(start = 30.dp, end = 8.dp, bottom = 4.dp)
+            .heightIn(max = 160.dp).nestedScroll(connection).verticalScroll(scroll),
+    )
 }

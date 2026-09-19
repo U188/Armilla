@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="stats_model_cache_hit_rate">缓存命中率</string>
     <string name="voice_mode_title">语音对话</string>
     <string name="voice_mode_open">打开语音模式</string>
     <string name="voice_mode_stop">结束语音对话</string>
     <string name="voice_mode_choose">选择语音模式</string>
-    <string name="voice_mode_default">默认语音操作</string>
     <string name="voice_mode_dictation">语音输入</string>
     <string name="voice_mode_universal">语音对话</string>
     <string name="voice_mode_doubao">豆包实时通话</string>
-    <string name="voice_mode_long_press_hint">短按启动默认操作，长按切换模式。</string>
     <string name="voice_mode_connecting">正在连接…</string>
     <string name="voice_mode_listening">正在听你说…</string>
     <string name="voice_mode_transcribing">正在完成识别…</string>
@@ -21,4 +20,6 @@
     <string name="voice_mode_doubao_voice">实时通话音色 ID</string>
     <string name="voice_mode_doubao_instructions">实时助手提示词</string>
     <string name="voice_mode_doubao_settings_hint">提供商、音色和提示词独立配置，不继承朗读设置；下次通话生效。请从上方列表选择实时音色。</string>
+    <string name="voice_mode_universal_enable">启用语音对话</string>
+    <string name="voice_mode_doubao_enable">启用豆包实时通话</string>
 </resources>

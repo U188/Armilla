@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="stats_model_cache_hit_rate">快取命中率</string>
     <string name="voice_mode_title">語音對話</string>
     <string name="voice_mode_open">開啟語音模式</string>
     <string name="voice_mode_stop">結束語音對話</string>
     <string name="voice_mode_choose">選擇語音模式</string>
-    <string name="voice_mode_default">預設語音操作</string>
     <string name="voice_mode_dictation">語音輸入</string>
     <string name="voice_mode_universal">語音對話</string>
     <string name="voice_mode_doubao">豆包即時通話</string>
-    <string name="voice_mode_long_press_hint">短按啟動預設操作，長按切換模式。</string>
     <string name="voice_mode_connecting">正在連線…</string>
     <string name="voice_mode_listening">正在聽你說…</string>
     <string name="voice_mode_transcribing">正在完成識別…</string>
@@ -21,4 +20,6 @@
     <string name="voice_mode_doubao_voice">即時通話音色 ID</string>
     <string name="voice_mode_doubao_instructions">即時助手提示詞</string>
     <string name="voice_mode_doubao_settings_hint">提供商、音色和提示詞獨立設定，不繼承朗讀設定；下次通話生效。請從上方清單選擇即時音色。</string>
+    <string name="voice_mode_universal_enable">啟用語音對話</string>
+    <string name="voice_mode_doubao_enable">啟用豆包即時通話</string>
 </resources>

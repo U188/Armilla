@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.voice
 
+import io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig
+import kotlinx.coroutines.flow.collect
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -66,6 +68,16 @@ internal class VoiceModeController(
     private var generation = 0L
     private var diagnostic: VoiceDiagnostics? = null
 
+    init {
+        DoubaoVoiceConfig.load(app)
+        OfflineSpeechPack.initialize(app)
+        scope.launch {
+            DoubaoVoiceConfig.state.collect { config ->
+                state.value.mode?.let { if (!VoiceEntryPolicy.enabled(config, it)) stop() }
+            }
+        }
+    }
+
     fun updateChat(snapshot: VoiceChatSnapshot) {
         chat.value = snapshot
         val current = mutableState.value
@@ -76,7 +88,8 @@ internal class VoiceModeController(
     }
 
     fun start(mode: VoiceEntryMode) {
-        if (mode == VoiceEntryMode.DICTATION || job?.isActive == true) return
+        if (mode == VoiceEntryMode.DICTATION || job?.isActive == true ||
+            !VoiceEntryPolicy.enabled(DoubaoVoiceConfig.state.value, mode)) return
         if (ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             mutableState.value = VoiceModeState(mode, VoiceModePhase.Error, error = "需要麦克风权限")
             return
@@ -90,7 +103,7 @@ internal class VoiceModeController(
 
     private fun startUniversal() {
         io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.load(app)
-        if (!SpeechInputSession.ready()) {
+        if (!SpeechInputSession.ready(VoiceEntryMode.UNIVERSAL)) {
             mutableState.value = VoiceModeState(
                 VoiceEntryMode.UNIVERSAL,
                 VoiceModePhase.Error,
@@ -112,6 +125,7 @@ internal class VoiceModeController(
                     val heard = try {
                         SpeechInputSession.recognize(
                             app,
+                            mode = VoiceEntryMode.UNIVERSAL,
                             onListening = {
                                 trace.mark("recognition.listening")
                                 mutableState.value = mutableState.value.copy(phase = VoiceModePhase.Listening)

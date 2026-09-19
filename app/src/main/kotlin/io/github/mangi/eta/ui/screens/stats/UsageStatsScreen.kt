@@ -290,12 +290,14 @@ private fun ModelUsagePane(
                     label = stringResource(R.string.stats_page_output_tokens),
                     value = formatTokenCount(filtered.totalOutputTokens),
                 )
-                if (filtered.totalCachedTokens > 0L) {
-                    ModelMetricRow(
-                        label = stringResource(R.string.stats_page_cached_tokens),
-                        value = formatTokenCount(filtered.totalCachedTokens),
-                    )
-                }
+                ModelMetricRow(
+                    label = stringResource(R.string.stats_page_cached_tokens),
+                    value = formatTokenCount(filtered.totalCachedTokens),
+                )
+                ModelMetricRow(
+                    label = stringResource(R.string.stats_model_cache_hit_rate),
+                    value = formatCacheHitRate(filtered.totalCachedTokens, filtered.totalInputTokens),
+                )
             }
         }
         if (filtered.providers.isEmpty()) {
@@ -620,12 +622,14 @@ private fun ModelUsageRow(
                     label = stringResource(R.string.stats_page_output_tokens),
                     value = formatTokenCount(model.outputTokens),
                 )
-                if (model.cachedTokens > 0L) {
-                    ModelMetricRow(
-                        label = stringResource(R.string.stats_page_cached_tokens),
-                        value = formatTokenCount(model.cachedTokens),
-                    )
-                }
+                ModelMetricRow(
+                    label = stringResource(R.string.stats_page_cached_tokens),
+                    value = formatTokenCount(model.cachedTokens),
+                )
+                ModelMetricRow(
+                    label = stringResource(R.string.stats_model_cache_hit_rate),
+                    value = formatCacheHitRate(model.cachedTokens, model.inputTokens),
+                )
                 ModelMetricRow(
                     label = stringResource(R.string.stats_model_daily_avg),
                     value = formatTokenCount(model.dailyAverageTokens),

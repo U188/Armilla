@@ -28,7 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
-import io.github.mangi.eta.agent.voice.VoiceEntryMode
+import io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import io.github.mangi.eta.agent.voice.VoiceModeController
 import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.config.Prefs
@@ -40,10 +41,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> Unit) {
-    var defaultMode by remember {
-        mutableStateOf(VoiceEntryMode.fromWireValue(Prefs.getString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE)))
-    }
-    var modePicker by remember { mutableStateOf(false) }
+    val config by DoubaoVoiceConfig.state.collectAsState()
     var providerPicker by remember { mutableStateOf(false) }
     var voicePicker by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
@@ -74,24 +72,20 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val personal by io.github.mangi.eta.agent.voice.doubao.PersonalVoices.state.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(context) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { DoubaoVoiceConfig.load(context); io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(context) }
     val availableVoices = voices + personal.filter { it.tts && it.accepted && it.account ==
         io.github.mangi.eta.agent.voice.doubao.PersonalVoices.account(provider?.apiKey.orEmpty()) }
         .map { io.github.mangi.eta.agent.voice.tts.SpeechVoice(it.id, "个人 · ${it.name}") }
 
     MiuixScaffoldPage(title = stringResource(R.string.voice_mode_title), onBack = onBack) {
-        item(key = "default") {
-            Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                ArrowPreference(
-                    title = stringResource(R.string.voice_mode_default),
-                    summary = stringResource(defaultMode.labelResource()),
-                    insideMargin = PaddingValues(16.dp),
-                    onClick = { modePicker = true },
-                )
-            }
-        }
         item(key = "universal") {
             Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                SwitchPreference(
+                    title = stringResource(R.string.voice_mode_universal_enable),
+                    checked = config.conversationEnabled,
+                    onCheckedChange = { DoubaoVoiceConfig.save(context, config.copy(conversationEnabled = it)) },
+                    insideMargin = PaddingValues(16.dp),
+                )
                 ArrowPreference(
                     title = stringResource(R.string.voice_mode_universal),
                     summary = stringResource(R.string.voice_mode_universal_settings_summary),
@@ -106,6 +100,12 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
         }
         item(key = "doubao") {
             Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                SwitchPreference(
+                    title = stringResource(R.string.voice_mode_doubao_enable),
+                    checked = config.duplexEnabled,
+                    onCheckedChange = { DoubaoVoiceConfig.save(context, config.copy(duplexEnabled = it)) },
+                    insideMargin = PaddingValues(16.dp),
+                )
                 ArrowPreference(
                     title = stringResource(R.string.voice_mode_doubao_provider),
                     summary = provider?.name ?: stringResource(R.string.voice_mode_doubao_provider_missing),
@@ -167,18 +167,6 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
         },
     )
     VoiceModeListDialog(
-        show = modePicker,
-        title = stringResource(R.string.voice_mode_default),
-        rows = VoiceEntryMode.entries.map { it.wireValue to stringResource(it.labelResource()) },
-        selected = defaultMode.wireValue,
-        onDismiss = { modePicker = false },
-        onSelect = { value ->
-            defaultMode = VoiceEntryMode.fromWireValue(value)
-            Prefs.putString(Prefs.Keys.AGENT_VOICE_DEFAULT_MODE, value)
-            modePicker = false
-        },
-    )
-    VoiceModeListDialog(
         show = providerPicker,
         title = stringResource(R.string.voice_mode_doubao_provider),
         rows = speechProviders.map { it.id to it.name },
@@ -222,10 +210,4 @@ private fun VoiceModeListDialog(
             }
         }
     }
-}
-
-private fun VoiceEntryMode.labelResource(): Int = when (this) {
-    VoiceEntryMode.DICTATION -> R.string.voice_mode_dictation
-    VoiceEntryMode.UNIVERSAL -> R.string.voice_mode_universal
-    VoiceEntryMode.DOUBAO_DUPLEX -> R.string.voice_mode_doubao
 }

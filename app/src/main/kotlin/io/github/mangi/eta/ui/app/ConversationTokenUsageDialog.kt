@@ -3,6 +3,8 @@ package io.github.mangi.eta.ui.app
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import io.github.mangi.eta.ui.components.EtaDropdownMenu
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -15,9 +17,7 @@ import io.github.mangi.eta.ui.model.ConversationTokenUsageUi
 import java.text.NumberFormat
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 internal fun ConversationTokenUsageDialog(
@@ -25,15 +25,17 @@ internal fun ConversationTokenUsageDialog(
     usage: ConversationTokenUsageUi,
     onDismiss: () -> Unit,
 ) {
-    WindowDialog(
-        show = show,
-        title = stringResource(R.string.action_token_usage),
+    EtaDropdownMenu(
+        expanded = show,
+        alignEnd = true,
+        minWidth = 250.dp,
         onDismissRequest = onDismiss,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text(stringResource(R.string.action_token_usage), style = MiuixTheme.textStyles.body1)
             if (!usage.hasUsage) {
                 Text(
                     text = stringResource(R.string.token_usage_empty),
@@ -62,11 +64,6 @@ internal fun ConversationTokenUsageDialog(
                     value = formatCachePercent(usage.cachePercent),
                 )
             }
-            TextButton(
-                text = stringResource(R.string.action_close),
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
@@ -80,6 +77,7 @@ private fun UsageRow(label: String, value: String) {
     ) {
         Text(
             text = label,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )

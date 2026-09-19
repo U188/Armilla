@@ -6,6 +6,14 @@ import java.util.UUID
 
 /** API-key authentication must not be mixed with legacy TTS app/access headers. */
 internal object DoubaoDuplexProtocol {
+    // Match the official web demo: ASR events are current hypotheses, not append-only text.
+    fun eventText(event: JSONObject): String =
+        listOf("text", "delta", "transcript", "content")
+            .firstNotNullOfOrNull { key -> event.optString(key).takeIf { it.isNotBlank() } }.orEmpty()
+
+    fun audioPayload(event: JSONObject): String =
+        event.optString("audio").ifBlank { event.optString("delta") }
+
     fun request(apiKey: String): Request = Request.Builder()
         .url("wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue")
         .header("X-Api-Key", apiKey)

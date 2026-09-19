@@ -91,12 +91,11 @@ internal class DoubaoDuplexSession(
                         onState(state(VoiceModePhase.Listening))
                     }
                     "conversation.item.input_audio_transcription.delta" -> {
-                        transcript += event.optString("delta")
+                        transcript = DoubaoDuplexProtocol.eventText(event)
                         onState(state(VoiceModePhase.Listening))
                     }
                     "conversation.item.input_audio_transcription.completed" -> {
-                        transcript = event.optString("transcript").ifBlank { event.optString("text") }
-                            .ifBlank { transcript }
+                        transcript = DoubaoDuplexProtocol.eventText(event).ifBlank { transcript }
                         onState(state(VoiceModePhase.Thinking))
                     }
                     "response.output_text.delta" -> {
@@ -109,7 +108,7 @@ internal class DoubaoDuplexSession(
                     }
                     "response.output_audio.started" -> onState(state(VoiceModePhase.Speaking))
                     "response.output_audio.delta" -> {
-                        val bytes = Base64.decode(event.optString("delta"), Base64.DEFAULT)
+                        val bytes = Base64.decode(DoubaoDuplexProtocol.audioPayload(event), Base64.DEFAULT)
                         if (bytes.isNotEmpty()) {
                             if (receivedAudioBytes == 0L) AndroidAgentLogger.info("Duplex: first audio bytes=${bytes.size}")
                             receivedAudioBytes += bytes.size

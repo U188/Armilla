@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DoubaoDuplexProtocolTest {
+    @Test fun audioFieldTakesPriorityWithLegacyDeltaFallback() {
+        assertEquals("AAABAA==", DoubaoDuplexProtocol.audioPayload(
+            org.json.JSONObject().put("audio", "AAABAA==").put("delta", "ignored")))
+        assertEquals("AAABAA==", DoubaoDuplexProtocol.audioPayload(
+            org.json.JSONObject().put("delta", "AAABAA==")))
+    }
+
+    @Test fun repeatedAsrHypothesesReplaceRatherThanAccumulate() {
+        var transcript = ""
+        for (hypothesis in listOf("你", "你好", "你好。", "你好", "你好。")) {
+            transcript = DoubaoDuplexProtocol.eventText(org.json.JSONObject().put("delta", hypothesis))
+        }
+        assertEquals("你好。", transcript)
+        assertEquals("你好。", DoubaoDuplexProtocol.eventText(
+            org.json.JSONObject().put("text", "你好。").put("delta", "你好")))
+    }
+
     @Test fun sessionEnablesSecondPassRecognitionAtTopLevel() {
         val event = DoubaoDuplexProtocol.sessionCreate("voice", "instructions")
         assertTrue(event.getJSONObject("extension").getJSONObject("asr")

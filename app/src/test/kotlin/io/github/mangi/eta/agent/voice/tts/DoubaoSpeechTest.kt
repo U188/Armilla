@@ -70,7 +70,8 @@ class DoubaoSpeechTest {
         val http = client(type = "audio/mpeg", bytes = mp3) { request ->
             assertEquals(DoubaoSpeech.UNIDIRECTIONAL_URL, request.url.toString())
             assertEquals("seed-tts-2.0", request.header("X-Api-Resource-Id"))
-            assertEquals("aGjiRDfUWi", request.header("X-Api-App-Key"))
+            assertEquals(null, request.header("X-Api-App-Key"))
+            assertEquals("volc-key", request.header("X-Api-Key"))
             val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
             assertEquals("你好", body.getJSONObject("req_params").getString("text"))
             assertEquals("zh_male_yunzhou_jupiter_bigtts", body.getJSONObject("req_params").getString("speaker"))

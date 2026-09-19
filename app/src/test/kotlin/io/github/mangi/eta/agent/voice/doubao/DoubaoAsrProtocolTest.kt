@@ -35,6 +35,14 @@ class DoubaoAsrProtocolTest {
     @Test(expected = IllegalArgumentException::class) fun truncatedPacketIsRejected() {
         DoubaoAsrProtocol.decode(response("hi").dropLast(1).toByteArray())
     }
+    @Test fun controlPlaneSigningMatchesIndependentHmacVector() {
+        val body = """{"ProjectName":"test","State":"Success","PageNumber":1,"PageSize":100}"""
+        val request = DoubaoVoiceCatalog.signedRequest("test-ak", "test-secret", body, java.time.Instant.parse("2026-09-19T12:00:00Z"))
+        assertEquals("20260919T120000Z", request.header("X-Date"))
+        assertTrue(request.header("Authorization")!!.endsWith("Signature=b43e06ae38a66feea912e63d579acc6170ceaff8c967638e0970150ffbbb23b4"))
+        assertFalse(request.toString().contains("test-secret"))
+    }
+
     @Test fun personalVoiceCapabilityRequiresTrainedIcl2() {
         val base = PersonalVoices.Voice("etaClone123", "Test", "account", 1, setOf(4))
         assertFalse(base.tts); assertTrue(base.copy(status = 2).tts)

@@ -292,6 +292,7 @@ internal fun ChatMessageItem(
     onRegenerateMessage: (String) -> Unit = {},
     onBranchMessage: (String) -> Unit = {},
     isPaused: Boolean = false,
+    freezeReveal: Boolean = false,
     enableLivePreview: Boolean = true,
     speechPreface: String = "",
 ) {
@@ -316,6 +317,7 @@ internal fun ChatMessageItem(
             messageActionsEnabled = messageActionsEnabled,
             branchEnabled = branchEnabled,
             isPaused = isPaused,
+            freezeReveal = freezeReveal,
             onDelete = { onDeleteMessage(message.id) },
             onRegenerate = { onRegenerateMessage(message.id) },
             onBranch = { onBranchMessage(message.id) },
@@ -360,6 +362,7 @@ internal fun ChatMessageItem(
             modifier = modifier,
             compact = compact,
             isPaused = isPaused,
+            freezeReveal = freezeReveal,
         )
         is RunTraceMessageUi -> RunTraceRow(message = message, onClick = onRunTraceClick, modifier = modifier)
         is ToolActivityMessageUi -> ToolActivityInline(
@@ -388,6 +391,7 @@ internal fun AgentWorkProcess(
     retainedStreamingStates: Map<String, StreamingMarkdownState>,
     modifier: Modifier = Modifier,
     isPaused: Boolean = false,
+    freezeReveal: Boolean = false,
     isTrailing: Boolean = false,
     turnStreaming: Boolean = false,
 ) {
@@ -540,6 +544,7 @@ internal fun AgentWorkProcess(
                             retainedStreamingState = retainedStreamingStates[message.id],
                             compact = true,
                             isPaused = isPaused,
+                            freezeReveal = freezeReveal,
                         )
                     }
                 }
@@ -801,6 +806,7 @@ private fun AgentMessageBlock(
     onBranch: () -> Unit = {},
     modifier: Modifier = Modifier,
     isPaused: Boolean = false,
+    freezeReveal: Boolean = false,
 ) {
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
@@ -857,6 +863,7 @@ private fun AgentMessageBlock(
                             content = displayContent,
                             isStreaming = message.isStreaming,
                             isPaused = isPaused,
+                            freezeReveal = freezeReveal,
                             onRevealCompleteChange = { streamingRevealComplete = it },
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -1048,6 +1055,7 @@ private fun StreamingMarkdown(
     content: String,
     isStreaming: Boolean,
     isPaused: Boolean = false,
+    freezeReveal: Boolean = false,
     onRevealCompleteChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     tone: ChatMarkdownTone = ChatMarkdownTone.Answer,
@@ -1082,7 +1090,7 @@ private fun StreamingMarkdown(
         }
     }
 
-    val animationsAllowed = state.restoreState.animationsAllowed(isPaused)
+    val animationsAllowed = state.restoreState.animationsAllowed(isPaused) && !freezeReveal
     LaunchedEffect(revealCoordinator, animationsAllowed, currentContent) {
         if (animationsAllowed) {
             revealCoordinator.resumeAnimationsWithoutCatchingUp()
@@ -1142,6 +1150,9 @@ private fun StreamingMarkdown(
 
             nextStreamingSnapshot(state.snapshot, parsed)?.let { published ->
                 state.snapshot = published
+            }
+            if (target.isStreaming) {
+                delay(STREAMING_PARSE_PUBLISH_INTERVAL_MS)
             }
             target = parseTargets.receive()
         }
@@ -1255,6 +1266,16 @@ private fun ChatMarkdownDocument(
         blocks.mapNotNull { it.firstRevealBlockKey() }
             .firstOrNull { it !in startedRevealKeys }
     }
+    val lastVisibleStartOffset = remember(blocks, startedRevealKeys, nextRevealKey, revealCoordinator) {
+        blocks.lastOrNull { node ->
+            streamingMarkdownBlockVisible(
+                coordinatorActive = revealCoordinator != null,
+                firstRevealKey = node.firstRevealBlockKey(),
+                startedRevealKeys = startedRevealKeys,
+                nextRevealKey = nextRevealKey,
+            )
+        }?.startOffset
+    }
     val density = LocalDensity.current
     var previousVisibleType: IElementType? = null
     Column(modifier) {
@@ -1273,16 +1294,51 @@ private fun ChatMarkdownDocument(
             if (gap > 0.dp) Spacer(Modifier.height(gap))
             previousVisibleType = node.type
             key(node.startOffset, node.type.name) {
-                MarkdownElement(
+                FrozenMarkdownElement(
                     node = node,
                     components = components,
                     content = content,
-                    includeSpacer = false,
+                    freeze = revealCoordinator != null &&
+                        shouldFreezeStreamingMarkdownBlock(node.startOffset, lastVisibleStartOffset),
                 )
             }
         }
     }
 }
+
+
+@Composable
+private fun FrozenMarkdownElement(
+    node: ASTNode,
+    components: MarkdownComponents,
+    content: String,
+    freeze: Boolean,
+) {
+    if (freeze) {
+        val frozenNode = remember { node }
+        val frozenContent = remember { content }
+        MarkdownElement(
+            node = frozenNode,
+            components = components,
+            content = frozenContent,
+            includeSpacer = false,
+        )
+    } else {
+        MarkdownElement(
+            node = node,
+            components = components,
+            content = content,
+            includeSpacer = false,
+        )
+    }
+}
+
+internal fun shouldFreezeStreamingMarkdownBlock(
+    blockStartOffset: Int,
+    tailStartOffset: Int?,
+): Boolean = tailStartOffset != null && blockStartOffset != tailStartOffset
+
+private const val STREAMING_PARSE_PUBLISH_INTERVAL_MS = 90L
 
 internal fun streamingMarkdownBlockVisible(
     coordinatorActive: Boolean,
@@ -2316,6 +2372,7 @@ private fun ThinkingRow(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     isPaused: Boolean = false,
+    freezeReveal: Boolean = false,
 ) {
     var expanded by rememberSaveable(message.id) { mutableStateOf(!message.collapsed) }
     var manuallyExpanded by rememberSaveable(message.id) { mutableStateOf(false) }
@@ -2451,6 +2508,7 @@ private fun ThinkingRow(
                             content = message.content,
                             isStreaming = message.isStreaming,
                             isPaused = isPaused,
+                            freezeReveal = freezeReveal,
                             onRevealCompleteChange = {},
                             tone = ChatMarkdownTone.Thinking,
                             modifier = contentModifier,

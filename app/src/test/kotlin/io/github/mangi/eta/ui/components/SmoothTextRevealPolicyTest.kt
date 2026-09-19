@@ -6,6 +6,8 @@ import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SmoothTextRevealPolicyTest {
@@ -347,6 +349,13 @@ class SmoothTextRevealPolicyTest {
                 nextRevealKey = next,
             ),
         )
+    }
+
+    @Test
+    fun completedBlocksFreezeOnceANewTailExists() {
+        assertTrue(shouldFreezeStreamingMarkdownBlock(0, 40))
+        assertFalse(shouldFreezeStreamingMarkdownBlock(40, 40))
+        assertFalse(shouldFreezeStreamingMarkdownBlock(0, null))
     }
 
 }

@@ -123,6 +123,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -264,6 +265,7 @@ internal fun AgentChatBody(
             }?.id
         }
     }
+    val submitScrollScope = rememberCoroutineScope()
     var sentFromKeyboard by remember { mutableStateOf(false) }
     var keepBottomAnchored by remember { mutableStateOf(true) }
 
@@ -339,6 +341,14 @@ internal fun AgentChatBody(
                 // 新消息一起到位，立即回到底部并恢复后续的流式平滑跟底。
                 keepBottomAnchored = true
                 onSubmit(text)
+                submitScrollScope.launch {
+                    // Cancel an old fling, then anchor the edited/replaced list after layout.
+                    scrollState.scroll(androidx.compose.foundation.MutatePriority.PreventUserInput) { }
+                    withFrameNanos { }
+                    keepBottomAnchored = true
+                    val last = scrollState.layoutInfo.totalItemsCount - 1
+                    if (last >= 0) scrollState.requestScrollToItem(last)
+                }
             },
             onReasoningEffortChange = onReasoningEffortChange,
             onModelSelected = onModelSelected,
@@ -660,7 +670,7 @@ internal fun AgentConversationMessages(
             arrayOf(currentStreaming.value, currentAnchor.value, rendering, isUserScrolling)
         }
             .distinctUntilChanged { old, new -> old.contentEquals(new) }
-            .collect { state ->
+            .collectLatest { state ->
                 val streaming = state[0] as Boolean
                 val anchored = state[1] as Boolean
                 val rendering = state[2] as Boolean

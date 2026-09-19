@@ -58,6 +58,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -624,6 +628,18 @@ internal fun AgentConversationMessages(
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
     // 手指拖走后的惯性也算用户滚动；跟底自己的 scrollBy 不能把这个标志打开。
     var isUserScrolling by remember { mutableStateOf(false) }
+    // Observe user motion synchronously, before the asynchronous drag collector
+    // and before another scheduled follow frame can mutate the list position.
+    val userScrollConnection = remember(scrollState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y != 0f) {
+                    isUserScrolling = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
     val densityScale = LocalDensity.current.density
     val coroutineScope = rememberCoroutineScope()
     val currentAnchor = rememberUpdatedState(keepBottomAnchored)
@@ -785,7 +801,7 @@ internal fun AgentConversationMessages(
                 accept(latest)
             }
 
-            if (!shouldFollowBottom) {
+            if (!shouldFollowBottom || isUserScrolling) {
                 remainingDistancePx = 0f
                 requestIndex = null
                 continue
@@ -811,7 +827,7 @@ internal fun AgentConversationMessages(
                 val latest = bottomFollowDecisions.tryReceive().getOrNull() ?: break
                 accept(latest)
             }
-            if (!shouldFollowBottom || requestIndex != null || remainingDistancePx <= 0f) continue
+            if (!shouldFollowBottom || isUserScrolling || requestIndex != null || remainingDistancePx <= 0f) continue
 
             val step = smoothBottomFollowStep(
                 distancePx = remainingDistancePx,
@@ -821,7 +837,10 @@ internal fun AgentConversationMessages(
             var consumedStep = 0f
             try {
                 scrollState.scroll {
-                    consumedStep = StreamPerformanceDiagnostics.measure("follow.scroll") { scrollBy(step) }
+                    // scroll() may wait for another mutation; check ownership again.
+                    if (!isUserScrolling && shouldFollowBottom) {
+                        consumedStep = StreamPerformanceDiagnostics.measure("follow.scroll") { scrollBy(step) }
+                    }
                 }
                 remainingDistancePx = if (consumedStep > 0f) {
                     (remainingDistancePx - consumedStep).coerceAtLeast(0f)
@@ -862,6 +881,7 @@ internal fun AgentConversationMessages(
             },
             modifier = Modifier
                 .fillMaxSize()
+                .nestedScroll(userScrollConnection)
                 .scrollEndHaptic()
                 .overScrollVertical(),
             contentPadding = PaddingValues(

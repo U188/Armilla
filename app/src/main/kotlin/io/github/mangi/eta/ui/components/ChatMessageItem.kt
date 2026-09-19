@@ -85,6 +85,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -1319,22 +1320,28 @@ private fun FrozenMarkdownElement(
     content: String,
     freeze: Boolean,
 ) {
-    if (freeze) {
-        val frozenNode = remember { node }
-        val frozenContent = remember { content }
-        MarkdownElement(
-            node = frozenNode,
-            components = components,
-            content = frozenContent,
-            includeSpacer = false,
-        )
-    } else {
-        MarkdownElement(
-            node = node,
-            components = components,
-            content = content,
-            includeSpacer = false,
-        )
+    // Keep completed blocks in independent RenderNode display lists. Tail draw
+    // invalidation must not re-record every paragraph in a tall message.
+    Box(Modifier.graphicsLayer().drawWithContent {
+        StreamPerformanceDiagnostics.measure("markdown.blockDraw") { drawContent() }
+    }) {
+        if (freeze) {
+            val frozenNode = remember { node }
+            val frozenContent = remember { content }
+            MarkdownElement(
+                node = frozenNode,
+                components = components,
+                content = frozenContent,
+                includeSpacer = false,
+            )
+        } else {
+            MarkdownElement(
+                node = node,
+                components = components,
+                content = content,
+                includeSpacer = false,
+            )
+        }
     }
 }
 

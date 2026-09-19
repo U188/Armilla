@@ -67,7 +67,7 @@ internal class DoubaoDuplexSession(
         playbackJob = launch(Dispatchers.IO) { playOutput() }
         try {
             while (isActive && !closed) {
-                val event = events.receive()
+                val event = events.receiveCatching().getOrNull() ?: break
                 val type = event.optString("type")
                 val responseId = event.optString("response_id")
                 if (type.startsWith("response.output_text.") && responseId.isNotBlank() && responseId != replyResponseId) {

@@ -63,6 +63,7 @@ internal class VoiceModeController(
     private val chat = MutableStateFlow(VoiceChatSnapshot())
     private var job: Job? = null
     private var duplex: DoubaoDuplexSession? = null
+    private var generation = 0L
 
     fun updateChat(snapshot: VoiceChatSnapshot) {
         chat.value = snapshot
@@ -187,7 +188,9 @@ internal class VoiceModeController(
 
     private fun startDuplex() {
         stop()
+        val sessionGeneration = generation
         job = scope.launch {
+            var ownedSession: DoubaoDuplexSession? = null
             try {
                 val providerId = Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_PROVIDER_ID)
                     .ifBlank { Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_PROVIDER_ID) }
@@ -204,7 +207,10 @@ internal class VoiceModeController(
                 mutableState.value = VoiceModeState(VoiceEntryMode.DOUBAO_DUPLEX, VoiceModePhase.Connecting)
                 val token = SpeechPlayback.beginInput()
                 try {
-                    val session = DoubaoDuplexSession(app) { next -> mutableState.value = next }
+                    val session = DoubaoDuplexSession(app) { next ->
+                        if (generation == sessionGeneration) mutableState.value = next
+                    }
+                    ownedSession = session
                     duplex = session
                     session.run(apiKey, voice, instructions)
                 } finally {
@@ -213,23 +219,25 @@ internal class VoiceModeController(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
+                if (generation != sessionGeneration) return@launch
                 mutableState.value = VoiceModeState(
                     mode = VoiceEntryMode.DOUBAO_DUPLEX,
                     phase = VoiceModePhase.Error,
                     error = e.message ?: "豆包实时通话失败",
                 )
             } finally {
-                duplex?.close()
-                duplex = null
+                ownedSession?.close()
+                if (duplex === ownedSession) duplex = null
             }
         }
     }
 
     fun stop() {
-        duplex?.close()
-        duplex = null
+        generation++
         job?.cancel()
         job = null
+        duplex?.close()
+        duplex = null
         SpeechPlayback.stop()
         mutableState.value = VoiceModeState()
     }

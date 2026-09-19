@@ -64,6 +64,7 @@ internal class VoiceModeController(
     private var job: Job? = null
     private var duplex: DoubaoDuplexSession? = null
     private var generation = 0L
+    private var diagnostic: VoiceDiagnostics? = null
 
     fun updateChat(snapshot: VoiceChatSnapshot) {
         chat.value = snapshot
@@ -97,19 +98,25 @@ internal class VoiceModeController(
             return
         }
         stop()
+        val trace = VoiceDiagnostics("universal")
+        diagnostic = trace
+        trace.mark("session.begin")
         job = scope.launch {
             try {
                 while (true) {
                     var text = ""
                     mutableState.value = VoiceModeState(VoiceEntryMode.UNIVERSAL, VoiceModePhase.Connecting)
                     val token = SpeechPlayback.beginInput()
+                    trace.mark("recognition.begin")
                     val heard = try {
                         OfflineSpeechSession.recognize(
                             app,
                             onListening = {
+                                trace.mark("recognition.listening")
                                 mutableState.value = mutableState.value.copy(phase = VoiceModePhase.Listening)
                             },
                             onText = { next ->
+                                trace.mark("recognition.partial", "chars" to next.length, sampled = true)
                                 text = next
                                 mutableState.value = mutableState.value.copy(
                                     phase = VoiceModePhase.Listening,
@@ -120,10 +127,12 @@ internal class VoiceModeController(
                     } finally {
                         SpeechPlayback.endInput(token)
                     }
+                    trace.mark("recognition.done", "heard" to if (heard) 1 else 0, "chars" to text.length)
                     if (!heard || text.isBlank()) continue
 
                     val baseline = chat.value.lastAgentId
                     mutableState.value = mutableState.value.copy(phase = VoiceModePhase.Transcribing)
+                    trace.mark("model.submit", "chars" to text.length)
                     submit(text)
                     mutableState.value = mutableState.value.copy(phase = VoiceModePhase.Thinking)
                     withTimeout(20_000) {
@@ -135,6 +144,7 @@ internal class VoiceModeController(
                     withTimeout(240_000) {
                         while (true) {
                             val snap = chat.value
+                            trace.mark("model.snapshot", "streaming" to if (snap.isStreaming) 1 else 0, "chars" to snap.lastAgentText.length, sampled = true)
                             if (snap.lastAgentId == baseline || snap.lastAgentId == null) {
                                 chat.first { it != snap }
                                 continue
@@ -154,8 +164,9 @@ internal class VoiceModeController(
                                     reply = snap.lastAgentText,
                                 )
                                 for (utterance in utterances) {
-                                    SpeechPlayback.speak(app, owner, utterance)
+                                    SpeechPlayback.speak(app, owner, utterance, trace)
                                     val playback = SpeechPlayback.state.first { it.owner != owner }
+                                    trace.mark("tts.await_done", "error" to if (playback.error != null) 1 else 0)
                                     playback.error?.let { error(it) }
                                 }
                                 spoken = ready.size
@@ -189,6 +200,9 @@ internal class VoiceModeController(
     private fun startDuplex() {
         stop()
         val sessionGeneration = generation
+        val trace = VoiceDiagnostics("duplex")
+        diagnostic = trace
+        trace.mark("controller.start")
         job = scope.launch {
             var ownedSession: DoubaoDuplexSession? = null
             try {
@@ -207,9 +221,10 @@ internal class VoiceModeController(
                 mutableState.value = VoiceModeState(VoiceEntryMode.DOUBAO_DUPLEX, VoiceModePhase.Connecting)
                 val token = SpeechPlayback.beginInput()
                 try {
-                    val session = DoubaoDuplexSession(app) { next ->
+                    val session = DoubaoDuplexSession(app, onState = { next ->
+                        trace.mark("controller.phase", "phase" to next.phase.ordinal, sampled = true)
                         if (generation == sessionGeneration) mutableState.value = next
-                    }
+                    }, diagnostic = trace)
                     ownedSession = session
                     duplex = session
                     session.run(apiKey, voice, instructions)
@@ -233,6 +248,7 @@ internal class VoiceModeController(
     }
 
     fun stop() {
+        diagnostic?.mark("controller.stop")
         generation++
         job?.cancel()
         job = null
@@ -240,6 +256,8 @@ internal class VoiceModeController(
         duplex = null
         SpeechPlayback.stop()
         mutableState.value = VoiceModeState()
+        diagnostic?.finish()
+        diagnostic = null
     }
 
     companion object {

@@ -36,6 +36,7 @@ import org.json.JSONObject
 internal class DoubaoDuplexSession(
     context: Context,
     private val onState: (VoiceModeState) -> Unit,
+    private val diagnostic: VoiceDiagnostics = VoiceDiagnostics("duplex"),
 ) {
     private val app = context.applicationContext
     private val opened = CompletableDeferred<WebSocket>()
@@ -60,10 +61,19 @@ internal class DoubaoDuplexSession(
         .build()
 
     suspend fun run(apiKey: String, voice: String, instructions: String) = coroutineScope {
+        diagnostic.mark("connect.begin", "voiceConfigured" to if (voice.isNotBlank()) 1 else 0)
+        val audioManager = app.getSystemService(AudioManager::class.java)
+        diagnostic.mark("audio.environment", "mode" to audioManager.mode,
+            "volume" to audioManager.getStreamVolume(AudioManager.STREAM_MUSIC),
+            "maxVolume" to audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            "muted" to if (audioManager.isStreamMute(AudioManager.STREAM_MUSIC)) 1 else 0,
+            "micMuted" to if (audioManager.isMicrophoneMute) 1 else 0)
         val request = DoubaoDuplexProtocol.request(apiKey)
         socket = client.newWebSocket(request, listener)
         val ws = withTimeout(15_000) { opened.await() }
-        ws.send(DoubaoDuplexProtocol.sessionCreate(voice, instructions).toString())
+        val sent = ws.send(DoubaoDuplexProtocol.sessionCreate(voice, instructions).toString())
+        diagnostic.mark("session.send", "accepted" to if (sent) 1 else 0)
+        check(sent) { "实时语音会话创建发送失败" }
 
         playbackJob = launch(Dispatchers.IO) { playOutput() }
         try {
@@ -75,11 +85,8 @@ internal class DoubaoDuplexSession(
                     reply = ""
                     replyResponseId = responseId
                 }
-                if (type.startsWith("conversation.item.input_audio_transcription.") ||
-                    type == "response.output_text.done") {
-                    // Metadata only: never log speech content or audio payloads.
-                    AndroidAgentLogger.info("Duplex: event=$type deltaChars=${event.optString("delta").length} transcriptChars=${event.optString("transcript").length} textChars=${event.optString("text").length} playing=${player?.playState == AudioTrack.PLAYSTATE_PLAYING} receivedBytes=$receivedAudioBytes writtenBytes=$writtenAudioBytes")
-                }
+                diagnostic.mark("event.consume", "queuedMs" to
+                    (android.os.SystemClock.elapsedRealtime() - event.optLong("_etaReceivedAt", android.os.SystemClock.elapsedRealtime())), sampled = true)
                 when (type) {
                     "session.created" -> {
                         onState(state(VoiceModePhase.Listening))
@@ -112,11 +119,18 @@ internal class DoubaoDuplexSession(
                         onState(state(VoiceModePhase.Speaking))
                     }
                     "response.output_audio.delta" -> {
-                        val bytes = Base64.decode(DoubaoDuplexProtocol.audioPayload(event), Base64.DEFAULT)
+                        val payload = DoubaoDuplexProtocol.audioPayload(event)
+                        val bytes = try { Base64.decode(payload, Base64.DEFAULT) } catch (e: IllegalArgumentException) {
+                            diagnostic.mark("decode.failure", "chars" to payload.length)
+                            throw e
+                        }
+                        diagnostic.mark("decode.audio", "chars" to payload.length, "decoded" to bytes.size, sampled = true, bytes = bytes.size.toLong())
                         if (bytes.isNotEmpty()) {
                             if (receivedAudioBytes == 0L) AndroidAgentLogger.info("Duplex: first audio bytes=${bytes.size}")
                             receivedAudioBytes += bytes.size
+                            val queueStart = android.os.SystemClock.elapsedRealtime()
                             output.send(bytes)
+                            diagnostic.mark("audio.enqueue", "blockedMs" to (android.os.SystemClock.elapsedRealtime() - queueStart), sampled = true, bytes = bytes.size.toLong())
                         }
                     }
                     "response.output_audio.done" -> {
@@ -163,19 +177,35 @@ internal class DoubaoDuplexSession(
         )
         recorder = audio
         check(audio.state == AudioRecord.STATE_INITIALIZED) { "无法打开麦克风" }
+        diagnostic.mark("capture.init", "state" to audio.state, "rate" to audio.sampleRate,
+            "channels" to audio.channelCount, "session" to audio.audioSessionId, "source" to MediaRecorder.AudioSource.VOICE_COMMUNICATION)
         audio.startRecording()
+        diagnostic.mark("capture.start", "state" to audio.recordingState)
         check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "麦克风没有开始录音" }
         val frame = ByteArray(INPUT_FRAME_BYTES)
         try {
             while (currentCoroutineContext().isActive && !closed) {
                 val count = audio.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
+                var peak = 0
+                var sumSquares = 0.0
+                for (i in 0 until (count.coerceAtLeast(0) - 1) step 2) {
+                    val sample = ((frame[i].toInt() and 255) or (frame[i + 1].toInt() shl 8)).toShort().toInt()
+                    peak = maxOf(peak, kotlin.math.abs(sample))
+                    sumSquares += sample.toDouble() * sample
+                }
+                diagnostic.mark("capture.read", "read" to count, "peak" to peak,
+                    "rms" to if (count > 1) kotlin.math.sqrt(sumSquares / (count / 2)) else 0.0,
+                    "route" to (audio.routedDevice?.type ?: -1), sampled = true, bytes = count.coerceAtLeast(0).toLong())
                 check(count >= 0) { "麦克风读取失败" }
                 if (count == 0) continue
                 val payload = if (count == frame.size) frame else frame.copyOf(count)
                 val event = JSONObject()
                     .put("type", "input_audio_buffer.append")
                     .put("audio", Base64.encodeToString(payload, Base64.NO_WRAP))
-                check(ws.send(event.toString())) { "实时语音连接已关闭" }
+                val accepted = ws.send(event.toString())
+                diagnostic.mark("upload.send", "accepted" to if (accepted) 1 else 0,
+                    "wsQueueBytes" to ws.queueSize(), sampled = accepted, bytes = count.toLong())
+                check(accepted) { "实时语音连接已关闭" }
             }
         } finally {
             runCatching { audio.stop() }
@@ -210,13 +240,19 @@ internal class DoubaoDuplexSession(
             .build()
         player = track
         check(track.state == AudioTrack.STATE_INITIALIZED) { "无法打开扬声器" }
+        diagnostic.mark("playback.init", "state" to track.state, "rate" to track.sampleRate, "bufferFrames" to track.bufferSizeInFrames)
         track.play()
+        diagnostic.mark("playback.start", "state" to track.playState)
         try {
             for (bytes in output) {
                 currentCoroutineContext().ensureActive()
                 var offset = 0
                 while (offset < bytes.size) {
                     val written = track.write(bytes, offset, bytes.size - offset, AudioTrack.WRITE_BLOCKING)
+                    diagnostic.mark("playback.write", "written" to written,
+                        "route" to (track.routedDevice?.type ?: -1), "playState" to track.playState,
+                        "headFrames" to track.playbackHeadPosition, "underruns" to track.underrunCount,
+                        sampled = written > 0, bytes = written.coerceAtLeast(0).toLong())
                     check(written > 0) { "实时语音播放失败：AudioTrack write=$written" }
                     if (writtenAudioBytes == 0L) AndroidAgentLogger.info("Duplex: first playback write=$written route=${track.routedDevice?.type}")
                     writtenAudioBytes += written
@@ -232,7 +268,9 @@ internal class DoubaoDuplexSession(
     }
 
     private fun flushOutput() {
-        while (output.tryReceive().isSuccess) Unit
+        var dropped = 0L
+        while (true) { val bytes = output.tryReceive().getOrNull() ?: break; dropped += bytes.size }
+        diagnostic.mark("playback.flush", "droppedBytes" to dropped)
         player?.let { track ->
             runCatching { track.pause() }
             runCatching { track.flush() }
@@ -243,6 +281,7 @@ internal class DoubaoDuplexSession(
     fun close() {
         if (closed) return
         closed = true
+        diagnostic.mark("close.begin", "receivedBytes" to receivedAudioBytes, "writtenBytes" to writtenAudioBytes)
         socket?.send(JSONObject().put("type", "session.close").put("event_id", UUID.randomUUID().toString()).toString())
         captureJob?.cancel()
         playbackJob?.cancel()
@@ -257,45 +296,52 @@ internal class DoubaoDuplexSession(
         player = null
         socket?.close(1000, "voice mode stopped")
         socket = null
+        diagnostic.mark("resources.close")
+        diagnostic.finish()
     }
 
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            diagnostic.mark("connect.open", "http" to response.code)
             opened.complete(webSocket)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            diagnostic.mark("ws.text", sampled = true, bytes = text.length.toLong())
             acceptEvent(text)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            diagnostic.mark("ws.binary", sampled = true, bytes = bytes.size.toLong())
             acceptEvent(bytes.utf8())
         }
 
         private fun acceptEvent(text: String) {
             runCatching { JSONObject(text) }
                 .onSuccess { event ->
-                    if (event.optString("type").contains("audio") &&
-                        !event.optString("type").contains("transcription")) {
-                        val shape = event.keys().asSequence().take(24).joinToString { key ->
-                            val value = event.opt(key)
-                            "$key:${value?.javaClass?.simpleName}:${if (value is String) value.length else -1}"
-                        }
-                        AndroidAgentLogger.info("Duplex: audio event=${event.optString("type")} status=${event.optString("status_code").take(40)} fields=[$shape]")
-                    }
-                    if (event.optString("type") == "response.output_audio.done") {
-                        AndroidAgentLogger.info("Duplex: audio done receivedBytes=$receivedAudioBytes writtenBytes=$writtenAudioBytes")
-                    }
-                    events.trySend(event)
+                    val known = setOf("session.created", "session.updated", "session.closed", "input_audio_buffer.committed",
+                        "conversation.item.input_audio_transcription.started", "conversation.item.input_audio_transcription.delta",
+                        "conversation.item.input_audio_transcription.completed", "conversation.item.input_audio_transcription.failed",
+                        "response.output_text.delta", "response.output_text.done", "response.output_audio.started",
+                        "response.output_audio.delta", "response.output_audio.done", "response.done", "response.canceled", "error")
+                    val type = event.optString("type").takeIf { it in known } ?: "unknown"
+                    diagnostic.mark("rx.$type", "audioChars" to event.optString("audio").length,
+                        "deltaChars" to event.optString("delta").length, "textChars" to event.optString("text").length,
+                        "status" to event.optLong("status_code", -1), "fields" to event.length(),
+                        sampled = type.endsWith(".delta") || type == "unknown")
+                    event.put("_etaReceivedAt", android.os.SystemClock.elapsedRealtime())
+                    if (events.trySend(event).isFailure) diagnostic.mark("event.dropped", sampled = true)
+
                 }
                 .onFailure {
-                    AndroidAgentLogger.warn("Duplex: invalid JSON event frame")
+                    diagnostic.mark("event.parse_failure", "chars" to text.length)
                     events.trySend(JSONObject().put("type", "error").put("error",
                         JSONObject().put("message", "实时语音事件解析失败")))
                 }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            diagnostic.mark("connect.failure", "http" to (response?.code ?: -1), "closed" to if (closed) 1 else 0)
             if (!opened.isCompleted) opened.completeExceptionally(t)
             if (!closed) events.trySend(
                 JSONObject().put("type", "error").put("error", JSONObject().put("message", "实时语音连接失败")),
@@ -304,6 +350,7 @@ internal class DoubaoDuplexSession(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            diagnostic.mark("connect.closed", "code" to code)
             finished.complete(Unit)
         }
     }

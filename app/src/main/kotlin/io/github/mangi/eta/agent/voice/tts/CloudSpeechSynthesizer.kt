@@ -23,6 +23,7 @@ import org.json.JSONObject
 internal class CloudSpeechSynthesizer(
     private val httpClient: OkHttpClient = AgentHttpClient.modelClient.newBuilder()
         .callTimeout(90, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build(),
+    private val diagnostic: io.github.mangi.eta.agent.voice.VoiceDiagnostics = io.github.mangi.eta.agent.voice.VoiceDiagnostics("synthesis"),
 ) {
     private val doubaoClient: OkHttpClient by lazy {
         httpClient.newBuilder()
@@ -99,13 +100,16 @@ internal class CloudSpeechSynthesizer(
         decode: (String?, ByteArray) -> ByteArray = Companion::decodeDoubaoAudio,
     ): ByteArray =
         suspendCancellableCoroutine { continuation ->
+            diagnostic.mark("synthesis.http.begin")
             val call = client.newCall(request)
-            continuation.invokeOnCancellation { call.cancel() }
+            continuation.invokeOnCancellation { diagnostic.mark("synthesis.cancelled"); call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
+                    diagnostic.mark("synthesis.network_failure")
                     if (continuation.isActive) continuation.resumeWithException(IOException("朗读网络请求失败，请检查网络与接口"))
                 }
                 override fun onResponse(call: Call, response: Response) {
+                    diagnostic.mark("synthesis.http.response", "http" to response.code)
                     try {
                         val bytes = response.use {
                             speechCheck(it.isSuccessful) { "朗读接口 HTTP ${it.code}，请核对 Speech 协议、模型与音色" }
@@ -123,6 +127,7 @@ internal class CloudSpeechSynthesizer(
                                 }
                             }
                             val payload = out.toByteArray()
+                            diagnostic.mark("synthesis.body", "bytes" to payload.size)
                             if (rawMp3) {
                                 val type = it.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
                                 if (type in setOf("audio/wav", "audio/x-wav", "audio/wave")) payload
@@ -134,8 +139,10 @@ internal class CloudSpeechSynthesizer(
                                 decode(it.header("Content-Type"), payload)
                             }
                         }
+                        diagnostic.mark("synthesis.decoded", "bytes" to bytes.size)
                         if (continuation.isActive) continuation.resume(bytes)
                     } catch (e: Exception) {
+                        diagnostic.mark("synthesis.failed")
                         if (continuation.isActive) continuation.resumeWithException(
                             if (e is SpeechPlaybackFailure) e else SpeechPlaybackFailure("朗读音频读取失败"),
                         )

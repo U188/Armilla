@@ -80,10 +80,10 @@ internal object SpeechPlayback {
         }
     }
 
-    fun speak(context: Context, owner: String, markdown: String) {
-        if (recordingToken != null) return
+    fun speak(context: Context, owner: String, markdown: String, diagnostic: io.github.mangi.eta.agent.voice.VoiceDiagnostics = io.github.mangi.eta.agent.voice.VoiceDiagnostics("tts")) {
+        if (recordingToken != null) { diagnostic.mark("tts.blocked_recording"); return }
         stop()
-        start(context, owner, markdown)
+        start(context, owner, markdown, diagnostic)
     }
 
     fun toggle(context: Context, owner: String, markdown: String) {
@@ -92,12 +92,13 @@ internal object SpeechPlayback {
         start(context, owner, markdown)
     }
 
-    private fun start(context: Context, owner: String, markdown: String) {
+    private fun start(context: Context, owner: String, markdown: String, diagnostic: io.github.mangi.eta.agent.voice.VoiceDiagnostics = io.github.mangi.eta.agent.voice.VoiceDiagnostics("tts")) {
         stop()
         val token = epoch.next()
         val app = context.applicationContext
         // Capture preferences once: settings changed while loading must not mix provider/model/voice.
         val cloud = Prefs.getString(Prefs.Keys.AGENT_TTS_MODE) == "cloud"
+        diagnostic.mark("tts.begin", "chars" to markdown.length, "cloud" to if (cloud) 1 else 0)
         val providerId = Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_PROVIDER_ID)
         val modelId = Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_ID)
         val voiceId = Prefs.getString(Prefs.Keys.AGENT_TTS_VOICE).trim()
@@ -113,7 +114,8 @@ internal object SpeechPlayback {
                     speechCheck(markdown.length <= SpeechSpeakableText.MAX_SOURCE_CHARS) { "回复过长，请分段朗读" }
                     val sentences = withContext(Dispatchers.Default) { SpeechSpeakableText.sentences(markdown) }
                     speechCheck(sentences.isNotEmpty()) { "这条回复没有可朗读的正文" }
-                    withAudioFocus(app, token) {
+                    diagnostic.mark("tts.sentences", "count" to sentences.size)
+                    withAudioFocus(app, token, diagnostic) {
                         if (!cloud) {
                             SystemSpeechSynthesizer().speak(app, sentences) { voice ->
                                 if (epoch.isCurrent(token)) mutableState.value = SpeechPlaybackState(owner, source = "系统本地音色 · $voice")
@@ -130,7 +132,7 @@ internal object SpeechPlayback {
                             }
                             val voice = voiceId
                             speechCheck(voice.isNotEmpty()) { "请先选择音色" }
-                            val synth = CloudSpeechSynthesizer()
+                            val synth = CloudSpeechSynthesizer(diagnostic = diagnostic)
                             val label = when (SpeechEngineResolver.resolve(config.providerSourceType, config.baseUrl, config.model)) {
                                 SpeechEngine.DOUBAO -> "豆包语音"
                                 SpeechEngine.MIMO -> "小米语音"
@@ -152,17 +154,21 @@ internal object SpeechPlayback {
                                     if (index < sentences.lastIndex) next = async { synth.synthesize(config, sentences[index + 1], voice) }
                                     currentCoroutineContext().ensureActive()
                                     if (epoch.isCurrent(token)) mutableState.value = SpeechPlaybackState(owner, source = "$label · ${index + 1}/${sentences.size}")
-                                    playMp3(app, bytes)
+                                    playMp3(app, bytes, diagnostic)
                                 }
                             }
                         }
                     }
+                    diagnostic.mark("tts.completed")
                     if (epoch.isCurrent(token)) mutableState.value = SpeechPlaybackState()
                 } catch (e: TimeoutCancellationException) {
+                    diagnostic.mark("tts.timeout")
                     if (epoch.isCurrent(token)) mutableState.value = SpeechPlaybackState(error = "朗读等待超时，请重试或检查系统语音引擎")
                 } catch (e: CancellationException) {
+                    diagnostic.mark("tts.cancelled")
                     throw e
                 } catch (e: Exception) {
+                    diagnostic.mark("tts.failed")
                     // Config/decoder exceptions may include URLs, never surface them verbatim.
                     if (epoch.isCurrent(token)) mutableState.value = SpeechPlaybackState(error = when (e) {
                         is SpeechPlaybackFailure -> e.message
@@ -178,14 +184,17 @@ internal object SpeechPlayback {
         }
     }
 
-    private suspend fun withAudioFocus(context: Context, token: Long, block: suspend () -> Unit) {
+    private suspend fun withAudioFocus(context: Context, token: Long, diagnostic: io.github.mangi.eta.agent.voice.VoiceDiagnostics, block: suspend () -> Unit) {
         val audio = context.getSystemService(AudioManager::class.java)
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(audioAttributes).setWillPauseWhenDucked(true)
             .setOnAudioFocusChangeListener { change ->
+                diagnostic.mark("focus.changed", "change" to change)
                 if (change < 0 && epoch.isCurrent(token)) stop()
             }.build()
-        speechCheck(audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) { "暂时无法取得音频焦点，请稍后朗读" }
+        val focusResult = audio.requestAudioFocus(request)
+        diagnostic.mark("focus.request", "result" to focusResult, "volume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+        speechCheck(focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) { "暂时无法取得音频焦点，请稍后朗读" }
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (epoch.isCurrent(token)) stop()
@@ -202,7 +211,8 @@ internal object SpeechPlayback {
         }
     }
 
-    private suspend fun playMp3(context: Context, bytes: ByteArray) {
+    private suspend fun playMp3(context: Context, bytes: ByteArray, diagnostic: io.github.mangi.eta.agent.voice.VoiceDiagnostics) {
+        diagnostic.mark("player.prepare", "bytes" to bytes.size)
         val directory = File(context.cacheDir, "speech-playback")
         val payload = DoubaoSpeech.decodeAudio(bytes)
         val file = File(directory, "${UUID.randomUUID()}.${payload.extension}")
@@ -219,13 +229,15 @@ internal object SpeechPlayback {
                 suspendCancellableCoroutine<Unit> { continuation ->
                     player.setOnPreparedListener {
                         if (continuation.isActive) {
-                            try { it.start() } catch (_: Exception) {
+                            diagnostic.mark("player.prepared", "durationMs" to it.duration)
+                            try { it.start(); diagnostic.mark("player.started") } catch (_: Exception) {
                                 if (continuation.isActive) continuation.resumeWithException(SpeechPlaybackFailure("音频播放器启动失败"))
                             }
                         }
                     }
-                    player.setOnCompletionListener { if (continuation.isActive) continuation.resume(Unit) }
-                    player.setOnErrorListener { _, _, _ ->
+                    player.setOnCompletionListener { diagnostic.mark("player.completed"); if (continuation.isActive) continuation.resume(Unit) }
+                    player.setOnErrorListener { _, what, extra ->
+                        diagnostic.mark("player.error", "what" to what, "extra" to extra)
                         if (continuation.isActive) continuation.resumeWithException(SpeechPlaybackFailure("无法播放接口返回的音频"))
                         true
                     }

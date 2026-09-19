@@ -51,6 +51,7 @@ internal class DoubaoDuplexSession(
     private var transcript = ""
     private var reply = ""
     private var replyResponseId = ""
+    private var turnAudioStartBytes = 0L
     private var receivedAudioBytes = 0L
     private var writtenAudioBytes = 0L
 
@@ -106,7 +107,10 @@ internal class DoubaoDuplexSession(
                         reply = event.optString("text").ifBlank { reply }
                         onState(state(VoiceModePhase.Speaking))
                     }
-                    "response.output_audio.started" -> onState(state(VoiceModePhase.Speaking))
+                    "response.output_audio.started" -> {
+                        turnAudioStartBytes = receivedAudioBytes
+                        onState(state(VoiceModePhase.Speaking))
+                    }
                     "response.output_audio.delta" -> {
                         val bytes = Base64.decode(DoubaoDuplexProtocol.audioPayload(event), Base64.DEFAULT)
                         if (bytes.isNotEmpty()) {
@@ -115,7 +119,14 @@ internal class DoubaoDuplexSession(
                             output.send(bytes)
                         }
                     }
-                    "response.output_audio.done", "response.done", "response.canceled" -> {
+                    "response.output_audio.done" -> {
+                        if (receivedAudioBytes == turnAudioStartBytes) {
+                            val code = event.optString("status_code").take(40)
+                            error("豆包未返回可播放音频（状态码：${code.ifBlank { "未提供" }}），请检查实时语音音色和服务权限")
+                        }
+                        onState(state(VoiceModePhase.Listening))
+                    }
+                    "response.done", "response.canceled" -> {
                         onState(state(VoiceModePhase.Listening))
                     }
                     "error" -> error(safeError(event))
@@ -264,6 +275,14 @@ internal class DoubaoDuplexSession(
         private fun acceptEvent(text: String) {
             runCatching { JSONObject(text) }
                 .onSuccess { event ->
+                    if (event.optString("type").contains("audio") &&
+                        !event.optString("type").contains("transcription")) {
+                        val shape = event.keys().asSequence().take(24).joinToString { key ->
+                            val value = event.opt(key)
+                            "$key:${value?.javaClass?.simpleName}:${if (value is String) value.length else -1}"
+                        }
+                        AndroidAgentLogger.info("Duplex: audio event=${event.optString("type")} status=${event.optString("status_code").take(40)} fields=[$shape]")
+                    }
                     if (event.optString("type") == "response.output_audio.done") {
                         AndroidAgentLogger.info("Duplex: audio done receivedBytes=$receivedAudioBytes writtenBytes=$writtenAudioBytes")
                     }

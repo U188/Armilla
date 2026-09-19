@@ -31,6 +31,12 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
     val view = LocalView.current
     val state by OfflineSpeechPack.state.collectAsState()
     val config by DoubaoVoiceConfig.state.collectAsState()
+    var page by remember { mutableStateOf<String?>(null) }
+    androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
+    if (page != null) {
+        DoubaoVoiceSettings(page = page!!, onBack = { page = null })
+        return
+    }
     var confirmDownload by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { DoubaoVoiceConfig.load(context); OfflineSpeechPack.initialize(context) }
     MiuixScaffoldPage(title = stringResource(R.string.speech_title), onBack = onBack) {
@@ -38,7 +44,7 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                 SwitchPreference(
                     title = stringResource(R.string.speech_enable),
-                    summary = "统一控制聊天听写和普通语音对话的识别；当前引擎：" + if (config.cloudAsr) "豆包 ASR" else "离线识别",
+                    summary = "点击聊天输入框的语音按钮，把说话变成文字。",
                     insideMargin = PaddingValues(16.dp),
                     checked = config.inputEnabled,
                     enabled = true,
@@ -79,7 +85,24 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
                 }
             }
         }
-        item(key = "doubao_voice") { DoubaoVoiceSettings() }
+        item(key = "recognition_method") {
+            Card(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                ArrowPreference(title = "识别方式", summary = if (config.cloudAsr) "豆包识别 · 需要联网" else "本机识别 · 无需账户",
+                    insideMargin = PaddingValues(16.dp), onClick = { page = "asr" })
+            }
+        }
+        item(key = "my_voices") {
+            Card(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                ArrowPreference(title = "我的声音", summary = "导入、制作和试听个人声音",
+                    insideMargin = PaddingValues(16.dp), onClick = { page = "voices" })
+            }
+        }
+        item(key = "voice_diagnostics") {
+            Card(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                ArrowPreference(title = "帮助与诊断", summary = "遇到连接或声音问题时查看",
+                    insideMargin = PaddingValues(16.dp), onClick = { page = "diagnostics" })
+            }
+        }
         item(key = "speech_privacy") {
             Text(if (config.cloudAsr) "点击后收音，音频发送至豆包识别；文字留在输入框，不自动发送。离开聊天或切到后台停止收音。" else stringResource(R.string.speech_privacy),
                 modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),

@@ -247,7 +247,6 @@ internal class UserTerminalStore(
     fun send(rawCommand: String) {
         val command = rawCommand.trim()
         if (command.isEmpty()) return
-        if (command.length > 16_000) return
         val state = _uiState.value
         if (state.running) return
         val environment = state.environment

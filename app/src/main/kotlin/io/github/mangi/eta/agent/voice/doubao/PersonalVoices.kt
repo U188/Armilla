@@ -64,6 +64,15 @@ internal object PersonalVoices {
     }
     internal fun identity(voice: Voice) = if (voice.id.startsWith("S_")) JSONObject().put("speaker_id", voice.id)
         else JSONObject().put("speaker_id", "custom_speaker_id").put("custom_speaker_id", voice.id)
+    suspend fun importExisting(key: String, id: String, name: String): Voice = withContext(Dispatchers.IO) {
+        check(loaded)
+        require(key.isNotBlank()) { "请先保存豆包账户" }
+        val speakerId = trainingIdentity(id)
+        val previous = find(speakerId, key)
+        val voice = previous?.copy(name = name.trim().ifBlank { previous.name })
+            ?: Voice(speakerId, name.trim().ifBlank { speakerId }, account(key))
+        updated(voice, request("get_voice", key, identity(voice))).also { save(it) }
+    }
     suspend fun importPurchased(key: String, ak: String, sk: String, project: String): Int = withContext(Dispatchers.IO) {
         check(loaded)
         val list = DoubaoVoiceCatalog.list(ak, sk, project)

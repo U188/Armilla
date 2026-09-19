@@ -15,6 +15,16 @@ class RootShellTerminalControllerTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
+    @Test fun oneShotAcceptsLongCommandWithHeredocAndUnicode() {
+        val controller = RootShellTerminalController(NoopLogger)
+        try {
+            val command = "cat <<'END' >/dev/null\n" + "中文 payload\n".repeat(20000) + "END\nprintf long-command-ok"
+            val result = JSONObject(controller.terminalOpenAndExec(command, temporaryFolder.root.absolutePath, 10000, "user", false))
+            assertTrue(result.toString(), result.getBoolean("ok"))
+            assertEquals("long-command-ok", result.getString("stdout"))
+        } finally { controller.closeAll() }
+    }
+
     @Test
     fun sessionExecKeepsShellEnvironment() {
         val controller = RootShellTerminalController(NoopLogger)

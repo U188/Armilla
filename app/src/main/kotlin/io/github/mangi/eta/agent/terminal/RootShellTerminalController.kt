@@ -28,7 +28,6 @@ internal class RootShellTerminalController(
         const val USER_STORAGE = "/storage/emulated/0"
         const val DEFAULT_TIMEOUT_SECONDS = 30
         const val MAX_TIMEOUT_SECONDS = 180
-        const val MAX_COMMAND_CHARS = 16_000
         const val MAX_OUTPUT_CHARS = 16_000
         const val MAX_READ_BYTES = 256 * 1024
         const val MAX_WRITE_BYTES = 512 * 1024
@@ -281,7 +280,6 @@ internal class RootShellTerminalController(
     ): String {
         val trimmed = command.trim()
         if (trimmed.isBlank()) return errorJson("INVALID_ARGUMENT", "command 不能为空")
-        require(trimmed.length <= MAX_COMMAND_CHARS) { "command 过长：${trimmed.length}" }
         val normalizedIdentity = normalizeIdentity(identity)
         environmentPreflight(normalizedIdentity, environment)?.let { return it }
         val safeCwd = normalizeCwd(cwd, environment, normalizedIdentity)
@@ -413,7 +411,6 @@ internal class RootShellTerminalController(
             ?: return errorJson("DAEMON_UNAVAILABLE", "守护任务宿主不可用")
         val trimmed = command.trim()
         if (trimmed.isBlank()) return errorJson("INVALID_ARGUMENT", "command 不能为空")
-        require(trimmed.length <= MAX_COMMAND_CHARS) { "command 过长：${trimmed.length}" }
         val normalizedEnvironment = normalizeEnvironment(environment)
         val normalizedIdentity = normalizeIdentity(identity.ifBlank { defaultIdentity(normalizedEnvironment) })
         environmentPreflight(normalizedIdentity, normalizedEnvironment)?.let { return it }
@@ -591,7 +588,6 @@ internal class RootShellTerminalController(
     ): String {
         val trimmed = command.trim()
         if (trimmed.isBlank()) return errorJson("INVALID_ARGUMENT", "command 不能为空")
-        require(trimmed.length <= MAX_COMMAND_CHARS) { "command 过长：${trimmed.length}" }
         val timeout = timeoutMs.coerceIn(1_000, MAX_TIMEOUT_SECONDS * 1000)
         val result = runSessionCommand(session, trimmed, timeout)
         val outcome = when {
@@ -736,7 +732,6 @@ internal class RootShellTerminalController(
     ): String {
         val trimmed = command.trim()
         if (trimmed.isBlank()) return errorJson("INVALID_ARGUMENT", "command 不能为空")
-        require(trimmed.length <= MAX_COMMAND_CHARS) { "command 过长：${trimmed.length}" }
         val normalizedIdentity = normalizeIdentity(identity)
         environmentPreflight(normalizedIdentity, environment)?.let { return it }
         val safeCwd = normalizeCwd(cwd, environment, normalizedIdentity)

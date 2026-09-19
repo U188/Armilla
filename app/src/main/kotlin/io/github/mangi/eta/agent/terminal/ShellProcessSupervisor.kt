@@ -61,11 +61,13 @@ internal class ShellProcessSupervisor(
             File.createTempFile("eta-terminal-", ".owner")
         }.getOrNull() ?: return null
         val ownershipToken = UUID.randomUUID().toString().replace("-", "")
+        val prepared = try { LongShellCommand.prepare(command, environment, linuxRootfsPath) }
+        catch (_: Exception) { ownershipFile.delete(); return null }
         val launcher = try {
             buildTrackedShellLauncher(
                 ownershipFile = ownershipFile,
                 ownershipToken = ownershipToken,
-                command = command,
+                command = prepared.command,
                 identity = identity,
                 environment = environment,
                 linuxRootfsPath = linuxRootfsPath,
@@ -76,9 +78,11 @@ internal class ShellProcessSupervisor(
             )
         } catch (_: IllegalArgumentException) {
             ownershipFile.delete()
+            prepared.file?.delete()
             return null
         } catch (_: java.io.IOException) {
             ownershipFile.delete()
+            prepared.file?.delete()
             return null
         }
         val process = runCatching {
@@ -93,9 +97,10 @@ internal class ShellProcessSupervisor(
             builder.redirectErrorStream(mergeStderr).start()
         }.getOrElse {
             ownershipFile.delete()
+            prepared.file?.delete()
             return null
         }
-        val metadata = ProcessMetadata(identity, ownershipFile, ownershipToken)
+        val metadata = ProcessMetadata(identity, ownershipFile, ownershipToken, prepared.file)
         val accepted = synchronized(activeProcesses) {
             if (isClosing) {
                 false
@@ -108,6 +113,7 @@ internal class ShellProcessSupervisor(
         if (!accepted) {
             terminateAndReap(process, metadata)
             metadata.ownershipFile.delete()
+            metadata.commandFile?.delete()
             return null
         }
         val ownership = resolveProcessOwnership(metadata)
@@ -161,6 +167,7 @@ internal class ShellProcessSupervisor(
             processMetadata.remove(process)
         }
         metadata?.ownershipFile?.delete()
+        metadata?.commandFile?.delete()
     }
 
     /** leader 已退出后只废止所有权；禁止再向可能复用的 PID/PGID 发信号。 */
@@ -524,6 +531,7 @@ internal class ShellProcessSupervisor(
         val identity: String,
         val ownershipFile: File,
         val ownershipToken: String,
+        val commandFile: File? = null,
     ) {
         @Volatile
         var ownership: ProcessOwnership? = null

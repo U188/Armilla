@@ -102,9 +102,18 @@ internal class DetachedTaskSupervisor(
         if (list().count { it.running } >= MAX_TASKS) {
             return DaemonStartResult.Failed("MAX_TASKS_REACHED", "守护任务数量已达上限 $MAX_TASKS，请先停止不用的任务")
         }
+        val prepared = try { LongShellCommand.prepare(command, environment, rootfsPath(environment)) }
+        catch (_: Exception) { return DaemonStartResult.Failed("SCRIPT_WRITE_FAILED", "无法准备命令文件") }
+        val result = try { startPrepared(command, requireNotNull(prepared.command), cwd, identity, environment) }
+        catch (e: Exception) { prepared.file?.delete(); throw e }
+        if (result is DaemonStartResult.Failed) prepared.file?.delete()
+        return result
+    }
+
+    private fun startPrepared(originalCommand: String, command: String, cwd: String, identity: String, environment: TerminalEnvironment): DaemonStartResult {
         val id = "dm_" + UUID.randomUUID().toString().take(8)
         val token = UUID.randomUUID().toString().replace("-", "")
-        if (identity == "user") return startUserDaemon(id, token, command, cwd, environment)
+        if (identity == "user") return startUserDaemon(id, token, command, cwd, environment, originalCommand)
         val wireDir = wireDaemonDir(environment)
         val wirePidFile = "$wireDir/$id.pid"
         val wireLogFile = "$wireDir/$id.log"
@@ -146,7 +155,7 @@ internal class DetachedTaskSupervisor(
             id = id,
             pid = pid,
             token = token,
-            command = command,
+            command = originalCommand,
             cwd = cwd,
             identity = identity,
             environment = environment,
@@ -281,7 +290,7 @@ internal class DetachedTaskSupervisor(
     private fun ownerProof(task: DetachedTask): String = "$ETA_PROCESS_OWNER_ENV=${task.token}"
 
     /** 普通守护任务保留完整宿主壳和 tracer；guest 内不能再次脱离 PRoot 的生命周期。 */
-    private fun startUserDaemon(id: String, token: String, command: String, cwd: String, environment: TerminalEnvironment): DaemonStartResult {
+    private fun startUserDaemon(id: String, token: String, command: String, cwd: String, environment: TerminalEnvironment, originalCommand: String): DaemonStartResult {
         val workspace = if (environment.isLinux || daemonDir == DEFAULT_DAEMON_DIR) TerminalRuntime.userWorkspacePath else File(daemonDir).parent!!
         val hostDir = if (environment.isLinux || daemonDir == DEFAULT_DAEMON_DIR) File(workspace, "daemon") else File(daemonDir)
         if (!hostDir.mkdirs() && !hostDir.isDirectory) return DaemonStartResult.Failed("WORKSPACE_UNAVAILABLE", "工作目录不可访问")
@@ -328,7 +337,7 @@ internal class DetachedTaskSupervisor(
                 releaseUserLease(lease)
                 return@synchronized DaemonStartResult.Failed("PROCESS_START_FAILED", "后台任务未完成启动")
             }
-            val task = DetachedTask(id, pid, token, command, cwd, "user", environment,
+            val task = DetachedTask(id, pid, token, originalCommand, cwd, "user", environment,
                 if (environment.isLinux) "$LINUX_DAEMON_DIR/$id.log" else logFile.absolutePath,
                 System.currentTimeMillis(), if (environment.isLinux) LinuxExecutionBackend.PROOT else LinuxExecutionBackend.CHROOT, workspace)
             USER_WAITERS.add(id)

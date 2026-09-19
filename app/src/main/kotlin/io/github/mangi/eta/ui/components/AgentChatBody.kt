@@ -902,7 +902,6 @@ internal fun AgentConversationMessages(
                                 onRegenerateMessage = onRegenerateMessage,
                                 onBranchMessage = onBranchMessage,
                                 isPaused = isPaused,
-                                freezeReveal = isUserScrolling,
                                 modifier = if (isStreaming) Modifier else Modifier.animateItem(
                                     fadeInSpec = tween(durationMillis = 180),
                                     placementSpec = null,
@@ -931,7 +930,6 @@ internal fun AgentConversationMessages(
                                 currentBrowserMessageId = currentBrowserMessageId,
                                 retainedStreamingStates = streamingMarkdownStates,
                                 isPaused = isPaused,
-                                freezeReveal = isUserScrolling,
                                 isTrailing = entry.key == trailingWorkKey,
                                 turnStreaming = isStreaming,
                                 modifier = if (isStreaming) Modifier else Modifier.animateItem(

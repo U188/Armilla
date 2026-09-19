@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import io.github.mangi.eta.EtaApp
+import io.github.mangi.eta.ui.components.StreamPerformanceDiagnostics
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.accessibility.AgentAccessibilityService
 import io.github.mangi.eta.agent.device.AgentFileReferenceGateway
@@ -3261,6 +3262,9 @@ internal class AgentAppState(
     }
 
     private fun enqueueRunEvent(runId: String, event: AgentEvent) {
+        if (event is AgentEvent.AssistantBlockDelta) {
+            StreamPerformanceDiagnostics.record("ui.delta.received", value = event.delta.length.toLong())
+        }
         if (stoppingRuns.containsKey(runId) && event !is AgentEvent.ContextCompacted &&
             event !is AgentEvent.UserSupplementReceived && event !is AgentEvent.UsageReceived) return
         if (runMessageProjector.isSealed(runId) && !event.allowedAfterSeal()) {
@@ -3287,8 +3291,10 @@ internal class AgentAppState(
 
     private fun scheduleRunDeltaFlush(runId: String) {
         if (runEventFlushJobs[runId]?.isActive == true) return
+        val scheduledAtNs = System.nanoTime()
         runEventFlushJobs[runId] = scope.launch {
             delay(STREAM_UI_UPDATE_INTERVAL_MS)
+            StreamPerformanceDiagnostics.record("ui.flushDelay", System.nanoTime() - scheduledAtNs)
             runEventFlushJobs.remove(runId)
             flushPendingRunDelta(runId)
         }
@@ -4052,12 +4058,14 @@ internal class AgentAppState(
     ) {
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationsById[conversationId] ?: return
-        val nextMessages = transform(state.messages)
-        updateConversation(
-            conversationId = conversationId,
-            state = state.copy(messages = nextMessages),
-            updateTimestamp = updateTimestamp,
-        )
+        StreamPerformanceDiagnostics.measure("ui.messages.apply", state.messages.size.toLong()) {
+            val nextMessages = transform(state.messages)
+            updateConversation(
+                conversationId = conversationId,
+                state = state.copy(messages = nextMessages),
+                updateTimestamp = updateTimestamp,
+            )
+        }
     }
 
     private fun applyConversationHistoryResult(

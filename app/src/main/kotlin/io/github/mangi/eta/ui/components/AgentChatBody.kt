@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -196,6 +197,8 @@ internal fun AgentChatBody(
     onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    StreamPerformanceMonitor(isStreaming)
+    SideEffect { StreamPerformanceDiagnostics.record("chat.compose", value = messages.size.toLong()) }
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val view = LocalView.current
@@ -292,8 +295,10 @@ internal fun AgentChatBody(
         // This used to parse EVERY historical reply synchronously on each text delta.
         // Cancelling this producer prevents obsolete galleries from being published.
         value = withContext(Dispatchers.Default) {
-            collectPreviewableChatImages(visibleMessages, pendingImages) { message ->
-                imageSourceCache.sources(message.id, message.content)
+            StreamPerformanceDiagnostics.measure("gallery.scan", visibleMessages.size.toLong()) {
+                collectPreviewableChatImages(visibleMessages, pendingImages) { message ->
+                    imageSourceCache.sources(message.id, message.content)
+                }
             }
         }
     }
@@ -616,6 +621,7 @@ internal fun AgentConversationMessages(
     LaunchedEffect(scrollState) {
         snapshotFlow { currentDragging.value to scrollState.isScrollInProgress }
             .collect { (dragging, inProgress) ->
+                StreamPerformanceDiagnostics.record("scroll.state", value = if (dragging) 1 else 0)
                 isUserScrolling = when {
                     dragging -> true
                     !inProgress -> false
@@ -739,6 +745,7 @@ internal fun AgentConversationMessages(
                     viewportEnd = layout.viewportEnd,
                     lastVisibleIndex = layout.lastVisibleIndex,
                 )
+                StreamPerformanceDiagnostics.record("follow.decision", value = decision.scrollByPx.toLong())
                 bottomFollowDecisions.trySend(decision)
             }
     }
@@ -801,8 +808,7 @@ internal fun AgentConversationMessages(
             var consumedStep = 0f
             try {
                 scrollState.scroll {
-                    scrollBy(step)
-                    consumedStep = step
+                    consumedStep = StreamPerformanceDiagnostics.measure("follow.scroll") { scrollBy(step) }
                 }
                 remainingDistancePx = if (consumedStep > 0f) {
                     (remainingDistancePx - consumedStep).coerceAtLeast(0f)
@@ -810,6 +816,7 @@ internal fun AgentConversationMessages(
                     0f
                 }
             } catch (cancelled: CancellationException) {
+                StreamPerformanceDiagnostics.record("follow.cancelled")
                 if (!currentCoroutineContext().isActive) throw cancelled
                 remainingDistancePx = 0f
             }

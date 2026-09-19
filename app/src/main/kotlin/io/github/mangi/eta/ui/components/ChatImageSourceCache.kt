@@ -10,8 +10,16 @@ internal class ChatImageSourceCache(
 
     @Synchronized
     fun sources(messageId: String, content: String): List<String> {
-        entries[messageId]?.takeIf { it.content == content }?.let { return it.sources }
-        val sources = if (content.contains("![")) parse(content) else emptyList()
+        entries[messageId]?.takeIf { it.content == content }?.let {
+            StreamPerformanceDiagnostics.record("gallery.hit")
+            return it.sources
+        }
+        val sources = if (content.contains("![")) {
+            StreamPerformanceDiagnostics.measure("gallery.parse", content.length.toLong()) { parse(content) }
+        } else {
+            StreamPerformanceDiagnostics.record("gallery.skip")
+            emptyList()
+        }
         entries[messageId] = Entry(content, sources)
         while (entries.size > capacity.coerceAtLeast(1)) {
             entries.entries.iterator().apply { next(); remove() }

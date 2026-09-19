@@ -1116,6 +1116,7 @@ private fun StreamingMarkdown(
             acceptedContent[0] = ""
         }
         acceptedContent[0] = content
+        StreamPerformanceDiagnostics.record("markdown.target", value = content.length.toLong())
         parseTargets.trySend(
             StreamingMarkdownTarget(
                 content = content,
@@ -1132,23 +1133,30 @@ private fun StreamingMarkdown(
         while (true) {
             while (true) {
                 val newerTarget = parseTargets.tryReceive().getOrNull() ?: break
+                StreamPerformanceDiagnostics.record("markdown.coalesced")
                 target = newerTarget
             }
 
             val parsed = withContext(Dispatchers.Default) {
-                parserSession.parse(
-                    source = target.content,
-                    isComplete = !target.isStreaming,
-                )
+                StreamPerformanceDiagnostics.record("markdown.queueWait", System.nanoTime() - target.queuedAtNs)
+                StreamPerformanceDiagnostics.measure("markdown.parse", target.content.length.toLong()) {
+                    parserSession.parse(
+                        source = target.content,
+                        isComplete = !target.isStreaming,
+                    )
+                }
             }
 
             val newerTarget = parseTargets.tryReceive().getOrNull()
             if (newerTarget != null) {
+                StreamPerformanceDiagnostics.record("markdown.superseded")
                 target = newerTarget
                 continue
             }
 
             nextStreamingSnapshot(state.snapshot, parsed)?.let { published ->
+                StreamPerformanceDiagnostics.record("markdown.targetToPublish", System.nanoTime() - target.queuedAtNs)
+                StreamPerformanceDiagnostics.record("markdown.publish", value = published.originalSource.length.toLong())
                 state.snapshot = published
             }
             if (target.isStreaming) {
@@ -1197,6 +1205,7 @@ private fun StreamingMarkdown(
             components = components,
             animations = markdownAnimations(animateTextSize = { this }),
             modifier = modifier.onGloballyPositioned {
+                StreamPerformanceDiagnostics.record("markdown.layout", value = it.size.height.toLong())
                 // 恢复基线对应的 AST 真正排版后才开放增量动画，解析耗时不受帧数限制。
                 if (state.restoreState.completeLayout(
                         generation = restoreGeneration,
@@ -1409,6 +1418,7 @@ private fun IElementType.isMarkdownStructuredBlock(): Boolean = when (this) {
 internal data class StreamingMarkdownTarget(
     val content: String,
     val isStreaming: Boolean,
+    val queuedAtNs: Long = System.nanoTime(),
 )
 
 internal fun streamingMarkdownBatchSize(backlogChars: Int): Int = when {

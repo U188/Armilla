@@ -169,6 +169,7 @@ internal class SmoothTextRevealCoordinator {
             while (currentCoroutineContext().isActive) {
                 val record = firstPendingRecord() ?: break
                 val frameNanos = withFrameNanos { it }
+                StreamPerformanceDiagnostics.record("reveal.frameGap", frameNanos - previousFrameNanos)
                 val elapsedSeconds = ((frameNanos - previousFrameNanos) / NANOS_PER_SECOND)
                     .coerceIn(0f, MAX_FRAME_DELTA_SECONDS)
                 previousFrameNanos = frameNanos
@@ -176,6 +177,7 @@ internal class SmoothTextRevealCoordinator {
                 val totalBacklog = records.values.sumOf { candidate ->
                     max(0.0, (candidate.targetCount - candidate.progress).toDouble())
                 }.toFloat()
+                StreamPerformanceDiagnostics.record("reveal.backlog", value = totalBacklog.toLong())
                 val previous = record.progress
                 record.progress = advanceSmoothReveal(
                     current = record.progress,
@@ -330,7 +332,10 @@ internal class SmoothTextRevealNode(
         val visibleHeight = state.visibleHeightPx()
         if (visibleHeight != cachedVisibleHeight) {
             cachedVisibleHeight = visibleHeight
-            if (isAttached) invalidateMeasurement()
+            if (isAttached) {
+                StreamPerformanceDiagnostics.record("reveal.remeasure")
+                invalidateMeasurement()
+            }
         }
         if (isAttached) invalidateDraw()
     }

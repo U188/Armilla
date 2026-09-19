@@ -2668,6 +2668,19 @@ internal class AgentAppState(
                 if (failure is kotlinx.coroutines.CancellationException) throw failure
             } finally {
                 preparingConversationMentions -= mentionId
+                // Switching conversations must not leave a sendable "preparing" placeholder.
+                fun isUnfinished(item: PendingConversationMentionUi) =
+                    item.id == mentionId && item.transcript == "[正在准备会话原始工具记录]"
+                conversationsById.toMap().forEach { (id, state) ->
+                    if (state.pendingConversationMentions.any(::isUnfinished)) {
+                        updateConversation(id, state.copy(pendingConversationMentions =
+                            state.pendingConversationMentions.filterNot(::isUnfinished)), updateTimestamp = false)
+                    }
+                }
+                if (selectedConversationId == null && homeState.pendingConversationMentions.any(::isUnfinished)) {
+                    homeState = homeState.copy(pendingConversationMentions =
+                        homeState.pendingConversationMentions.filterNot(::isUnfinished))
+                }
             }
         }
         return true

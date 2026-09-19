@@ -129,6 +129,32 @@ internal class AgentCompactionArchive(filesDir: File, sessionId: String) {
             .toString())
     }
 
+    /** Bounded, checksum-verified lookup for explicit conversation attachments only.
+     * Never follows a path supplied by a model, and never crosses this session's root. */
+    fun visitForConversationMention(visit: (List<AgentModelClient.ConversationMessage>, String) -> Unit) {
+        if (File(root.parentFile, "$scope.deleted").exists() || !root.isDirectory || Files.isSymbolicLink(root.toPath())) return
+        var inspected = 0
+        var bytes = 0L
+        Files.newDirectoryStream(root.toPath(), "*.json").use { paths ->
+            for (path in paths) {
+                if (++inspected > 32) break
+                val file = path.toFile()
+                val id = file.name.removeSuffix(".json")
+                if (!ID.matches(id) || Files.isSymbolicLink(path) || !file.isFile || file.length() > MAX_BYTES) continue
+                bytes += file.length()
+                if (bytes > 64L * 1024 * 1024) break
+                val checksum = File(root, "$id.sha256")
+                if (!checksum.isFile || Files.isSymbolicLink(checksum.toPath()) || checksum.length() != 64L) continue
+                runCatching {
+                    if (checksum.readText() != io.github.mangi.eta.data.repository.BackupDurability.digest(file)) return@runCatching
+                    val raw = JSONArray(file.readText())
+                    val messages = (0 until raw.length()).map { AgentConversationCodec.fromJsonObject(raw.getJSONObject(it)) }
+                    visit(messages, "verified compaction archive $id")
+                }
+            }
+        }
+    }
+
     /** Called only after conversation deletion has committed; a tombstone prevents an old run from recreating it. */
     fun delete() {
         io.github.mangi.eta.data.repository.BackupDurability.mkdirs(root.parentFile!!)

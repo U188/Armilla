@@ -232,6 +232,7 @@ internal class AgentAppState(
 
     private var currentReasoningCapabilities: ModelReasoningCapabilities? = null
     private var fileAttachmentOwnerVersion = 0L
+    private val preparingConversationMentions = mutableSetOf<String>()
     private val chatImageCache = AgentChatImageCache(appContext)
 
 
@@ -1257,6 +1258,11 @@ internal class AgentAppState(
     }
 
     fun sendCurrentMessage(submittedText: String? = null) {
+        if (homeState.pendingConversationMentions.any { it.id in preparingConversationMentions }) {
+            if (submittedText != null) updateCurrentConversation(homeState.copy(input = submittedText))
+            Toast.makeText(appContext, "会话引用正在准备，请稍候再发送。", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (rejectConversationArchiveMutation()) {
             // Composer clears locally before invoking this callback. Preserve an early send.
             if (submittedText != null) updateCurrentConversation(homeState.copy(input = submittedText))
@@ -2619,21 +2625,47 @@ internal class AgentAppState(
             return false
         }
         val status = if (source.isStreaming) "[选择时快照：来源会话仍在运行，未包含后续输出]\n" else ""
-        val transcript = ConversationMention.transcript(
-            source.messages,
-            budget - status.length,
-            appContext.filesDir,
-            conversationId,
-        )
-        if (transcript.isBlank()) {
-            Toast.makeText(appContext, "这个会话没有可引用的消息。", Toast.LENGTH_SHORT).show()
-            return false
-        }
+        val mentionId = "mention-${UUID.randomUUID()}"
+        val ownerVersion = fileAttachmentOwnerVersion
+        preparingConversationMentions += mentionId
         updateCurrentConversation(homeState.copy(pendingConversationMentions = pending + PendingConversationMentionUi(
-            id = "mention-${UUID.randomUUID()}", conversationId = conversationId,
+            id = mentionId, conversationId = conversationId,
             title = conversationTitles[conversationId].orEmpty().ifBlank { "未命名会话" },
-            transcript = status + transcript,
+            transcript = "[正在准备会话原始工具记录]",
         )))
+        scope.launch {
+            try {
+                val transcript = withContext(Dispatchers.IO) {
+                    val evidence = io.github.mangi.eta.ui.model.ConversationToolEvidence(source.messages)
+                    evidence.add(source.history, "source conversation model history")
+                    io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, conversationId)
+                        .visitForConversationMention(evidence::add)
+                    status + ConversationMention.transcript(
+                        source.messages, budget - status.length, appContext.filesDir, conversationId, evidence,
+                    )
+                }
+                if (ownerVersion != fileAttachmentOwnerVersion || conversationId !in conversationsById) return@launch
+                val current = homeState.pendingConversationMentions
+                if (current.none { it.id == mentionId }) return@launch
+                val remaining = ConversationMention.remainingTranscriptBudget(current.filterNot { it.id == mentionId })
+                if (transcript.isBlank() || transcript.length > remaining) {
+                    removeConversationMention(mentionId)
+                    Toast.makeText(appContext, "会话引用为空或超过总长度限制，请重新选择。", Toast.LENGTH_SHORT).show()
+                } else {
+                    updateCurrentConversation(homeState.copy(pendingConversationMentions = current.map {
+                        if (it.id == mentionId) it.copy(transcript = transcript) else it
+                    }))
+                }
+            } catch (failure: Exception) {
+                if (ownerVersion == fileAttachmentOwnerVersion) {
+                    removeConversationMention(mentionId)
+                    Toast.makeText(appContext, "会话引用准备失败，请重试。", Toast.LENGTH_SHORT).show()
+                }
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+            } finally {
+                preparingConversationMentions -= mentionId
+            }
+        }
         return true
     }
 

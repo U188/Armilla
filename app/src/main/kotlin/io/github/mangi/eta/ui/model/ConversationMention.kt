@@ -58,10 +58,11 @@ internal object ConversationMention {
         maxChars: Int = MAX_TRANSCRIPT_CHARS,
         filesDir: File? = null,
         conversationId: String? = null,
+        toolEvidence: ConversationToolEvidence? = null,
     ): String {
         if (maxChars <= 0) return ""
         val toolDetailsDirectory = filesDir?.let { prepareToolDetailsDirectory(it, conversationId) }
-        val chunks = messages.mapNotNull { formatMessage(it, toolDetailsDirectory) }
+        val chunks = messages.mapNotNull { formatMessage(it, toolDetailsDirectory, toolEvidence) }
         if (chunks.isEmpty()) return ""
         val joined = chunks.joinToString("\n\n")
         if (joined.length <= maxChars) return joined
@@ -76,19 +77,20 @@ internal object ConversationMention {
 
     private fun prepareToolDetailsDirectory(filesDir: File, conversationId: String?): File? {
         val token = sanitizeFileToken(conversationId.orEmpty().ifBlank { "conversation" })
-        val directory = File(TerminalPrivateStorage.workspace(filesDir), "$TOOL_DETAILS_DIRECTORY/$token")
+        val directory = File(TerminalPrivateStorage.workspace(filesDir), "$TOOL_DETAILS_DIRECTORY/$token/${java.util.UUID.randomUUID()}")
         return runCatching { directory.mkdirs(); directory.takeIf { it.isDirectory } }.getOrNull()
     }
 
     internal fun toolActivityDetails(message: ToolActivityMessageUi): String = buildString {
+        append("Evidence: summary only / 仅有摘要；原始参数与结果未在此文件中恢复。\n")
         message.argumentsSummary.trim().takeIf { it.isNotEmpty() }?.let {
-            append("Arguments:\n").append(it).append('\n')
+            append("Arguments summary:\n").append(it).append('\n')
         }
         message.command?.trim()?.takeIf { it.isNotEmpty() }?.let {
             append("Command:\n").append(it).append('\n')
         }
         message.resultSummary?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            append("Result:\n").append(it).append('\n')
+            append("Result summary:\n").append(it).append('\n')
         }
     }.trim()
 
@@ -106,9 +108,14 @@ internal object ConversationMention {
     private fun formatToolActivity(
         message: ToolActivityMessageUi,
         toolDetailsDirectory: File?,
+        toolEvidence: ConversationToolEvidence?,
     ): String = buildString {
         append("Tool ${message.toolName}: ${message.status.name}")
-        val details = toolActivityDetails(message)
+        val original = toolEvidence?.original(message.id)
+        val hasSummary = message.argumentsSummary.isNotBlank() || !message.command.isNullOrBlank() || !message.resultSummary.isNullOrBlank()
+        val details = original?.details() ?: if (hasSummary) toolActivityDetails(message) else ""
+        if (original != null) append("\nEvidence: stored tool response; tool-side truncation may still apply.")
+        else if (hasSummary) append("\nEvidence: summary only / 仅有摘要（原文缺失、未保存、匹配不唯一或未在有界存档查询中找到）。")
         val detailsFile = if (details.isNotEmpty() && toolDetailsDirectory != null) {
             writeToolDetailsFile(toolDetailsDirectory, message, details)
         } else {
@@ -116,9 +123,11 @@ internal object ConversationMention {
         }
         if (detailsFile != null) {
             append("\nDetails file: ").append(detailsFile.absolutePath)
-            append("\nUse read_file on that path if the arguments or result are needed.")
+            append("\nBytes: ").append(detailsFile.length())
+            append("\nUse read_file(path, offset_bytes=0, max_bytes=16384); advance by returned byte range until EOF. Do not infer completeness from the summary.")
         } else if (details.isNotEmpty()) {
-            append('\n').append(details)
+            if (original != null) append("\n原文文件未能导出；以下仅显示摘要，不包含完整原文。")
+            append('\n').append(toolActivityDetails(message))
         }
         if (message.imageCount > 0) {
             append("\nImages: ").append(message.imageCount)
@@ -128,7 +137,7 @@ internal object ConversationMention {
     fun remainingTranscriptBudget(already: List<PendingConversationMentionUi>): Int =
         (MAX_TOTAL_CHARS - already.sumOf { it.transcript.length }).coerceAtLeast(0)
 
-    private fun formatMessage(message: AgentChatMessageUi, toolDetailsDirectory: File?): String? {
+    private fun formatMessage(message: AgentChatMessageUi, toolDetailsDirectory: File?, toolEvidence: ConversationToolEvidence?): String? {
         return when (message) {
         is UserMessageUi -> {
             if (message.isResumeAfterCompress()) return null
@@ -153,7 +162,7 @@ internal object ConversationMention {
         is AgentMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Assistant: $it" }
         is ThinkingMessageUi -> message.content.trim().takeIf { it.isNotEmpty() }?.let { "Thinking: $it" }
         is ToolSummaryMessageUi -> message.tools.takeIf { it.isNotEmpty() }?.let { "Tools: ${it.joinToString()}" }
-        is ToolActivityMessageUi -> formatToolActivity(message, toolDetailsDirectory)
+        is ToolActivityMessageUi -> formatToolActivity(message, toolDetailsDirectory, toolEvidence)
         is ContextCompactedMessageUi -> {
             val summary = message.summary.trim()
             if (summary.isEmpty()) "Context compressed (${message.compactedCount} messages)"

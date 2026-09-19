@@ -10,6 +10,13 @@ internal object SpeechSynthesisModels {
         provider !is AnthropicProviderSetting && !ProviderAuthMode.isOAuth(provider.authMode) &&
             !provider.baseUrl.contains("chatgpt.com", ignoreCase = true) && provider.isEnabled
 
+    fun isReadAloudProvider(provider: ProviderSetting): Boolean =
+        allowsSpeechEndpoint(provider) && provider.apiKey.isNotBlank() &&
+            mergeCatalog(provider).any { it.isEnabled && it.supportsSpeechSynthesis }
+
+    fun isRealtimeVoiceProvider(provider: ProviderSetting): Boolean =
+        allowsSpeechEndpoint(provider) && provider.apiKey.isNotBlank() && isDoubaoSpeechHost(provider.baseUrl)
+
     fun isSpeechOnlyProvider(provider: ProviderSetting): Boolean {
         if (provider.sourceType.equals(ProviderSourceTypes.DOUBAO_SPEECH, ignoreCase = true)) return true
         return provider.baseUrl.trim().toHttpUrlOrNull()?.host.equals("openspeech.bytedance.com", ignoreCase = true)
@@ -78,6 +85,9 @@ internal object SpeechSynthesisModels {
         "tts",
         "cosyvoice",
         "sambert",
+        "speech-2",
+        "orpheus",
+        "playai",
         "speech-01",
         "speech_01",
         "gpt-4o-mini-tts",

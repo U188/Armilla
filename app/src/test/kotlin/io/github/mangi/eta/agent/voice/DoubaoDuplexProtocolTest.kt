@@ -7,7 +7,8 @@ class DoubaoDuplexProtocolTest {
     @Test fun realtimeVoiceUsesIndependentDefault() {
         assertEquals("zh_female_xiaohe_jupiter_bigtts", DoubaoDuplexProtocol.resolveVoice(""))
         assertEquals("zh_female_xiaohe_jupiter_bigtts", DoubaoDuplexProtocol.resolveVoice("  "))
-        assertEquals("custom_voice_id", DoubaoDuplexProtocol.resolveVoice(" custom_voice_id "))
+        assertEquals("zh_female_xiaohe_jupiter_bigtts", DoubaoDuplexProtocol.resolveVoice(" custom_voice_id "))
+        assertEquals("zh_male_yunzhou_jupiter_bigtts", DoubaoDuplexProtocol.resolveVoice(" zh_male_yunzhou_jupiter_bigtts "))
     }
 
     @Test fun audioFieldTakesPriorityWithLegacyDeltaFallback() {

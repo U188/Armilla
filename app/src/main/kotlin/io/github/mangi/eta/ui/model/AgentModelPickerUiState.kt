@@ -60,25 +60,27 @@ internal object AgentModelPickerProjector {
         selectedProviderId: String?,
         selectedModelId: String?,
         includeSpeechModels: Boolean = false,
+        speechOnly: Boolean = false,
     ): AgentModelPickerUiState {
         val enabledProviders = providers
             .asSequence()
             .filter(ProviderSetting::isEnabled)
+            .filter { !speechOnly || SpeechSynthesisModels.isReadAloudProvider(it) }
             .sortedBy(ProviderSetting::sortOrder)
             .toList()
         val selectedProvider = enabledProviders.firstOrNull { it.id == selectedProviderId }
         val selectedModel = selectedProvider?.let { provider ->
-            listedModels(provider, includeSpeechModels)
+            listedModels(provider, includeSpeechModels || speechOnly, speechOnly)
                 .firstOrNull { it.id == selectedModelId && it.isEnabled }
                 ?.let { model -> provider.toOption(model) }
         }
         val groups = enabledProviders
             .asSequence()
             .filter { it.apiKey.isNotBlank() }
-            .filter { includeSpeechModels || !SpeechSynthesisModels.isSpeechOnlyProvider(it) }
+            .filter { includeSpeechModels || speechOnly || !SpeechSynthesisModels.isSpeechOnlyProvider(it) }
             .mapNotNull { provider ->
                 val sourceType = ProviderSourceRegistry.resolve(provider)
-                val models = listedModels(provider, includeSpeechModels)
+                val models = listedModels(provider, includeSpeechModels || speechOnly, speechOnly)
                     .asSequence()
                     .filter { it.isEnabled }
                     .map { model -> provider.toOption(model) }
@@ -100,10 +102,11 @@ internal object AgentModelPickerProjector {
     }
 
 
-    private fun listedModels(provider: ProviderSetting, includeSpeechModels: Boolean): List<Model> {
+    private fun listedModels(provider: ProviderSetting, includeSpeechModels: Boolean, speechOnly: Boolean): List<Model> {
         val seen = HashSet<String>()
         return SpeechSynthesisModels.mergeCatalog(provider).filter { model ->
             if (!model.isEnabled) return@filter false
+            if (speechOnly && !model.supportsSpeechSynthesis) return@filter false
             if (!includeSpeechModels && model.supportsSpeechSynthesis) return@filter false
             seen.add(model.modelId.lowercase())
         }

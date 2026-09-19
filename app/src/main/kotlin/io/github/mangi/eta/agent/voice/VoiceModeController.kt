@@ -208,6 +208,7 @@ internal class VoiceModeController(
             try {
                 val providerId = Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_PROVIDER_ID)
                 val provider = ProviderRepository.providerById(providerId)
+                    ?.takeIf(io.github.mangi.eta.data.model.SpeechSynthesisModels::isRealtimeVoiceProvider)
                     ?: error("请先在语音对话设置中选择豆包语音提供商")
                 check(DoubaoSpeech.isOpenspeech(provider.baseUrl)) { "实时通话只能使用豆包语音提供商" }
                 val apiKey = provider.apiKey.trim()

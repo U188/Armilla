@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.voice.VoiceEntryMode
 import io.github.mangi.eta.agent.voice.VoiceModeController
-import io.github.mangi.eta.agent.voice.tts.DoubaoSpeech
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
@@ -48,14 +48,12 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var providerId by remember {
         mutableStateOf(
-            Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_PROVIDER_ID)
-,
+            Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_PROVIDER_ID),
         )
     }
     var voice by remember {
         mutableStateOf(
-            Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE)
-                .ifBlank { VoiceModeController.DEFAULT_DUPLEX_VOICE },
+            DoubaoRealtimeVoices.selectedId(Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE)),
         )
     }
     var instructions by remember {
@@ -65,7 +63,7 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
         )
     }
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
-    val speechProviders = remember(providers) { providers.filter { DoubaoSpeech.isOpenspeech(it.baseUrl) } }
+    val speechProviders = remember(providers) { providers.filter(SpeechSynthesisModels::isRealtimeVoiceProvider) }
     val provider = speechProviders.firstOrNull { it.id == providerId }
 
     MiuixScaffoldPage(title = stringResource(R.string.voice_mode_title), onBack = onBack) {
@@ -123,16 +121,6 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
                             finally { refreshing = false }
                         }
                     },
-                )
-                OutlinedTextField(
-                    value = voice,
-                    onValueChange = {
-                        voice = it
-                        Prefs.putString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE, it.trim())
-                    },
-                    label = { Text(stringResource(R.string.voice_mode_doubao_voice)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 )
                 OutlinedTextField(
                     value = instructions,

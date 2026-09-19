@@ -10,13 +10,15 @@ import java.util.concurrent.TimeUnit
 /** Independent realtime catalog, verified against the list linked by SeedDuplex docs. */
 internal object DoubaoRealtimeVoices {
     const val DEFAULT_ID = "zh_female_xiaohe_jupiter_bigtts"
-    const val SOURCE = "https://docs.volcengine.com/docs/6561/1257544?lang=zh"
+    const val SOURCE = "https://docs.volcengine.com/api/doc/getDocDetail?type=online&LibraryCode=DoubaoVoice&DocumentCode=Tonelist-1"
     val catalog = listOf(
         SpeechVoice("zh_female_vv_jupiter_bigtts", "Vivi"),
         SpeechVoice(DEFAULT_ID, "小何"),
         SpeechVoice("zh_male_yunzhou_jupiter_bigtts", "云舟"),
         SpeechVoice("zh_male_xiaotian_jupiter_bigtts", "小天"),
     )
+
+    fun selectedId(stored: String): String = stored.trim().takeIf { id -> catalog.any { it.id == id } } ?: DEFAULT_ID
 
     // Do not import the ordinary TTS uranus/mars catalogs or infer unsupported voice IDs.
     fun parseOfficialList(document: String): List<SpeechVoice> = catalog.filter { document.contains(it.id) }

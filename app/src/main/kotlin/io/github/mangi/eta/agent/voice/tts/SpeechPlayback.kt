@@ -123,9 +123,9 @@ internal object SpeechPlayback {
                         } else {
                             val config = withContext(Dispatchers.IO) {
                                 val provider = ProviderRepository.providerById(providerId)
-                                    ?.takeIf(SpeechSynthesisModels::allowsSpeechEndpoint)
+                                    ?.takeIf(SpeechSynthesisModels::isReadAloudProvider)
                                     ?: throw SpeechPlaybackFailure("该提供商不支持此朗读接入方式")
-                                val model = provider.models.firstOrNull { it.id == modelId && it.isEnabled }
+                                val model = provider.models.firstOrNull { it.id == modelId && it.isEnabled && it.supportsSpeechSynthesis }
                                     ?: SpeechSynthesisModels.catalogModels(provider).firstOrNull { it.id == modelId || it.modelId == modelId }
                                     ?: throw SpeechPlaybackFailure("朗读模型已不可用，请重新配置或选择系统朗读")
                                 RuntimeConfigRepository.buildRuntimeConfig(provider, model)

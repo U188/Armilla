@@ -16,6 +16,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentModelPickerProjectorTest {
+    @Test fun speechPickerHidesChatModelsAndEmptyProviders() {
+        val providers = listOf(
+            provider(id = "chat", models = listOf(model(id = "gpt-5"))),
+            provider(id = "mixed", models = listOf(model(id = "gpt-5"), model(id = "tts-1"), model(id = "whisper-1"))),
+            provider(id = "disabled-tts", models = listOf(model(id = "tts-1", enabled = false))),
+        )
+        val result = AgentModelPickerProjector.project(providers, "mixed", "gpt-5", speechOnly = true)
+        assertEquals(listOf("mixed"), result.providerGroups.map { it.providerId })
+        assertEquals(listOf("tts-1"), result.providerGroups.single().models.map { it.modelId })
+        assertNull(result.selectedModel)
+    }
+
     @Test fun unavailableProviderNeverFallsBackToAnotherProviderWithTheSameModelId() {
         val result = AgentModelPickerProjector.project(listOf(provider(id = "other", models = listOf(model(id = "same")))), "deleted", "same")
         assertNull(result.selectedModel)

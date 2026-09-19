@@ -42,7 +42,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     var voicePicker by remember { mutableStateOf(false) }
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
     val models = remember(providers, providerId, modelId) {
-        AgentModelPickerProjector.project(providers.filter(SpeechSynthesisModels::allowsSpeechEndpoint), providerId, modelId, includeSpeechModels = true)
+        AgentModelPickerProjector.project(providers.filter(SpeechSynthesisModels::isReadAloudProvider), providerId, modelId, includeSpeechModels = true, speechOnly = true)
     }
     val selectedProvider = remember(providers, providerId) { providers.firstOrNull { it.id == providerId } }
     val engine = remember(selectedProvider, modelId) { SpeechEngineResolver.resolve(selectedProvider, modelId) }

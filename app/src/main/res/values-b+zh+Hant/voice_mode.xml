@@ -20,5 +20,5 @@
     <string name="voice_mode_doubao_provider_missing">請先新增並設定豆包語音提供商</string>
     <string name="voice_mode_doubao_voice">即時通話音色 ID</string>
     <string name="voice_mode_doubao_instructions">即時助手提示詞</string>
-    <string name="voice_mode_doubao_settings_hint">提供商、音色和提示詞獨立設定，不繼承朗讀設定；下次通話生效。可從上方選擇即時音色，也可填寫服務支援的自訂音色 ID。</string>
+    <string name="voice_mode_doubao_settings_hint">提供商、音色和提示詞獨立設定，不繼承朗讀設定；下次通話生效。請從上方清單選擇即時音色。</string>
 </resources>

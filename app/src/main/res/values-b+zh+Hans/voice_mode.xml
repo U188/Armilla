@@ -20,5 +20,5 @@
     <string name="voice_mode_doubao_provider_missing">请先新增并配置豆包语音提供商</string>
     <string name="voice_mode_doubao_voice">实时通话音色 ID</string>
     <string name="voice_mode_doubao_instructions">实时助手提示词</string>
-    <string name="voice_mode_doubao_settings_hint">提供商、音色和提示词独立配置，不继承朗读设置；下次通话生效。可从上方选择实时音色，也可填写服务支持的自定义音色 ID。</string>
+    <string name="voice_mode_doubao_settings_hint">提供商、音色和提示词独立配置，不继承朗读设置；下次通话生效。请从上方列表选择实时音色。</string>
 </resources>

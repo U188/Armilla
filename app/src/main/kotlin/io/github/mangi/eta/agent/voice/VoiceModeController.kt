@@ -66,6 +66,11 @@ internal class VoiceModeController(
 
     fun updateChat(snapshot: VoiceChatSnapshot) {
         chat.value = snapshot
+        val current = mutableState.value
+        if (current.mode == VoiceEntryMode.UNIVERSAL &&
+            current.phase in setOf(VoiceModePhase.Thinking, VoiceModePhase.Speaking)) {
+            mutableState.value = current.copy(reply = snapshot.lastAgentText)
+        }
     }
 
     fun start(mode: VoiceEntryMode) {
@@ -125,9 +130,18 @@ internal class VoiceModeController(
                     }
                     val owner = "voice-mode-${UUID.randomUUID()}"
                     var spoken = 0
+                    var speakingMessageId: String? = null
                     withTimeout(240_000) {
                         while (true) {
                             val snap = chat.value
+                            if (snap.lastAgentId == baseline || snap.lastAgentId == null) {
+                                chat.first { it != snap }
+                                continue
+                            }
+                            if (speakingMessageId != snap.lastAgentId) {
+                                speakingMessageId = snap.lastAgentId
+                                spoken = 0
+                            }
                             val ready = SpeechSpeakableText.committedSentences(
                                 snap.lastAgentText,
                                 finalized = !snap.isStreaming && snap.lastAgentId != baseline,

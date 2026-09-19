@@ -68,17 +68,29 @@ class SpeechSpeakableTextTest {
         assertFalse(parts.first().startsWith("支持云端"))
     }
 
+    @Test fun shortCommittedSentencesStayStableWhileTailGrows() {
+        val first = SpeechSpeakableText.committedSentences("你好。", false)
+        val growing = SpeechSpeakableText.committedSentences("你好。后面还在写", false)
+        val complete = SpeechSpeakableText.committedSentences("你好。后面写好了。", false)
+        assertEquals(listOf("你好。"), first)
+        assertEquals(first, growing)
+        assertEquals(first, complete.take(first.size))
+        assertEquals(listOf("后面写好了。"), complete.drop(first.size))
+        assertEquals(listOf("你好。", "后面还在写"),
+            SpeechSpeakableText.committedSentences("你好。后面还在写", true))
+    }
+
     @Test fun committedSentencesHoldTheTrailingDraftUntilFinalized() {
         assertEquals(emptyList<String>(), SpeechSpeakableText.committedSentences("你好", finalized = false))
         assertEquals(listOf("你好。"), SpeechSpeakableText.committedSentences("你好。", finalized = false))
         val mid = SpeechSpeakableText.committedSentences(
-            "第一句已经足够长可以单独成句而且不会被提前合并了。后面还在写",
+            "第一句。后面还在写",
             finalized = false,
         )
         assertTrue(mid.joinToString("").contains("第一句"))
         assertFalse(mid.joinToString("").contains("还在写"))
         val done = SpeechSpeakableText.committedSentences(
-            "第一句已经足够长可以单独成句而且不会被提前合并了。第二句也已经完整了。",
+            "第一句。第二句也已经完整了。",
             finalized = false,
         )
         assertTrue(done.joinToString("").contains("第二句"))

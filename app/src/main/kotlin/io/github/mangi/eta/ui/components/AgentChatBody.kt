@@ -144,6 +144,7 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 internal fun AgentChatBody(
+    voiceController: VoiceModeController,
     messages: List<AgentChatMessageUi>,
     history: List<AgentModelClient.ConversationMessage>,
     modelPickerState: AgentModelPickerUiState,
@@ -196,11 +197,6 @@ internal fun AgentChatBody(
     val focusManager = LocalFocusManager.current
     val view = LocalView.current
     val context = LocalContext.current
-    val voiceScope = rememberCoroutineScope()
-    val latestSubmit by rememberUpdatedState(onSubmit)
-    val voiceController = remember(context) {
-        VoiceModeController(context, voiceScope) { text -> latestSubmit(text) }
-    }
     val voiceState by voiceController.state.collectAsState()
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
@@ -222,11 +218,7 @@ internal fun AgentChatBody(
     }
     LaunchedEffect(visibleMessages, isStreaming) {
         val last = visibleMessages.filterIsInstance<AgentMessageUi>().lastOrNull()
-        val speechText = last?.let { message ->
-            listOf(visibleTurnSpeechPreface(visibleMessages, message.id), message.content.trim())
-                .filter { it.isNotBlank() }
-                .joinToString("\n\n")
-        }.orEmpty()
+        val speechText = last?.content.orEmpty()
         voiceController.updateChat(
             VoiceChatSnapshot(
                 isStreaming = isStreaming,
@@ -234,17 +226,6 @@ internal fun AgentChatBody(
                 lastAgentText = speechText,
             )
         )
-    }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(voiceController, lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) voiceController.stop()
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            voiceController.stop()
-        }
     }
     val speechPlayback by io.github.mangi.eta.agent.voice.tts.SpeechPlayback.state.collectAsState()
     LaunchedEffect(visibleMessages, messageEdit?.targetMessageId, speechPlayback.owner) {

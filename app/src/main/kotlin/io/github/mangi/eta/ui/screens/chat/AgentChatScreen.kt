@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import io.github.mangi.eta.ui.app.AgentConversationRevisionReducer
+import io.github.mangi.eta.ui.components.rememberChatVoiceController
 import io.github.mangi.eta.ui.components.AgentChatBody
 import io.github.mangi.eta.ui.components.chatConversationCompositionKey
 import io.github.mangi.eta.ui.model.AgentChatAction
@@ -29,8 +30,12 @@ internal fun AgentChatScreen(
     onScrollToMessageConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val voiceController = rememberChatVoiceController(conversationKey) { text ->
+        onAction(AgentChatAction.SubmitMessage(text))
+    }
     key(chatConversationCompositionKey(conversationKey)) {
         AgentChatBody(
+            voiceController = voiceController,
             messages = state.messages,
             history = AgentConversationRevisionReducer.outboundHistory(state),
             modelPickerState = modelPickerState,

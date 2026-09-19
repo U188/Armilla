@@ -47,7 +47,7 @@ internal object SpeechSpeakableText {
 
     /** maxChars counts Unicode code points: never split a surrogate pair. */
     fun committedSentences(markdown: String, finalized: Boolean): List<String> {
-        val parts = sentences(markdown)
+        val parts = sentences(markdown, mergeLeading = false)
         if (finalized || parts.isEmpty()) return parts
         val text = speakable(markdown).trimEnd()
         if (text.isEmpty()) return emptyList()
@@ -58,7 +58,7 @@ internal object SpeechSpeakableText {
         return if (committed) parts else parts.dropLast(1)
     }
 
-    fun sentences(markdown: String, maxChars: Int = MAX_SENTENCE_CHARS): List<String> {
+    fun sentences(markdown: String, maxChars: Int = MAX_SENTENCE_CHARS, mergeLeading: Boolean = true): List<String> {
         require(maxChars in 1..2_000)
         val text = speakable(markdown)
         val result = mutableListOf<String>()
@@ -80,7 +80,7 @@ internal object SpeechSpeakableText {
                 count = 0
             }
         }
-        return if (maxChars < MIN_NEWLINE_SENTENCE_CHARS) result else mergeShortLeading(result)
+        return if (!mergeLeading || maxChars < MIN_NEWLINE_SENTENCE_CHARS) result else mergeShortLeading(result)
     }
 
     private fun mergeShortLeading(parts: List<String>): List<String> {

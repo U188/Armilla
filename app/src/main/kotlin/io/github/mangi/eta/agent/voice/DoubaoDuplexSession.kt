@@ -55,17 +55,10 @@ internal class DoubaoDuplexSession(
         .build()
 
     suspend fun run(apiKey: String, voice: String, instructions: String) = coroutineScope {
-        val request = Request.Builder()
-            .url(ENDPOINT)
-            .header("X-Api-App-Key", APP_KEY)
-            .header("X-Api-Access-Key", apiKey)
-            .header("X-Api-Key", apiKey)
-            .header("X-Api-Resource-Id", RESOURCE_ID)
-            .header("X-Api-Connect-Id", UUID.randomUUID().toString())
-            .build()
+        val request = DoubaoDuplexProtocol.request(apiKey)
         socket = client.newWebSocket(request, listener)
         val ws = withTimeout(15_000) { opened.await() }
-        ws.send(sessionCreate(voice, instructions).toString())
+        ws.send(DoubaoDuplexProtocol.sessionCreate(voice, instructions).toString())
 
         playbackJob = launch(Dispatchers.IO) { playOutput() }
         try {
@@ -123,37 +116,6 @@ internal class DoubaoDuplexSession(
         transcript = transcript,
         reply = reply,
     )
-
-    private fun sessionCreate(voice: String, instructions: String): JSONObject = JSONObject()
-        .put("type", "session.create")
-        .put("event_id", UUID.randomUUID().toString())
-        .put(
-            "session",
-            JSONObject()
-                .put("id", UUID.randomUUID().toString())
-                .put("model", "1.2.6.1")
-                .put("instructions", instructions)
-                .put(
-                    "audio",
-                    JSONObject()
-                        .put(
-                            "input",
-                            JSONObject().put(
-                                "format",
-                                JSONObject().put("type", "pcm").put("rate", INPUT_RATE),
-                            ),
-                        )
-                        .put(
-                            "output",
-                            JSONObject()
-                                .put(
-                                    "format",
-                                    JSONObject().put("type", "pcm_s16le").put("rate", OUTPUT_RATE),
-                                )
-                                .put("voice", voice),
-                        ),
-                ),
-        )
 
     @SuppressLint("MissingPermission")
     private suspend fun captureInput(ws: WebSocket) {
@@ -293,9 +255,6 @@ internal class DoubaoDuplexSession(
             ?: "豆包实时语音服务返回错误"
 
     companion object {
-        private const val ENDPOINT = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
-        private const val APP_KEY = "aGjiRDfUWi"
-        private const val RESOURCE_ID = "volc.seed.realtime"
         private const val INPUT_RATE = 16_000
         private const val OUTPUT_RATE = 24_000
         private const val INPUT_FRAME_BYTES = 640

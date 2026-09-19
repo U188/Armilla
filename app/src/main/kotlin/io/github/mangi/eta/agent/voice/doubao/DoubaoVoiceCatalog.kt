@@ -40,7 +40,7 @@ internal object DoubaoVoiceCatalog {
         for (state in listOf("Success", "Active")) {
             for (page in 1..20) {
                 val body = JSONObject().put("ProjectName", project).put("State", state).put("PageNumber", page).put("PageSize", 100).toString()
-                val root = AgentHttpClient.modelClient.newCall(signedRequest(ak, sk, body, Instant.now())).execute().use { response ->
+                val root = AgentHttpClient.modelClient.newBuilder().addInterceptor(DoubaoDiagnostics).build().newCall(signedRequest(ak, sk, body, Instant.now())).execute().use { response ->
                     check(response.isSuccessful) { "音色列表 HTTP ${response.code}" }
                     val source = response.body.source()
                     check(!source.request(2L * 1024 * 1024 + 1)) { "音色列表响应过大" }

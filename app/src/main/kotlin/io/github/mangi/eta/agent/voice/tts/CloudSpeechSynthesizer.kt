@@ -26,7 +26,7 @@ internal class CloudSpeechSynthesizer(
     private val diagnostic: io.github.mangi.eta.agent.voice.VoiceDiagnostics = io.github.mangi.eta.agent.voice.VoiceDiagnostics("synthesis"),
 ) {
     private val doubaoClient: OkHttpClient by lazy {
-        httpClient.newBuilder()
+        httpClient.newBuilder().addInterceptor(io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics)
             .callTimeout(210, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
             .build()

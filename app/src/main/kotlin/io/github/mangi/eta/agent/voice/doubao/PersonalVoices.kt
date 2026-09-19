@@ -76,7 +76,7 @@ internal object PersonalVoices {
         list.size
     }
     private fun request(path: String, key: String, body: JSONObject): JSONObject {
-        val client = AgentHttpClient.modelClient.newBuilder().callTimeout(120, TimeUnit.SECONDS).retryOnConnectionFailure(false).build()
+        val client = AgentHttpClient.modelClient.newBuilder().addInterceptor(io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics).callTimeout(120, TimeUnit.SECONDS).retryOnConnectionFailure(false).build()
         val req = Request.Builder().url("https://openspeech.bytedance.com/api/v3/tts/$path")
             .header("X-Api-Key", key).header("X-Api-Request-Id", UUID.randomUUID().toString())
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
@@ -87,8 +87,9 @@ internal object PersonalVoices {
                 out.toString("UTF-8")
             }
             val json = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
+            DoubaoDiagnostics.business("clone.$path", json, listOf(key))
             check(response.isSuccessful && json.optInt("code", 0) in listOf(0, 20000000)) {
-                "豆包请求失败：HTTP ${response.code}，错误码 ${json.optInt("code", -1)}"
+                "豆包请求失败：HTTP ${response.code}，错误码 ${json.optInt("code", -1)}：${DoubaoDiagnostics.sanitize(json.optString("message"), listOf(key))}"
             }
             json
         }

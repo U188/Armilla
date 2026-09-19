@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 internal fun DoubaoVoiceSettings() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val diagnostics by io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics.state.collectAsState()
+    var showDiagnostics by remember { mutableStateOf(false) }
     val config by DoubaoVoiceConfig.state.collectAsState()
     val voices by PersonalVoices.state.collectAsState()
     var asrKey by remember { mutableStateOf("") }
@@ -50,6 +52,19 @@ internal fun DoubaoVoiceSettings() {
         }
     }
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row {
+            TextButton(onClick = { showDiagnostics = !showDiagnostics }) { Text(if (showDiagnostics) "收起诊断" else "查看语音诊断") }
+            TextButton(onClick = {
+                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("豆包语音诊断", diagnostics.joinToString("\n")))
+                Toast.makeText(context, "已复制脱敏诊断", Toast.LENGTH_SHORT).show()
+            }, enabled = diagnostics.isNotEmpty()) { Text("复制诊断") }
+        }
+        if (showDiagnostics) {
+            Text("记录本次进程内最近 100 条；应用日志也会保留诊断。不记录密钥、音频或识别正文。")
+            Text(diagnostics.takeLast(25).joinToString("\n").ifBlank { "暂无记录，请执行识别或查询音色状态后查看。" }, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics.clear() }) { Text("清空面板") }
+        }
         Text("豆包云端语音识别", style = MaterialTheme.typography.titleMedium)
         Text("识别音频会发送到豆包；与朗读、实时对话分别配置。")
         OutlinedTextField(asrKey, { asrKey = it }, label = { Text("ASR API Key") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())

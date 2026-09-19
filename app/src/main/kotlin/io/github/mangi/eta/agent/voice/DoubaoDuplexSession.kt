@@ -56,7 +56,7 @@ internal class DoubaoDuplexSession(
     private var receivedAudioBytes = 0L
     private var writtenAudioBytes = 0L
 
-    private val client = AgentHttpClient.modelClient.newBuilder()
+    private val client = AgentHttpClient.modelClient.newBuilder().addInterceptor(io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics)
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
 

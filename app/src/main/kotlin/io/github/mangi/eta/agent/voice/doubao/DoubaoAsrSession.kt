@@ -21,11 +21,11 @@ internal object DoubaoAsrSession {
         check(config.asrKey.isNotBlank()) { "请配置豆包 ASR API Key" }
         val opened = CompletableDeferred<Unit>()
         val results = Channel<DoubaoAsrProtocol.Result>(32)
-        val client = AgentHttpClient.modelClient.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
+        val client = AgentHttpClient.modelClient.newBuilder().addInterceptor(io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics).readTimeout(0, TimeUnit.MILLISECONDS).build()
         val socket = client.newWebSocket(Request.Builder().url(DoubaoAsrProtocol.URL)
             .header("X-Api-Key", config.asrKey).header("X-Api-Resource-Id", config.resource)
             .header("X-Api-Request-Id", UUID.randomUUID().toString()).build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) { opened.complete(Unit) }
+            override fun onOpen(webSocket: WebSocket, response: Response) { DoubaoDiagnostics.mark("asr.connected"); opened.complete(Unit) }
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 try {
                     if (!results.trySend(DoubaoAsrProtocol.decode(bytes.toByteArray())).isSuccess) {
@@ -52,6 +52,7 @@ internal object DoubaoAsrSession {
             check(audio.state == AudioRecord.STATE_INITIALIZED) { "麦克风初始化失败" }
             ensureActive(); audio.startRecording()
             check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING)
+            DoubaoDiagnostics.mark("asr.listening", "rate=16000 channels=1 bits=16")
             withContext(Dispatchers.Main) { onListening() }
             coroutineScope {
                 val done = CompletableDeferred<Unit>()
@@ -59,11 +60,12 @@ internal object DoubaoAsrSession {
                 val receiver = launch {
                     for (result in results) {
                         if (result.text.isNotBlank() && result.text != lastText) {
+                            if (lastText.isBlank()) DoubaoDiagnostics.mark("asr.first_result")
                             lastText = result.text
                             withContext(Dispatchers.Main) { onText(result.text) }
                         }
                         if (result.utteranceDone || result.final) done.complete(Unit)
-                        if (result.final) return@launch
+                        if (result.final) { DoubaoDiagnostics.mark("asr.final", "chars=${lastText.length}"); return@launch }
                     }
                     check(done.isCompleted) { "豆包 ASR 在最终结果前断开" }
                 }
@@ -91,6 +93,7 @@ internal object DoubaoAsrSession {
         } finally {
             runCatching { recorder?.stop() }; recorder?.release()
             socket.cancel(); results.cancel()
+            DoubaoDiagnostics.mark("asr.closed")
         }
     }
 }

@@ -60,12 +60,17 @@ internal object StreamPerformanceDiagnostics {
             }
             stats.getOrPut(stage) { StreamTimingStats() }.add(ns, value)
         }
-        @Synchronized fun report(final: Boolean): String {
-            val text = "StreamDiag id=$id final=$final elapsedMs=${(System.nanoTime()-started)/1_000_000} " +
-                stats.entries.joinToString(" | ") { (stage, stats) -> "$stage{${stats.summary()}}" }
-            stats.clear()
-            if (final) closed = true
-            return text
+        fun report(final: Boolean): List<String> {
+            val snapshot = synchronized(this) {
+                val snapshot = stats.toMap()
+                stats.clear()
+                if (final) closed = true
+                snapshot
+            }
+            // Format outside the lock, and keep each line below logcat's entry limit.
+            val prefix = "StreamDiag id=$id final=$final elapsedMs=${(System.nanoTime()-started)/1_000_000}"
+            return snapshot.map { (stage, stats) -> "$prefix stage=$stage ${stats.summary()}" }
+                .ifEmpty { listOf("$prefix empty=1") }
         }
     }
     @Volatile private var active: Session? = null
@@ -93,7 +98,7 @@ internal object StreamPerformanceDiagnostics {
             runCatching {
                 val runtime = Runtime.getRuntime()
                 session.record("heap.usedBytes", 0, runtime.totalMemory() - runtime.freeMemory())
-                AndroidAgentLogger.info(session.report(final))
+                session.report(final).forEach(AndroidAgentLogger::info)
             }
         }
         val periodic = object : Runnable {

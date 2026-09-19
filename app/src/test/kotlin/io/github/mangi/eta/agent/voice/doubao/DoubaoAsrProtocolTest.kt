@@ -39,7 +39,7 @@ class DoubaoAsrProtocolTest {
         val body = """{"ProjectName":"test","State":"Success","PageNumber":1,"PageSize":100}"""
         val request = DoubaoVoiceCatalog.signedRequest("test-ak", "test-secret", body, java.time.Instant.parse("2026-09-19T12:00:00Z"))
         assertEquals("20260919T120000Z", request.header("X-Date"))
-        assertTrue(request.header("Authorization")!!.endsWith("Signature=b43e06ae38a66feea912e63d579acc6170ceaff8c967638e0970150ffbbb23b4"))
+        assertTrue(request.header("Authorization")!!.endsWith("Signature=9ffc2ff0b59fd1dca028f08217d73c45e140c85f369536157184d03aedc9d600"))
         assertFalse(request.toString().contains("test-secret"))
     }
 

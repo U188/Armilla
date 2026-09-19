@@ -69,3 +69,13 @@ API Key 与 AK/SK 不写入导航状态；更换页面后高级参数默认折�
 手填 ID 移入备用入口，并说明控制台“已复刻”过滤会隐藏尚未使用的名额。空列表不代表免费额度耗尽。
 Training/Active/Expired/Reclaimed 或剩余次数为零的名额不能选择训练；未确认状态不冒称可合成。
 同步成功或收起表单清空 AK/SK；不得把 API Key、AK/SK 自动当作另一种凭据。
+
+
+## 控制面签名与 Key ID 记忆
+
+列表请求使用独立 OkHttpClient，禁止重定向，避免模型网络拦截器更改签名请求。
+对齐官方 Python SDK SignerV4：签入 content-type、host、x-content-sha256、x-date，UTF-8 摘要与实际发送字节一致。
+参考：https://github.com/volcengine/volc-sdk-python/blob/main/volcengine/auth/SignerV4.py
+固定向量和本地 HTTP 线上的头/中文请求体测试不等于真实账户鉴权成功；仍需验证真实 AK/SK。
+根据用户要求，AK Key ID 与项目名在本机自动保存，提供清除按钮；SK 仍仅临时使用，成功后或离开表单清空。
+此前文档中的“AK/SK 均不保存”由本节替代。应用禁用 Android 自动备份；Key ID 不写入助手持久记忆。

@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig
 import io.github.mangi.eta.agent.voice.doubao.DoubaoAsrProtocol
 import io.github.mangi.eta.agent.voice.doubao.PersonalVoices
+import io.github.mangi.eta.agent.voice.doubao.VoiceCatalogPreferences
 import kotlinx.coroutines.launch
 
 @Composable
@@ -272,9 +273,9 @@ private fun VoiceConsoleHelp() {
 private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var ak by remember { mutableStateOf("") }
+    var ak by remember { mutableStateOf(VoiceCatalogPreferences.keyId(context)) }
     var sk by remember { mutableStateOf("") }
-    var project by remember { mutableStateOf("default") }
+    var project by remember { mutableStateOf(VoiceCatalogPreferences.project(context)) }
     var resultText by remember { mutableStateOf("") }
     var failed by remember { mutableStateOf(false) }
     var projectOptions by remember { mutableStateOf(false) }
@@ -285,14 +286,14 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
         context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://console.volcengine.com/iam/keymanage/")))
     }) { Text("打开火山访问密钥管理") }
     Text("在访问密钥管理中获取 Access Key ID 和 Secret Access Key，分别粘贴到下面。不要发到聊天里。", style = MaterialTheme.typography.bodySmall)
-    OutlinedTextField(ak, { ak = it }, label = { Text("Access Key ID（AK）") }, enabled = !busy,
+    OutlinedTextField(ak, { ak = it; VoiceCatalogPreferences.save(context, it, project) }, label = { Text("Access Key ID（AK）") }, enabled = !busy,
         visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
     OutlinedTextField(sk, { sk = it }, label = { Text("Secret Access Key（SK）") }, enabled = !busy,
         visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
     TextButton(enabled = !busy, onClick = { projectOptions = !projectOptions }) { Text("项目：$project · 更改") }
     if (projectOptions) {
         Text("与豆包控制台左上角的项目、已配置的 API Key 保持一致。一般使用 default。", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(project, { project = it }, label = { Text("项目名称") }, enabled = !busy, singleLine = true)
+        OutlinedTextField(project, { project = it; VoiceCatalogPreferences.save(context, ak, it) }, label = { Text("项目名称") }, enabled = !busy, singleLine = true)
     }
     Button(enabled = !busy && apiKey.isNotBlank() && ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank(), modifier = Modifier.fillMaxWidth(), onClick = {
         busy = true; onBusy(true); resultText = ""; failed = false; onResult("")
@@ -301,7 +302,7 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
             try {
                 val count = PersonalVoices.importPurchased(savedKey, accessKey, secretKey, selectedProject)
                 resultText = if (count == 0) "此项目未查到音色名额。请核对控制台左上角项目；免费字数额度不代表一定有音色名额。" else "已同步 $count 个名额，返回上方列表选择。未使用名额优先排列；查询失败的条目会标为待确认。"
-                ak = ""; sk = ""
+                sk = ""
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 failed = true
@@ -310,5 +311,9 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
         }
     }) { Text(if (busy) "正在查找名额…" else "读取我的名额") }
     if (resultText.isNotBlank()) Text(resultText, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-    Text("AK/SK 不保存，收起此表单或离开页面即清空。", style = MaterialTheme.typography.bodySmall)
+    Text("已自动记住 AK（Key ID）和项目名，下次会填好。SK 不保存，收起表单或离开页面后需重新填写。", style = MaterialTheme.typography.bodySmall)
+    TextButton(enabled = !busy, onClick = {
+        VoiceCatalogPreferences.clear(context); ak = ""; project = "default"; sk = ""
+        resultText = "已清除记住的 Key ID 和项目名"; failed = false
+    }) { Text("清除已记住的信息") }
 }

@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.voice.doubao
 
-import io.github.mangi.eta.agent.model.AgentHttpClient
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -15,6 +16,13 @@ import javax.crypto.spec.SecretKeySpec
 /** Control-plane credentials are used only for this explicitly requested catalog refresh. */
 internal object DoubaoVoiceCatalog {
     private const val QUERY = "Action=BatchListMegaTTSTrainStatus&Version=2025-05-21"
+    internal const val CONTENT_TYPE = "application/json; charset=utf-8"
+    // Control-plane signing must not inherit model JSON header rewrites or redirect policies.
+    internal val client: OkHttpClient by lazy {
+        OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(90, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false)
+            .retryOnConnectionFailure(false).addInterceptor(DoubaoDiagnostics).build()
+    }
     private const val HOST = "open.volcengineapi.com"
     private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
     private fun hash(text: String) = hex(MessageDigest.getInstance("SHA-256").digest(text.toByteArray()))
@@ -24,15 +32,15 @@ internal object DoubaoVoiceCatalog {
     internal fun signedRequest(ak: String, sk: String, body: String, now: Instant): Request {
         val date = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC).format(now)
         val day = date.take(8); val digest = hash(body)
-        val headers = "host;x-content-sha256;x-date"
+        val headers = "content-type;host;x-content-sha256;x-date"
         val scope = "$day/cn-beijing/speech_saas_prod/request"
-        val canonical = "POST\n/\n$QUERY\nhost:$HOST\nx-content-sha256:$digest\nx-date:$date\n\n$headers\n$digest"
+        val canonical = "POST\n/\n$QUERY\ncontent-type:$CONTENT_TYPE\nhost:$HOST\nx-content-sha256:$digest\nx-date:$date\n\n$headers\n$digest"
         var key = hmac(sk.toByteArray(), day)
         key = hmac(key, "cn-beijing"); key = hmac(key, "speech_saas_prod"); key = hmac(key, "request")
         val signature = hex(hmac(key, "HMAC-SHA256\n$date\n$scope\n${hash(canonical)}"))
-        return Request.Builder().url("https://$HOST/?$QUERY").header("X-Date", date).header("X-Content-Sha256", digest)
+        return Request.Builder().url("https://$HOST/?$QUERY").header("Host", HOST).header("Content-Type", CONTENT_TYPE).header("X-Date", date).header("X-Content-Sha256", digest)
             .header("Authorization", "HMAC-SHA256 Credential=$ak/$scope, SignedHeaders=$headers, Signature=$signature")
-            .post(body.toRequestBody("application/json; charset=UTF-8".toMediaType())).build()
+            .post(body.toByteArray(Charsets.UTF_8).toRequestBody(CONTENT_TYPE.toMediaType())).build()
     }
     internal fun responseError(http: Int, root: JSONObject, secrets: List<String>): String? {
         val meta = root.optJSONObject("ResponseMetadata")
@@ -57,7 +65,7 @@ internal object DoubaoVoiceCatalog {
         for (state in listOf("Unknown", "Training", "Success", "Active")) {
             for (page in 1..20) {
                 val body = JSONObject().put("ProjectName", project).put("State", state).put("PageNumber", page).put("PageSize", 100).toString()
-                val root = AgentHttpClient.modelClient.newBuilder().addInterceptor(DoubaoDiagnostics).build().newCall(signedRequest(ak, sk, body, Instant.now())).execute().use { response ->
+                val root = client.newCall(signedRequest(ak, sk, body, Instant.now())).execute().use { response ->
                     val source = response.body.source()
                     check(!source.request(2L * 1024 * 1024 + 1)) { "音色列表响应过大" }
                     val json = runCatching { JSONObject(source.readUtf8()) }.getOrDefault(JSONObject())

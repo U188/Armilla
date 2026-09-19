@@ -103,7 +103,6 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
                     insideMargin = PaddingValues(16.dp),
                     onClick = { providerPicker = true },
                 )
-                Text(stringResource(R.string.voice_mode_doubao), modifier = Modifier.padding(16.dp))
                 ArrowPreference(
                     title = stringResource(R.string.realtime_choose_voice),
                     summary = (voices + DoubaoRealtimeVoices.catalog).firstOrNull { it.id == voice }?.name

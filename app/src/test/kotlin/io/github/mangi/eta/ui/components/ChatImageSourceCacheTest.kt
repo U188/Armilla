@@ -37,8 +37,10 @@ class ChatImageSourceCacheTest {
 
     @Test fun referenceImagesAndCodeFenceSemanticsArePreserved() {
         val cache = ChatImageSourceCache()
+        val reference = "![caption][ref]\n\n[ref]: https://example.com/a.png"
+        assertEquals(collectMarkdownImageSources(reference), cache.sources("a", reference))
         assertEquals(listOf("https://example.com/a.png"), cache.sources("a",
-            "![caption][ref]\n\n[ref]: https://example.com/a.png"))
+            "![caption](https://example.com/a.png)"))
         assertEquals(emptyList<String>(), cache.sources("a",
             "```\n![caption](https://example.com/a.png)\n```"))
     }

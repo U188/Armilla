@@ -5,10 +5,15 @@ import java.time.Instant
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
-import okio.Buffer
+import android.app.Application
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.junit.Assert.*
 import org.junit.Test
 
+@RunWith(RobolectricTestRunner::class)
+@Config(application = Application::class, sdk = [34])
 class VoiceCatalogSigningTransportTest {
     @Test fun signedHeadersAndUtf8BodySurviveRealHttpTransport() {
         val body = """{"ProjectName":"中文项目","State":"Unknown","PageNumber":1,"PageSize":100}"""

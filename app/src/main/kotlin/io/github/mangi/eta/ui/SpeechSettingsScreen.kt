@@ -33,6 +33,7 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
     var confirmDownload by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { OfflineSpeechPack.initialize(context) }
     MiuixScaffoldPage(title = stringResource(R.string.speech_title), onBack = onBack) {
+        item(key = "doubao_voice") { DoubaoVoiceSettings() }
         item(key = "speech_enable") {
             Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                 SwitchPreference(

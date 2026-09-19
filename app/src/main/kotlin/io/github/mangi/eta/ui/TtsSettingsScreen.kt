@@ -46,7 +46,14 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     }
     val selectedProvider = remember(providers, providerId) { providers.firstOrNull { it.id == providerId } }
     val engine = remember(selectedProvider, modelId) { SpeechEngineResolver.resolve(selectedProvider, modelId) }
-    val catalog = remember(engine, modelId) { SpeechVoices.catalog(engine, modelId) }
+    val personalVoices by io.github.mangi.eta.agent.voice.doubao.PersonalVoices.state.collectAsState()
+    LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(context) }
+    val catalog = remember(engine, modelId, personalVoices, selectedProvider) {
+        SpeechVoices.catalog(engine, modelId) + if (engine == io.github.mangi.eta.agent.voice.tts.SpeechEngine.DOUBAO && !io.github.mangi.eta.agent.voice.tts.DoubaoSpeech.usesCreate(modelId)) {
+            personalVoices.filter { it.tts && it.accepted && it.account == io.github.mangi.eta.agent.voice.doubao.PersonalVoices.account(selectedProvider?.apiKey.orEmpty()) }
+                .map { SpeechVoice(it.id, "个人 · ${it.name}") }
+        } else emptyList()
+    }
     val playback by SpeechPlayback.state.collectAsState()
     val sample = stringResource(R.string.tts_sample)
     LaunchedEffect(cloud, providerId, selectedProvider?.id, engine, modelId, catalog, voice) {

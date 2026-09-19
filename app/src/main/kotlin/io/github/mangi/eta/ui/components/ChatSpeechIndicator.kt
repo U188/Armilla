@@ -60,12 +60,14 @@ internal fun ChatSpeechIndicator(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
     val pack by OfflineSpeechPack.state.collectAsState()
+    val cloudConfig by io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.collectAsState()
+    val speechEnabled = cloudConfig.cloudAsr || pack.enabled
     var job by remember { mutableStateOf<Job?>(null) }
     var active by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
     var pendingPermission by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<SpeechDraft?>(null) }
-    val allowed by rememberUpdatedState(pack.enabled && pack.ready && !interactionBlocked)
+    val allowed by rememberUpdatedState((if (cloudConfig.cloudAsr) cloudConfig.asrKey.isNotBlank() else pack.enabled && pack.ready) && !interactionBlocked)
 
     fun stop() {
         pendingPermission = false
@@ -84,7 +86,7 @@ internal fun ChatSpeechIndicator(
             var speechToken: Long? = null
             try {
                 speechToken = io.github.mangi.eta.agent.voice.tts.SpeechPlayback.beginInput()
-                val heard = OfflineSpeechSession.recognize(context.applicationContext,
+                val heard = io.github.mangi.eta.agent.voice.SpeechInputSession.recognize(context.applicationContext,
                     onListening = { listening = true },
                     onText = { text ->
                         val next = target.accept(textFieldState.text.toString(), text)
@@ -118,7 +120,7 @@ internal fun ChatSpeechIndicator(
         if (granted && requested) latestStart()
         else if (!granted && requested) Toast.makeText(context, R.string.speech_permission_denied, Toast.LENGTH_LONG).show()
     }
-    LaunchedEffect(Unit) { OfflineSpeechPack.initialize(context) }
+    LaunchedEffect(Unit) { OfflineSpeechPack.initialize(context); io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.load(context) }
     LaunchedEffect(allowed, resetKey) {
         stop() // Mode changes, drawer, edit, send/stream transition: invalidate permission and capture.
     }
@@ -141,18 +143,18 @@ internal fun ChatSpeechIndicator(
     // Parent layout data (for example BoxScope.align) must reach the outer node.
     AnimatedVisibility(
         modifier = modifier,
-        visible = forceVisible || SpeechInputPolicy.visible(showGeneration, pack.enabled),
+        visible = forceVisible || SpeechInputPolicy.visible(showGeneration, speechEnabled),
     ) {
         // Constant touch target avoids moving other composer buttons when the circle grows.
         Box(
             modifier = Modifier.size(48.dp).clip(CircleShape)
                 .semantics {
-                    if (pack.enabled) {
+                    if (speechEnabled) {
                         contentDescription = label
                         if (active) stateDescription = status
                     }
                 }
-                .then(if (pack.enabled || forceVisible) Modifier.combinedClickable(
+                .then(if (speechEnabled || forceVisible) Modifier.combinedClickable(
                     enabled = allowed || active || onLongClick != null || onUnavailableClick != null,
                     role = Role.Button,
                     indication = null,
@@ -160,7 +162,7 @@ internal fun ChatSpeechIndicator(
                     onLongClick = onLongClick,
                     onClick = {
                         TouchHaptics.click(view)
-                        if (!pack.enabled) onUnavailableClick?.invoke()
+                        if (!speechEnabled) onUnavailableClick?.invoke()
                         else if (active || pendingPermission) stop()
                         else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()
                         else { pendingPermission = true; permission.launch(Manifest.permission.RECORD_AUDIO) }

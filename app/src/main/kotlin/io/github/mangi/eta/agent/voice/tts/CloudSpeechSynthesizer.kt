@@ -70,15 +70,17 @@ internal class CloudSpeechSynthesizer(
         voice: String,
     ): ByteArray {
         speechCheck(config.apiKey.isNotBlank()) { "请填写豆包语音 API Key" }
+        val personal = io.github.mangi.eta.agent.voice.doubao.PersonalVoices.selected(voice, config.apiKey)
         val create = DoubaoSpeech.usesCreate(config.model)
+        speechCheck(personal == null || !create) { "个人音色需要选择 seed-tts 在线合成模型" }
         val headers = Headers.Builder()
             .add("Content-Type", "application/json")
             .add("Accept", "application/json")
             .add("X-Api-Key", config.apiKey)
-            .add("X-Api-App-Key", "aGjiRDfUWi")
+
             .add("X-Api-Request-Id", DoubaoSpeech.requestId())
             .apply {
-                if (!create) add("X-Api-Resource-Id", DoubaoSpeech.resourceId(config.model))
+                if (!create) add("X-Api-Resource-Id", if (personal != null) "seed-icl-2.0" else DoubaoSpeech.resourceId(config.model))
             }
             .also { ProviderRequestHeaders.mergeInto(it, config.baseUrl, config.customHeaders) }
             .build()

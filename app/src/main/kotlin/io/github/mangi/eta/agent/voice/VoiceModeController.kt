@@ -89,11 +89,12 @@ internal class VoiceModeController(
     }
 
     private fun startUniversal() {
-        if (!OfflineSpeechPack.state.value.ready || !OfflineSpeechPack.state.value.enabled) {
+        io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.load(app)
+        if (!SpeechInputSession.ready()) {
             mutableState.value = VoiceModeState(
                 VoiceEntryMode.UNIVERSAL,
                 VoiceModePhase.Error,
-                error = "请先在语音转文字设置中下载并启用离线语音包",
+                error = "请在语音转文字设置中配置豆包 ASR 或启用离线语音包",
             )
             return
         }
@@ -109,7 +110,7 @@ internal class VoiceModeController(
                     val token = SpeechPlayback.beginInput()
                     trace.mark("recognition.begin")
                     val heard = try {
-                        OfflineSpeechSession.recognize(
+                        SpeechInputSession.recognize(
                             app,
                             onListening = {
                                 trace.mark("recognition.listening")
@@ -213,7 +214,10 @@ internal class VoiceModeController(
                 check(DoubaoSpeech.isOpenspeech(provider.baseUrl)) { "实时通话只能使用豆包语音提供商" }
                 val apiKey = provider.apiKey.trim()
                 check(apiKey.isNotBlank()) { "豆包语音提供商尚未配置 API Key" }
-                val voice = DoubaoDuplexProtocol.resolveVoice(Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE))
+                io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(app)
+                val storedVoice = Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE)
+                val personal = io.github.mangi.eta.agent.voice.doubao.PersonalVoices.selected(storedVoice, apiKey)
+                val voice = personal?.id ?: DoubaoDuplexProtocol.resolveVoice(storedVoice)
                 val instructions = Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_INSTRUCTIONS)
                     .ifBlank { DEFAULT_DUPLEX_INSTRUCTIONS }
                 mutableState.value = VoiceModeState(VoiceEntryMode.DOUBAO_DUPLEX, VoiceModePhase.Connecting)

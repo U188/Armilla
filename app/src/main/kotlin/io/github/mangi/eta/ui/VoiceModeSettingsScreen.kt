@@ -57,7 +57,9 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
     }
     var voice by remember {
         mutableStateOf(
-            DoubaoRealtimeVoices.selectedId(Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE)),
+            Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE).let {
+                if (it.startsWith("etaClone")) it else DoubaoRealtimeVoices.selectedId(it)
+            },
         )
     }
     var instructions by remember {
@@ -69,6 +71,13 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
     val speechProviders = remember(providers) { providers.filter(SpeechSynthesisModels::isRealtimeVoiceProvider) }
     val provider = speechProviders.firstOrNull { it.id == providerId }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val personal by io.github.mangi.eta.agent.voice.doubao.PersonalVoices.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(context) }
+    val availableVoices = voices + personal.filter { it.tts && it.accepted && it.account ==
+        io.github.mangi.eta.agent.voice.doubao.PersonalVoices.account(provider?.apiKey.orEmpty()) }
+        .map { io.github.mangi.eta.agent.voice.tts.SpeechVoice(it.id, "个人 · ${it.name}") }
 
     MiuixScaffoldPage(title = stringResource(R.string.voice_mode_title), onBack = onBack) {
         item(key = "default") {
@@ -105,7 +114,7 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
                 )
                 ArrowPreference(
                     title = stringResource(R.string.realtime_choose_voice),
-                    summary = (voices + DoubaoRealtimeVoices.catalog).firstOrNull { it.id == voice }?.name
+                    summary = availableVoices.firstOrNull { it.id == voice }?.name
                         ?: stringResource(R.string.realtime_choose_voice),
                     onClick = { voicePicker = true },
                 )
@@ -148,7 +157,7 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
     VoiceModeListDialog(
         show = voicePicker,
         title = stringResource(R.string.realtime_choose_voice),
-        rows = voices.map { it.id to it.name },
+        rows = availableVoices.map { it.id to it.name },
         selected = voice,
         onDismiss = { voicePicker = false },
         onSelect = { value ->

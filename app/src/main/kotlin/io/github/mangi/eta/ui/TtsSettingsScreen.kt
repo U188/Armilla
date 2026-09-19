@@ -56,7 +56,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     val catalog = remember(engine, modelId, personalVoices, selectedProvider) {
         SpeechVoices.catalog(engine, modelId) + if (engine == io.github.mangi.eta.agent.voice.tts.SpeechEngine.DOUBAO && !io.github.mangi.eta.agent.voice.tts.DoubaoSpeech.usesCreate(modelId)) {
             personalVoices.filter { it.tts && it.accepted && it.account == io.github.mangi.eta.agent.voice.doubao.PersonalVoices.account(selectedProvider?.apiKey.orEmpty()) }
-                .map { SpeechVoice(it.id, "个人 · ${it.name}") }
+                .map { SpeechVoice(it.id, it.name, personal = true) }
         } else emptyList()
     }
     val playback by SpeechPlayback.state.collectAsState()
@@ -191,9 +191,10 @@ private fun TtsVoicePickerDialog(
                 .heightIn(max = 520.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            val female = voices.filter { "_female_" in it.id }
-            val male = voices.filter { "_male_" in it.id }
-            val other = voices.filter { voice -> voice !in female && voice !in male }
+            val personal = voices.filter { it.personal }
+            val female = voices.filter { !it.personal && "_female_" in it.id }
+            val male = voices.filter { !it.personal && "_male_" in it.id }
+            val other = voices.filter { !it.personal && "_female_" !in it.id && "_male_" !in it.id }
             if (female.isNotEmpty()) {
                 VoiceSectionTitle(stringResource(R.string.tts_voice_female))
                 female.forEach { VoiceRow(it, selectedId, onSelected) }
@@ -203,6 +204,10 @@ private fun TtsVoicePickerDialog(
                 male.forEach { VoiceRow(it, selectedId, onSelected) }
             }
             other.forEach { VoiceRow(it, selectedId, onSelected) }
+            if (personal.isNotEmpty()) {
+                VoiceSectionTitle(stringResource(R.string.tts_voice_personal))
+                personal.forEach { VoiceRow(it, selectedId, onSelected) }
+            }
         }
     }
 }

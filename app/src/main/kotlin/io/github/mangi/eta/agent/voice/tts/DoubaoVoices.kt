@@ -1,6 +1,6 @@
 package io.github.mangi.eta.agent.voice.tts
 
-internal data class SpeechVoice(val id: String, val name: String)
+internal data class SpeechVoice(val id: String, val name: String, val personal: Boolean = false)
 
 /** Official seed-tts-2.0 voices from the Doubao Voice 音色列表. */
 internal object DoubaoVoices {

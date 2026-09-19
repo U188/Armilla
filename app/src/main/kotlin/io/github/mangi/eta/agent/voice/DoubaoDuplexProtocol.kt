@@ -53,7 +53,7 @@ internal object DoubaoDuplexProtocol {
                             JSONObject()
                                 .put(
                                     "format",
-                                    JSONObject().put("type", "pcm").put("rate", OUTPUT_RATE),
+                                    JSONObject().put("type", "pcm_s16le").put("rate", OUTPUT_RATE),
                                 )
                                 .put("voice", voice),
                         ),
@@ -61,5 +61,6 @@ internal object DoubaoDuplexProtocol {
         )
 
     private const val INPUT_RATE = 16_000
+    // Official Python demo: output pcm is float32; pcm_s16le matches our PCM_16BIT AudioTrack.
     private const val OUTPUT_RATE = 24_000
 }

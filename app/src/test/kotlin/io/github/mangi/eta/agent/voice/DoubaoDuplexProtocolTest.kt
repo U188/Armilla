@@ -42,12 +42,13 @@ class DoubaoDuplexProtocolTest {
         assertNull(request.header("X-Api-Resource-Id"))
     }
 
-    @Test fun newSessionUsesPcmWithoutInventingAHistoryId() {
+    @Test fun newSessionRequestsSigned16BitOutputAnd16BitMicrophoneInput() {
         val session = DoubaoDuplexProtocol.sessionCreate("voice", "instructions").getJSONObject("session")
         assertFalse(session.has("id"))
         val audio = session.getJSONObject("audio")
-        assertEquals("pcm", audio.getJSONObject("output").getJSONObject("format").getString("type"))
+        assertEquals("pcm_s16le", audio.getJSONObject("output").getJSONObject("format").getString("type"))
         assertEquals(24000, audio.getJSONObject("output").getJSONObject("format").getInt("rate"))
+        assertEquals("pcm", audio.getJSONObject("input").getJSONObject("format").getString("type"))
         assertEquals(16000, audio.getJSONObject("input").getJSONObject("format").getInt("rate"))
     }
 }

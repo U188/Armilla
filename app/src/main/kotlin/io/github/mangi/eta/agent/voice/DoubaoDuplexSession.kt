@@ -240,7 +240,7 @@ internal class DoubaoDuplexSession(
             .build()
         player = track
         check(track.state == AudioTrack.STATE_INITIALIZED) { "无法打开扬声器" }
-        diagnostic.mark("playback.init", "state" to track.state, "rate" to track.sampleRate, "bufferFrames" to track.bufferSizeInFrames)
+        diagnostic.mark("playback.init", "state" to track.state, "rate" to track.sampleRate, "bufferFrames" to track.bufferSizeInFrames, "encoding" to track.audioFormat, "channels" to track.channelCount)
         track.play()
         diagnostic.mark("playback.start", "state" to track.playState)
         try {

@@ -58,7 +58,7 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit, onOpenReadAloud: () -> 
     var voice by remember {
         mutableStateOf(
             Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE).let {
-                if (it.startsWith("etaClone")) it else DoubaoRealtimeVoices.selectedId(it)
+                if (it.startsWith("etaClone") || it.startsWith("S_")) it else DoubaoRealtimeVoices.selectedId(it)
             },
         )
     }

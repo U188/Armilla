@@ -46,7 +46,9 @@ internal object PersonalVoices {
         j.optString("demo"), j.optString("error"), j.optBoolean("accepted"))
     @Synchronized private fun save(voice: Voice) {
         check(loaded)
-        val list = mutable.value.filterNot { it.id == voice.id && it.account == voice.account } + voice
+        val stored = mutable.value.firstOrNull { it.id == voice.id && it.account == voice.account }
+        val resolved = voice.copy(accepted = voice.accepted || stored?.accepted == true)
+        val list = mutable.value.filterNot { it.id == voice.id && it.account == voice.account } + resolved
         val array = JSONArray().also { a -> list.forEach { v -> a.put(JSONObject().put("id", v.id).put("name", v.name)
             .put("account", v.account).put("status", v.status).put("models", JSONArray(v.models.toList()))
             .put("demo", v.demo).put("error", v.error).put("accepted", v.accepted)) } }
@@ -57,10 +59,22 @@ internal object PersonalVoices {
     fun accept(voice: Voice) { save(voice.copy(accepted = true)) }
     fun find(id: String, key: String) = state.value.firstOrNull { it.id == id && it.account == account(key) }
     fun selected(id: String, key: String): Voice? {
-        if (!id.startsWith("etaClone")) return null
+        if (!id.startsWith("etaClone") && !id.startsWith("S_")) return null
         return requireNotNull(find(id, key)?.takeIf { it.tts && it.accepted }) { "个人音色不可用，请检查训练状态、账户和首次使用确认" }
     }
-    private fun identity(voice: Voice) = JSONObject().put("speaker_id", "custom_speaker_id").put("custom_speaker_id", voice.id)
+    private fun identity(voice: Voice) = if (voice.id.startsWith("S_")) JSONObject().put("speaker_id", voice.id)
+        else JSONObject().put("speaker_id", "custom_speaker_id").put("custom_speaker_id", voice.id)
+    suspend fun importPurchased(key: String, ak: String, sk: String, project: String): Int = withContext(Dispatchers.IO) {
+        check(loaded)
+        val list = DoubaoVoiceCatalog.list(ak, sk, project)
+        list.forEach { (id, name) ->
+            val existing = find(id, key)
+            val voice = existing ?: Voice(id, name, account(key))
+            // Catalog metadata alone cannot prove model compatibility. Verify with the synthesis credential.
+            save(updated(voice, request("get_voice", key, identity(voice))))
+        }
+        list.size
+    }
     private fun request(path: String, key: String, body: JSONObject): JSONObject {
         val client = AgentHttpClient.modelClient.newBuilder().callTimeout(120, TimeUnit.SECONDS).retryOnConnectionFailure(false).build()
         val req = Request.Builder().url("https://openspeech.bytedance.com/api/v3/tts/$path")
@@ -114,6 +128,7 @@ internal object PersonalVoices {
         val voice = Voice("etaClone" + UUID.randomUUID().toString().replace("-", ""), name.trim(), account(key))
         // Durable identity BEFORE upload. An interrupted upload is queried, never automatically retrained.
         save(voice)
+        synchronized(running) { running.add(voice.id) }
         scope.launch {
             try {
                 val response = request("voice_clone", key, identity(voice).put("audio", JSONObject()
@@ -126,7 +141,7 @@ internal object PersonalVoices {
                     current = updated(current, request("get_voice", key, identity(current))); save(current)
                 }
             } catch (e: Exception) { save(voice.copy(error = (e.message ?: "请求未确认") + "；请查询状态，不会自动重复训练")) }
-            finally { bytes.fill(0) }
+            finally { bytes.fill(0); synchronized(running) { running.remove(voice.id) } }
         }
         voice.id
     }

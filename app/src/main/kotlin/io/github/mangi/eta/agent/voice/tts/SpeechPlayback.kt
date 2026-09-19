@@ -130,6 +130,7 @@ internal object SpeechPlayback {
                                     ?: throw SpeechPlaybackFailure("朗读模型已不可用，请重新配置或选择系统朗读")
                                 RuntimeConfigRepository.buildRuntimeConfig(provider, model)
                             }
+                            io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(app)
                             val voice = voiceId
                             speechCheck(voice.isNotEmpty()) { "请先选择音色" }
                             val synth = CloudSpeechSynthesizer(diagnostic = diagnostic)

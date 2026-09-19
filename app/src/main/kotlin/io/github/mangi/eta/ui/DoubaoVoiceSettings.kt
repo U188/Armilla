@@ -24,6 +24,10 @@ internal fun DoubaoVoiceSettings() {
     val voices by PersonalVoices.state.collectAsState()
     var asrKey by remember { mutableStateOf("") }
     var cloneKey by remember { mutableStateOf("") }
+    var ak by remember { mutableStateOf("") }
+    var sk by remember { mutableStateOf("") }
+    var project by remember { mutableStateOf("") }
+    var importBusy by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var consent by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -74,7 +78,23 @@ internal fun DoubaoVoiceSettings() {
         Button(onClick = { picker.launch(arrayOf("audio/*")) }, enabled = consent && name.isNotBlank() && config.cloneKey.isNotBlank() && !busy) {
             Text(if (busy) "正在读取样本" else "选择录音并复刻")
         }
-        Text("此处列出本机创建并保存的个人音色；查询状态只读取服务器状态，不会重新训练。")
+        Text("已购买音色：通过控制台 AK/SK 拉取，无需填写音色 ID。AK/SK 仅在本页临时使用，不保存。导入后仍用复刻 API Key 校验可用性。")
+        OutlinedTextField(ak, { ak = it }, label = { Text("Access Key ID") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(sk, { sk = it }, label = { Text("Secret Access Key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(project, { project = it }, label = { Text("火山项目名称") }, modifier = Modifier.fillMaxWidth())
+        Button(enabled = !importBusy && ak.isNotBlank() && sk.isNotBlank() && project.isNotBlank() && config.cloneKey.isNotBlank(), onClick = {
+            scope.launch {
+                importBusy = true
+                try {
+                    val count = PersonalVoices.importPurchased(config.cloneKey, ak.trim(), sk.trim(), project.trim())
+                    Toast.makeText(context, "已同步 $count 个音色", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Toast.makeText(context, e.message ?: "同步失败", Toast.LENGTH_LONG).show()
+                } finally { importBusy = false }
+            }
+        }) { Text(if (importBusy) "正在同步" else "拉取已购买音色") }
+        Text("下方列出本机复刻或已同步的音色；查询状态只读，不会重新训练。")
         voices.filter { it.account == PersonalVoices.account(config.cloneKey) }.forEach { voice ->
             HorizontalDivider()
             Text(voice.name, style = MaterialTheme.typography.titleSmall)

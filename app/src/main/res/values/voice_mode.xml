@@ -16,9 +16,9 @@
     <string name="voice_mode_speaking">Daiyu is speaking</string>
     <string name="voice_mode_universal_settings_summary">Offline speech recognition · current chat model · configured read-aloud voice</string>
     <string name="voice_mode_universal_settings_hint">Configure speech recognition and read-aloud in their existing settings. Voice conversation sends recognized text to the current chat and listens again after playback.</string>
-    <string name="voice_mode_doubao_provider">Doubao Voice provider</string>
+    <string name="voice_mode_doubao_provider">Realtime call provider</string>
     <string name="voice_mode_doubao_provider_missing">Add and configure a Doubao Voice provider first</string>
     <string name="voice_mode_doubao_voice">Realtime voice ID</string>
     <string name="voice_mode_doubao_instructions">Realtime assistant instructions</string>
-    <string name="voice_mode_doubao_settings_hint">Uses the official SeedDuplex realtime WebSocket endpoint. The selected provider must use openspeech.bytedance.com and contain an API Key.</string>
+    <string name="voice_mode_doubao_settings_hint">Independent provider, voice and instructions. Read-aloud settings are not inherited. Changes apply to the next call. Choose a realtime voice above, or enter a custom voice ID supported by your service.</string>
 </resources>

@@ -207,7 +207,6 @@ internal class VoiceModeController(
             var ownedSession: DoubaoDuplexSession? = null
             try {
                 val providerId = Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_PROVIDER_ID)
-                    .ifBlank { Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_PROVIDER_ID) }
                 val provider = ProviderRepository.providerById(providerId)
                     ?: error("请先在语音对话设置中选择豆包语音提供商")
                 check(DoubaoSpeech.isOpenspeech(provider.baseUrl)) { "实时通话只能使用豆包语音提供商" }
@@ -259,7 +258,7 @@ internal class VoiceModeController(
     }
 
     companion object {
-        const val DEFAULT_DUPLEX_VOICE = "zh_female_xiaohe_jupiter_bigtts"
+        const val DEFAULT_DUPLEX_VOICE = DoubaoRealtimeVoices.DEFAULT_ID
         const val DEFAULT_DUPLEX_INSTRUCTIONS = "你是代鱼，一个简洁、自然、友善的中文语音助手。"
     }
 }

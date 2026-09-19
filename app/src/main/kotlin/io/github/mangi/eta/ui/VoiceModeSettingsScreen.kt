@@ -1,5 +1,12 @@
 package io.github.mangi.eta.ui
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import io.github.mangi.eta.agent.voice.DoubaoRealtimeVoices
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,10 +41,15 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
     }
     var modePicker by remember { mutableStateOf(false) }
     var providerPicker by remember { mutableStateOf(false) }
+    var voicePicker by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+    var catalogStatus by remember { mutableStateOf(0) }
+    var voices by remember { mutableStateOf(DoubaoRealtimeVoices.catalog) }
+    val scope = rememberCoroutineScope()
     var providerId by remember {
         mutableStateOf(
             Prefs.getString(Prefs.Keys.AGENT_VOICE_DOUBAO_PROVIDER_ID)
-                .ifBlank { Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_PROVIDER_ID) },
+,
         )
     }
     var voice by remember {
@@ -89,6 +101,29 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
                     insideMargin = PaddingValues(16.dp),
                     onClick = { providerPicker = true },
                 )
+                Text(stringResource(R.string.voice_mode_doubao), modifier = Modifier.padding(16.dp))
+                ArrowPreference(
+                    title = stringResource(R.string.realtime_choose_voice),
+                    summary = voices.firstOrNull { it.id == voice }?.let { "${it.name} · ${it.id}" } ?: voice,
+                    onClick = { voicePicker = true },
+                )
+                ArrowPreference(
+                    title = stringResource(if (refreshing) R.string.realtime_refreshing else R.string.realtime_refresh_voices),
+                    summary = stringResource(when (catalogStatus) {
+                        1 -> R.string.realtime_catalog_updated
+                        2 -> R.string.realtime_catalog_failed
+                        else -> R.string.realtime_catalog_builtin
+                    }),
+                    onClick = {
+                        if (!refreshing) scope.launch {
+                            refreshing = true
+                            try { voices = DoubaoRealtimeVoices.refresh(); catalogStatus = 1 }
+                            catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { catalogStatus = 2 }
+                            finally { refreshing = false }
+                        }
+                    },
+                )
                 OutlinedTextField(
                     value = voice,
                     onValueChange = {
@@ -118,6 +153,18 @@ internal fun VoiceModeSettingsScreen(onBack: () -> Unit) {
         }
     }
 
+    VoiceModeListDialog(
+        show = voicePicker,
+        title = stringResource(R.string.realtime_choose_voice),
+        rows = voices.map { it.id to "${it.name}\n${it.id}" },
+        selected = voice,
+        onDismiss = { voicePicker = false },
+        onSelect = { value ->
+            voice = value
+            Prefs.putString(Prefs.Keys.AGENT_VOICE_DOUBAO_VOICE, value)
+            voicePicker = false
+        },
+    )
     VoiceModeListDialog(
         show = modePicker,
         title = stringResource(R.string.voice_mode_default),
@@ -156,7 +203,7 @@ private fun VoiceModeListDialog(
     onSelect: (String) -> Unit,
 ) {
     WindowDialog(show = show, title = title, onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
             if (rows.isEmpty()) {
                 Text(emptyText, modifier = Modifier.padding(18.dp))
             }

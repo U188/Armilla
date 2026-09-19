@@ -16,9 +16,9 @@
     <string name="voice_mode_speaking">代魚正在說話</string>
     <string name="voice_mode_universal_settings_summary">離線識別 · 目前聊天模型 · 已設定朗讀音色</string>
     <string name="voice_mode_universal_settings_hint">語音識別和朗讀繼續在原有設定頁配置。語音對話會把識別文字傳給目前聊天模型，朗讀後繼續聆聽。</string>
-    <string name="voice_mode_doubao_provider">豆包語音提供商</string>
+    <string name="voice_mode_doubao_provider">即時通話提供商</string>
     <string name="voice_mode_doubao_provider_missing">請先新增並設定豆包語音提供商</string>
     <string name="voice_mode_doubao_voice">即時通話音色 ID</string>
     <string name="voice_mode_doubao_instructions">即時助手提示詞</string>
-    <string name="voice_mode_doubao_settings_hint">使用官方 SeedDuplex 即時 WebSocket 介面。所選提供商必須使用 openspeech.bytedance.com，並已填寫 API Key。</string>
+    <string name="voice_mode_doubao_settings_hint">提供商、音色和提示詞獨立設定，不繼承朗讀設定；下次通話生效。可從上方選擇即時音色，也可填寫服務支援的自訂音色 ID。</string>
 </resources>

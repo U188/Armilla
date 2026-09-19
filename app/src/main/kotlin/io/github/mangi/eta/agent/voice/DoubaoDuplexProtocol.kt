@@ -8,7 +8,7 @@ import java.util.UUID
 internal object DoubaoDuplexProtocol {
     // Never inherit a voice from another provider's ordinary TTS configuration.
     fun resolveVoice(configured: String): String = configured.trim()
-        .ifBlank { "zh_female_xiaohe_jupiter_bigtts" }
+        .ifBlank { DoubaoRealtimeVoices.DEFAULT_ID }
 
     // Match the official web demo: ASR events are current hypotheses, not append-only text.
     fun eventText(event: JSONObject): String =

@@ -33,6 +33,11 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 internal fun TtsSettingsScreen(onBack: () -> Unit) {
+    var personalPage by remember { mutableStateOf(false) }
+    if (personalPage) {
+        DoubaoVoiceSettings(page = "voices", onBack = { personalPage = false })
+        return
+    }
     val context = LocalContext.current
     var cloud by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_TTS_MODE) == "cloud") }
     var providerId by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_PROVIDER_ID)) }
@@ -74,6 +79,12 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
         Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, fallback)
     }
     MiuixScaffoldPage(title = stringResource(R.string.tts_title), onBack = onBack) {
+        item(key = "my_voices") {
+            Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                ArrowPreference(title = "我的声音", summary = "导入、制作和试听个人声音",
+                    insideMargin = PaddingValues(16.dp), onClick = { personalPage = true })
+            }
+        }
         item(key = "tts_mode") {
             Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 SwitchPreference(

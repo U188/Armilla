@@ -15,13 +15,13 @@ import io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig
 import io.github.mangi.eta.agent.voice.doubao.DoubaoAsrProtocol
 import io.github.mangi.eta.agent.voice.doubao.PersonalVoices
 import io.github.mangi.eta.agent.voice.doubao.VoiceCatalogPreferences
+import io.github.mangi.eta.agent.voice.doubao.VoiceCatalogSecretStore
 import kotlinx.coroutines.launch
 
 @Composable
 internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val diagnostics by io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics.state.collectAsState()
     var deleteVoice by remember { mutableStateOf<PersonalVoices.Voice?>(null) }
     var showSync by remember { mutableStateOf(false) }
     var manualId by remember { mutableStateOf(false) }
@@ -32,7 +32,6 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
     var fileName by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
     val back = { if (mode != null) { if (step > 0) step-- else mode = null } else onBack() }
-    var showDiagnostics by remember { mutableStateOf(false) }
     val config by DoubaoVoiceConfig.state.collectAsState()
     val voices by PersonalVoices.state.collectAsState()
     var asrKey by remember { mutableStateOf("") }
@@ -73,27 +72,10 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
     }
     key(mode, step) {
     io.github.mangi.eta.ui.components.MiuixScaffoldPage(
-    title = when { mode == "create" -> "制作声音 · 第 ${step + 1}/3 步"; mode == "import" -> "导入控制台声音"; page == "asr" -> "识别方式"; page == "voices" -> "我的声音"; else -> "帮助与诊断" },
+    title = when { mode == "create" -> "制作声音 · 第 ${step + 1}/3 步"; mode == "import" -> "导入控制台声音"; page == "asr" -> "识别方式"; else -> "我的声音" },
     onBack = { if (!busy) back() },
     ) { item {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (page == "diagnostics") {
-                    Text("语音输入：打开总开关，返回聊天页点击语音按钮。文字出现才表示识别成功。")
-                    Text("已有控制台声音用“导入”；有录音要制作声音用“制作”。遇到错误可以复制诊断给开发者。")
-                    Row {
-                        TextButton(onClick = { showDiagnostics = !showDiagnostics }) { Text(if (showDiagnostics) "收起诊断" else "查看语音诊断") }
-                        TextButton(onClick = {
-                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("豆包语音诊断", diagnostics.joinToString("\n")))
-                            Toast.makeText(context, "已复制脱敏诊断", Toast.LENGTH_SHORT).show()
-                        }, enabled = diagnostics.isNotEmpty()) { Text("复制诊断") }
-                    }
-                    if (showDiagnostics) {
-                        Text("记录本次进程内最近 100 条；应用日志也会保留诊断。不记录密钥、音频或识别正文。")
-                        Text(diagnostics.takeLast(25).joinToString("\n").ifBlank { "暂无记录，请执行识别或查询音色状态后查看。" }, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics.clear() }) { Text("清空面板") }
-                    }
-                }
                 if (page == "asr") {
                     Row {
                         RadioButton(!config.cloudAsr, { DoubaoVoiceConfig.save(context, config.copy(cloudAsr = false)) })
@@ -274,7 +256,9 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var ak by remember { mutableStateOf(VoiceCatalogPreferences.keyId(context)) }
-    var sk by remember { mutableStateOf("") }
+    val secretStore = remember(context) { VoiceCatalogSecretStore(context) }
+    var sk by remember { mutableStateOf(secretStore.read(ak).orEmpty()) }
+    var storageError by remember { mutableStateOf("") }
     var project by remember { mutableStateOf(VoiceCatalogPreferences.project(context)) }
     var resultText by remember { mutableStateOf("") }
     var failed by remember { mutableStateOf(false) }
@@ -286,9 +270,18 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
         context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://console.volcengine.com/iam/keymanage/")))
     }) { Text("打开火山访问密钥管理") }
     Text("在访问密钥管理中获取 Access Key ID 和 Secret Access Key，分别粘贴到下面。不要发到聊天里。", style = MaterialTheme.typography.bodySmall)
-    OutlinedTextField(ak, { ak = it; VoiceCatalogPreferences.save(context, it, project) }, label = { Text("Access Key ID（AK）") }, enabled = !busy,
+    OutlinedTextField(ak, {
+        if (it.trim() != ak.trim()) {
+            runCatching { secretStore.clear() }.onFailure { storageError = "旧 SK 清除失败，请重试" }
+            sk = ""
+        }
+        ak = it; VoiceCatalogPreferences.save(context, it, project)
+    }, label = { Text("Access Key ID（AK）") }, enabled = !busy,
         visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-    OutlinedTextField(sk, { sk = it }, label = { Text("Secret Access Key（SK）") }, enabled = !busy,
+    OutlinedTextField(sk, {
+        sk = it
+        storageError = runCatching { secretStore.save(ak, it) }.fold({ "" }, { "SK 加密保存失败；本次仍可读取名额，离开页面后需重新填写。" })
+    }, label = { Text("Secret Access Key（SK）") }, enabled = !busy,
         visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
     TextButton(enabled = !busy, onClick = { projectOptions = !projectOptions }) { Text("项目：$project · 更改") }
     if (projectOptions) {
@@ -302,7 +295,6 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
             try {
                 val count = PersonalVoices.importPurchased(savedKey, accessKey, secretKey, selectedProject)
                 resultText = if (count == 0) "此项目未查到音色名额。请核对控制台左上角项目；免费字数额度不代表一定有音色名额。" else "已同步 $count 个名额，返回上方列表选择。未使用名额优先排列；查询失败的条目会标为待确认。"
-                sk = ""
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 failed = true
@@ -311,9 +303,12 @@ private fun VoiceSlotSync(apiKey: String, onBusy: (Boolean) -> Unit, onResult: (
         }
     }) { Text(if (busy) "正在查找名额…" else "读取我的名额") }
     if (resultText.isNotBlank()) Text(resultText, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-    Text("已自动记住 AK（Key ID）和项目名，下次会填好。SK 不保存，收起表单或离开页面后需重新填写。", style = MaterialTheme.typography.bodySmall)
+    if (storageError.isNotBlank()) Text(storageError, color = MaterialTheme.colorScheme.error)
+    Text("AK 和项目名自动记住，SK 在本机加密保存，退出页面后也会自动填入。更换 AK 时会清空旧 SK，请填写对应的一对密钥。", style = MaterialTheme.typography.bodySmall)
     TextButton(enabled = !busy, onClick = {
-        VoiceCatalogPreferences.clear(context); ak = ""; project = "default"; sk = ""
-        resultText = "已清除记住的 Key ID 和项目名"; failed = false
+        runCatching { secretStore.clear() }.onSuccess {
+            VoiceCatalogPreferences.clear(context); ak = ""; project = "default"; sk = ""; storageError = ""
+            resultText = "已清除 AK、SK 和项目名"; failed = false
+        }.onFailure { storageError = "保存的 SK 清除失败，请重试" }
     }) { Text("清除已记住的信息") }
 }

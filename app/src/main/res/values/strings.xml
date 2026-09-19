@@ -159,7 +159,7 @@
   <string name="settings_file_logging">Record diagnostic logs</string>
   <string name="settings_file_logging_summary">When enabled, runtime logs are saved on-device. Turning it off stops writing and keeps existing logs.</string>
   <string name="settings_export_logs">Export logs</string>
-  <string name="settings_export_logs_summary">Save captured logs as a ZIP file</string>
+  <string name="settings_export_logs_summary">Export app logs, including redacted voice diagnostics, as a ZIP file</string>
   <string name="settings_export_logs_working">Working…</string>
   <string name="settings_export_logs_success">Exported %1$d log files</string>
   <string name="settings_export_logs_empty">No logs to export. Turn on recording first.</string>

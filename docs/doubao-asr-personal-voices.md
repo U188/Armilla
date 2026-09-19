@@ -79,3 +79,10 @@ Training/Active/Expired/Reclaimed 或剩余次数为零的名额不能选择训�
 固定向量和本地 HTTP 线上的头/中文请求体测试不等于真实账户鉴权成功；仍需验证真实 AK/SK。
 根据用户要求，AK Key ID 与项目名在本机自动保存，提供清除按钮；SK 仍仅临时使用，成功后或离开表单清空。
 此前文档中的“AK/SK 均不保存”由本节替代。应用禁用 Android 自动备份；Key ID 不写入助手持久记忆。
+
+
+## 本机保存与入口调整（覆盖前述临时 SK 约定）
+
+用户要求同时记住 SK：使用 Android Keystore AES-GCM 加密，密文仅存独立私有偏好；以 AK 为 AAD，避免跨 Key ID 复用旧 SK。修改 AK 清空旧 SK；提供统一清除，保存失败显示明确提示。SK 不加入日志或助手记忆。
+“我的声音”入口迁入朗读页面；删除“帮助与诊断”页面，DoubaoDiag 沿现有 AppFileLogger 路径统一导出/清空。
+实际运行官方 Python SDK（commit d88be4d8028e35563b27ff1bafe3c1f7ed1ab656）对同一固定向量签名，Authorization 与现有 Kotlin 测试一致，签名 9ffc2ff0b59fd1dca028f08217d73c45e140c85f369536157184d03aedc9d600。真实账户 SignatureDoesNotMatch 仍未解决，不能据测试声称密钥错误或鉴权成功。

@@ -3323,10 +3323,6 @@ internal class AgentAppState(
         }
         if (event is AgentEvent.AssistantBlockDelta) {
             if (event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL || event.delta.isEmpty()) return
-            if (runConversationIds[runId] == selectedConversationId && selectedConversationId != null) {
-                io.github.mangi.eta.ui.haptics.StreamingHaptics.onDelta()
-            }
-
             runEventCoalescer.append(runId, event)?.let { ready ->
                 applyRunEvent(runId, ready)
             }

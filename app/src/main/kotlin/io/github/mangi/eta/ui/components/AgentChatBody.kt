@@ -199,7 +199,7 @@ internal fun AgentChatBody(
     modifier: Modifier = Modifier,
 ) {
     StreamPerformanceMonitor(isStreaming)
-    io.github.mangi.eta.ui.haptics.StreamingHaptics.Observe(isStreaming && !isPaused && !isDrawerOpen)
+    io.github.mangi.eta.ui.haptics.StreamingHaptics.Observe(!isPaused && !isDrawerOpen)
     SideEffect { StreamPerformanceDiagnostics.record("chat.compose", value = messages.size.toLong()) }
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current

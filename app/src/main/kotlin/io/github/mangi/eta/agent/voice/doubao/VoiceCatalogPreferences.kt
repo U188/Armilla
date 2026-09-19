@@ -2,7 +2,7 @@ package io.github.mangi.eta.agent.voice.doubao
 
 import android.content.Context
 
-/** Only the user-requested key ID and project; never the secret access key. */
+/** Key ID and project only; SK lives in VoiceCatalogSecretStore. */
 internal object VoiceCatalogPreferences {
     private fun prefs(context: Context) = context.getSharedPreferences("voice_catalog_id", Context.MODE_PRIVATE)
     fun keyId(context: Context) = prefs(context).getString("key_id", "").orEmpty()

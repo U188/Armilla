@@ -36,6 +36,29 @@ class SmoothTextRevealCoordinatorTest {
     }
 
     @Test
+    fun feedbackFollowsFramesButNotRestoreOrDetachedHistory() = runBlocking {
+        val coordinator = SmoothTextRevealCoordinator()
+        var pulses = 0
+        coordinator.setOnRevealAdvanced { if (it > 0f) pulses++ }
+        val key = RevealBlockKey(0)
+        val node = attach(coordinator, key, "正在显示的新文字")
+        assertEquals(0, pulses)
+        val clock = TestFrameClock()
+        val job = launch(clock, start = CoroutineStart.UNDISPATCHED) { coordinator.runFrameClock() }
+        try {
+            clock.send(0L)
+            clock.send(50_000_000L)
+            yield()
+            assertTrue(pulses > 0)
+            val beforeRestore = pulses
+            coordinator.restoreHistoryThrough(100)
+            coordinator.resumeAnimationsAfterCatchUp()
+            coordinator.detach(key, node)
+            assertEquals(beforeRestore, pulses)
+        } finally { job.cancelAndJoin() }
+    }
+
+    @Test
     fun detachedEarlierBlockCompletesAndLaterBlockKeepsRevealing() = runBlocking {
         val coordinator = SmoothTextRevealCoordinator()
         val earlierKey = RevealBlockKey(0)

@@ -91,18 +91,6 @@ internal fun SpeechSettingsScreen(onBack: () -> Unit) {
                     insideMargin = PaddingValues(16.dp), onClick = { page = "asr" })
             }
         }
-        item(key = "my_voices") {
-            Card(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                ArrowPreference(title = "我的声音", summary = "导入、制作和试听个人声音",
-                    insideMargin = PaddingValues(16.dp), onClick = { page = "voices" })
-            }
-        }
-        item(key = "voice_diagnostics") {
-            Card(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                ArrowPreference(title = "帮助与诊断", summary = "遇到连接或声音问题时查看",
-                    insideMargin = PaddingValues(16.dp), onClick = { page = "diagnostics" })
-            }
-        }
         item(key = "speech_privacy") {
             Text(if (config.cloudAsr) "点击后收音，音频发送至豆包识别；文字留在输入框，不自动发送。离开聊天或切到后台停止收音。" else stringResource(R.string.speech_privacy),
                 modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),

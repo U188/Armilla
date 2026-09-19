@@ -1093,7 +1093,11 @@ private fun StreamingMarkdown(
     }
 
     LaunchedEffect(revealCoordinator, view) {
-        // Haptics follow live model deltas at chat scope, not visible reveal animation.
+        // Drive feedback in the same frame as visible text, including the final drain.
+        // Catch-up/restore does not emit this callback, so history never replays pulses.
+        revealCoordinator.setOnRevealAdvanced {
+            io.github.mangi.eta.ui.haptics.StreamingHaptics.onVisibleAdvance(view)
+        }
         try {
             revealCoordinator.runFrameClock()
         } finally {

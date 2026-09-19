@@ -1072,7 +1072,10 @@ internal fun SettingsScreen(
                         clearingLogs = true
                         coroutineScope.launch {
                             try {
-                                withContext(Dispatchers.IO) { AppFileLogger.clear() }
+                                withContext(Dispatchers.IO) {
+                                    AppFileLogger.clear()
+                                    io.github.mangi.eta.agent.voice.doubao.DoubaoDiagnostics.clear()
+                                }
                                 Toast.makeText(
                                     context.applicationContext,
                                     context.getString(R.string.settings_clear_logs_done),

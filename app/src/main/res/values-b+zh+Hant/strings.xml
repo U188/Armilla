@@ -188,7 +188,7 @@
   <string name="settings_file_logging">記錄診斷日誌</string>
   <string name="settings_file_logging_summary">開啟後記錄執行日誌到本機。關閉後停止寫入，既有日誌保留，方便排查問題。</string>
   <string name="settings_export_logs">匯出日誌</string>
-  <string name="settings_export_logs_summary">將已記錄的日誌儲存為 ZIP 檔案</string>
+  <string name="settings_export_logs_summary">匯出軟體日誌（含去識別化語音診斷）為 ZIP 檔案</string>
   <string name="settings_export_logs_working">處理中…</string>
   <string name="settings_export_logs_success">已匯出 %1$d 個日誌檔案</string>
   <string name="settings_export_logs_empty">沒有可匯出的日誌，請先開啟記錄</string>

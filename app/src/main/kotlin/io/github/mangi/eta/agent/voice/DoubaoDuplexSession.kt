@@ -50,6 +50,7 @@ internal class DoubaoDuplexSession(
     @Volatile private var closed = false
     private var transcript = ""
     private var reply = ""
+    private var replyResponseId = ""
     private var receivedAudioBytes = 0L
     private var writtenAudioBytes = 0L
 
@@ -67,7 +68,18 @@ internal class DoubaoDuplexSession(
         try {
             while (isActive && !closed) {
                 val event = events.receive()
-                when (event.optString("type")) {
+                val type = event.optString("type")
+                val responseId = event.optString("response_id")
+                if (type.startsWith("response.output_text.") && responseId.isNotBlank() && responseId != replyResponseId) {
+                    reply = ""
+                    replyResponseId = responseId
+                }
+                if (type.startsWith("conversation.item.input_audio_transcription.") ||
+                    type == "response.output_text.done") {
+                    // Metadata only: never log speech content or audio payloads.
+                    AndroidAgentLogger.info("Duplex: event=$type deltaChars=${event.optString("delta").length} transcriptChars=${event.optString("transcript").length} textChars=${event.optString("text").length} playing=${player?.playState == AudioTrack.PLAYSTATE_PLAYING} receivedBytes=$receivedAudioBytes writtenBytes=$writtenAudioBytes")
+                }
+                when (type) {
                     "session.created" -> {
                         onState(state(VoiceModePhase.Listening))
                         if (captureJob == null) captureJob = launch(Dispatchers.IO) { captureInput(ws) }

@@ -1130,15 +1130,18 @@ private fun VoiceModeStatusPanel(
                 )
             }
         }
-        val detail = when {
-            state.reply.isNotBlank() -> state.reply
-            state.transcript.isNotBlank() -> state.transcript
-            else -> ""
-        }
+        val detail = listOfNotNull(
+            state.transcript.takeIf { it.isNotBlank() }?.let {
+                stringResource(R.string.voice_recognized_text, it)
+            },
+            state.reply.takeIf { it.isNotBlank() }?.let {
+                stringResource(R.string.voice_reply_text, it)
+            },
+        ).joinToString("\n")
         if (detail.isNotBlank()) {
             Text(
                 text = detail,
-                maxLines = 2,
+                maxLines = 4,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.body2,
                 modifier = Modifier.padding(start = 30.dp, end = 8.dp, bottom = 4.dp),

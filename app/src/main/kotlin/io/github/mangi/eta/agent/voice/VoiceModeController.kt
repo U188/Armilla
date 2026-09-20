@@ -239,7 +239,12 @@ internal class VoiceModeController(
                 try {
                     val session = DoubaoDuplexSession(app, onState = { next ->
                         trace.mark("controller.phase", "phase" to next.phase.ordinal, sampled = true)
-                        if (generation == sessionGeneration) mutableState.value = next
+                        val accepted = generation == sessionGeneration
+                        val changed = mutableState.value.reply != next.reply
+                        if (accepted) mutableState.value = next
+                        if (changed || !accepted) trace.mark("text.controller",
+                            "accepted" to if (accepted) 1 else 0, "changed" to if (changed) 1 else 0,
+                            "chars" to next.reply.length, sampled = true)
                     }, diagnostic = trace)
                     ownedSession = session
                     duplex = session

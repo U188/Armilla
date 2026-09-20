@@ -14,6 +14,17 @@ internal object DoubaoDuplexProtocol {
         listOf("text", "delta", "transcript", "content")
             .firstNotNullOfOrNull { key -> event.optString(key).takeIf { it.isNotBlank() } }.orEmpty()
 
+    // Output delta is append-only, unlike ASR hypotheses. Keep whitespace chunks intact.
+    // The official demo accepts text, delta, transcript and content in that order.
+    data class OutputText(val text: String, val field: Int)
+    fun outputText(event: JSONObject): OutputText {
+        listOf("text", "delta", "transcript", "content").forEachIndexed { index, key ->
+            val value = event.opt(key)
+            if (value is String && value.isNotEmpty()) return OutputText(value, index + 1)
+        }
+        return OutputText("", 0)
+    }
+
     fun audioPayload(event: JSONObject): String =
         event.optString("audio").ifBlank { event.optString("delta") }
 

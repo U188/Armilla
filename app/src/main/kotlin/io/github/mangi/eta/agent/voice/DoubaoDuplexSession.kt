@@ -51,7 +51,7 @@ internal class DoubaoDuplexSession(
     @Volatile private var closed = false
     private var transcript = ""
     private var reply = ""
-    private var replyResponseId = ""
+    private val textStream = DuplexTextStream(diagnostic)
     private var turnAudioStartBytes = 0L
     private var receivedAudioBytes = 0L
     private var writtenAudioBytes = 0L
@@ -80,13 +80,8 @@ internal class DoubaoDuplexSession(
             while (isActive && !closed) {
                 val event = events.receiveCatching().getOrNull() ?: break
                 val type = event.optString("type")
-                val responseId = event.optString("response_id")
-                if (type.startsWith("response.output_text.") && responseId.isNotBlank() && responseId != replyResponseId) {
-                    reply = ""
-                    replyResponseId = responseId
-                }
-                diagnostic.mark("event.consume", "queuedMs" to
-                    (android.os.SystemClock.elapsedRealtime() - event.optLong("_etaReceivedAt", android.os.SystemClock.elapsedRealtime())), sampled = true)
+                val queuedMs = (android.os.SystemClock.elapsedRealtime() - event.optLong("_etaReceivedAt", android.os.SystemClock.elapsedRealtime())).coerceAtLeast(0)
+                diagnostic.mark("event.consume", "queuedMs" to queuedMs, sampled = true)
                 when (type) {
                     "session.created" -> {
                         onState(state(VoiceModePhase.Listening))
@@ -95,6 +90,7 @@ internal class DoubaoDuplexSession(
                     "conversation.item.input_audio_transcription.started" -> {
                         transcript = ""
                         reply = ""
+                        textStream.reset()
                         flushOutput()
                         onState(state(VoiceModePhase.Listening))
                     }
@@ -106,13 +102,13 @@ internal class DoubaoDuplexSession(
                         transcript = DoubaoDuplexProtocol.eventText(event).ifBlank { transcript }
                         onState(state(VoiceModePhase.Thinking))
                     }
-                    "response.output_text.delta" -> {
-                        reply += event.optString("delta")
+                    "response.output_text.delta", "response.output_text.done" -> {
+                        reply = textStream.accept(event, queuedMs)
+                        val publishStarted = System.nanoTime()
                         onState(state(VoiceModePhase.Speaking))
-                    }
-                    "response.output_text.done" -> {
-                        reply = event.optString("text").ifBlank { reply }
-                        onState(state(VoiceModePhase.Speaking))
+                        diagnostic.mark("text.publish", "chars" to reply.length,
+                            "callbackUs" to (System.nanoTime() - publishStarted) / 1_000,
+                            "done" to if (type.endsWith(".done")) 1 else 0, sampled = !type.endsWith(".done"))
                     }
                     "response.output_audio.started" -> {
                         turnAudioStartBytes = receivedAudioBytes
@@ -148,6 +144,7 @@ internal class DoubaoDuplexSession(
                 }
             }
         } finally {
+            textStream.finish()
             close()
             runCatching { withTimeout(2_000) { finished.await() } }
         }
@@ -297,6 +294,7 @@ internal class DoubaoDuplexSession(
         socket?.close(1000, "voice mode stopped")
         socket = null
         diagnostic.mark("resources.close")
+        textStream.finish()
         diagnostic.finish()
     }
 
@@ -327,6 +325,8 @@ internal class DoubaoDuplexSession(
                     val type = event.optString("type").takeIf { it in known } ?: "unknown"
                     diagnostic.mark("rx.$type", "audioChars" to event.optString("audio").length,
                         "deltaChars" to event.optString("delta").length, "textChars" to event.optString("text").length,
+                        "transcriptChars" to (event.opt("transcript") as? String).orEmpty().length,
+                        "contentChars" to (event.opt("content") as? String).orEmpty().length,
                         "status" to event.optLong("status_code", -1), "fields" to event.length(),
                         sampled = type.endsWith(".delta") || type == "unknown")
                     event.put("_etaReceivedAt", android.os.SystemClock.elapsedRealtime())

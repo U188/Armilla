@@ -1,25 +1,36 @@
 package io.github.mangi.eta.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
+import io.github.mangi.eta.ui.haptics.TouchHaptics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.voice.tts.SpeechEngineResolver
 import io.github.mangi.eta.agent.voice.tts.SpeechPlayback
-import io.github.mangi.eta.agent.voice.tts.SpeechVoices
 import io.github.mangi.eta.agent.voice.tts.SpeechVoice
+import io.github.mangi.eta.agent.voice.tts.SpeechVoices
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.data.repository.ProviderRepository
@@ -28,8 +39,6 @@ import io.github.mangi.eta.ui.model.AgentModelPickerProjector
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 internal fun TtsSettingsScreen(onBack: () -> Unit) {
@@ -180,44 +189,50 @@ private fun TtsVoicePickerDialog(
     onDismiss: () -> Unit,
     onSelected: (String) -> Unit,
 ) {
-    WindowDialog(
-        show = show,
-        title = stringResource(R.string.tts_voice),
+    if (!show) return
+    val view = LocalView.current
+    AlertDialog(
         onDismissRequest = onDismiss,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 520.dp)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            val personal = voices.filter { it.personal }
-            val female = voices.filter { !it.personal && "_female_" in it.id }
-            val male = voices.filter { !it.personal && "_male_" in it.id }
-            val other = voices.filter { !it.personal && "_female_" !in it.id && "_male_" !in it.id }
-            if (female.isNotEmpty()) {
-                VoiceSectionTitle(stringResource(R.string.tts_voice_female))
-                female.forEach { VoiceRow(it, selectedId, onSelected) }
+        title = { Text(stringResource(R.string.tts_voice)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState())
+                    .selectableGroup(),
+            ) {
+                val personal = voices.filter { it.personal }
+                val female = voices.filter { !it.personal && "_female_" in it.id }
+                val male = voices.filter { !it.personal && "_male_" in it.id }
+                val other = voices.filter { !it.personal && "_female_" !in it.id && "_male_" !in it.id }
+                if (female.isNotEmpty()) {
+                    VoiceSectionTitle(stringResource(R.string.tts_voice_female))
+                    female.forEach { VoiceRow(it, selectedId, onSelected) }
+                }
+                if (male.isNotEmpty()) {
+                    VoiceSectionTitle(stringResource(R.string.tts_voice_male))
+                    male.forEach { VoiceRow(it, selectedId, onSelected) }
+                }
+                other.forEach { VoiceRow(it, selectedId, onSelected) }
+                if (personal.isNotEmpty()) {
+                    VoiceSectionTitle(stringResource(R.string.tts_voice_personal))
+                    personal.forEach { VoiceRow(it, selectedId, onSelected) }
+                }
             }
-            if (male.isNotEmpty()) {
-                VoiceSectionTitle(stringResource(R.string.tts_voice_male))
-                male.forEach { VoiceRow(it, selectedId, onSelected) }
-            }
-            other.forEach { VoiceRow(it, selectedId, onSelected) }
-            if (personal.isNotEmpty()) {
-                VoiceSectionTitle(stringResource(R.string.tts_voice_personal))
-                personal.forEach { VoiceRow(it, selectedId, onSelected) }
-            }
-        }
-    }
+        },
+        confirmButton = {
+            TextButton(onClick = { TouchHaptics.click(view); onDismiss() }) { Text(stringResource(R.string.action_close)) }
+        },
+    )
 }
 
 @Composable
 private fun VoiceSectionTitle(text: String) {
     Text(
         text = text,
-        style = MiuixTheme.textStyles.subtitle,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 8.dp),
@@ -226,15 +241,25 @@ private fun VoiceSectionTitle(text: String) {
 
 @Composable
 private fun VoiceRow(voice: SpeechVoice, selectedId: String, onSelected: (String) -> Unit) {
-    Column(
+    val view = LocalView.current
+    val selected = voice.id == selectedId
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onSelected(voice.id) }
-            .padding(horizontal = 4.dp, vertical = 10.dp),
+            .heightIn(min = 56.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = { TouchHaptics.click(view); onSelected(voice.id) })
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        RadioButton(selected = selected, onClick = null)
+        // Public and personal voices share the same typography, including the selected row.
         Text(
             text = voice.name,
-            color = if (voice.id == selectedId) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Normal,
+            fontStyle = FontStyle.Normal,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f).padding(start = 12.dp),
         )
     }
 }

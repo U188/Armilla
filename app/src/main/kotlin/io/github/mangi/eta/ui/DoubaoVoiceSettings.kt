@@ -50,7 +50,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
     var showAccount by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     var settingsMenu by remember { mutableStateOf(false) }
-    val back = {
+    val back: () -> Unit = {
         when (voiceSettingsBackTarget(showSync, showAccount, mode, step)) {
             VoiceSettingsBackTarget.SYNC_PARENT -> showSync = false
             VoiceSettingsBackTarget.ACCOUNT_PARENT -> showAccount = false

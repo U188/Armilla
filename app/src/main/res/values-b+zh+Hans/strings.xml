@@ -1441,4 +1441,7 @@
   <string name="chat_previous_turn">上一轮消息</string>
   <string name="chat_go_to_bottom">回到底部</string>
   <string name="chat_go_to_top">回到顶部</string>
+  <string name="tool_delegate_task">委派子代理</string>
+  <string name="tool_get_task_result">查询子代理结果</string>
+  <string name="tool_cancel_task">取消子代理</string>
 </resources>

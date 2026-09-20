@@ -1,5 +1,6 @@
 package io.github.mangi.eta.ui.haptics
 
+import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
 import android.app.Application
 import android.widget.Magnifier
 import androidx.compose.foundation.ComposeFoundationFlags
@@ -110,9 +111,41 @@ class HapticSelectionGestureTest {
             }
         }
         compose.onNodeWithTag("text").performTouchInput { longClick(layout.getBoundingBox(9).center) }
-        compose.runOnIdle { assertTrue(opened.isEmpty()); selection.clear() }
+        compose.runOnIdle {
+            assertTrue(opened.isEmpty())
+            assertEquals("linked", selection.selectedTexts.joinToString("") { it.text })
+            assertNotNull("Link selection must offer Copy", toolbar.copy)
+            selection.clear()
+        }
         compose.onNodeWithTag("text").performTouchInput { click(layout.getBoundingBox(9).center) }
         compose.runOnIdle { assertEquals(listOf("https://example.com"), opened) }
+    }
+
+    @Test fun markdownLocalFileLinkCanBeSelectedAndCopied() {
+        val source = "[下载 APK](/storage/emulated/0/Download/daiyu-5.3.0.apk)"
+        val node = org.intellij.markdown.parser.MarkdownParser(
+            org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor(),
+        ).buildMarkdownTreeFromString(source).children.first()
+        compose.setContent {
+            CompositionLocalProvider(LocalTextToolbar provides toolbar) {
+                HapticSelectionContainer(selectionState = selection) {
+                    val settings = com.mikepenz.markdown.annotator.annotatorSettings()
+                    val text = buildAnnotatedString {
+                        buildMarkdownAnnotatedString(source, node, settings)
+                    }
+                    com.mikepenz.markdown.compose.elements.MarkdownText(
+                        content = text, node = node, sourceContent = source,
+                        style = TextStyle(fontSize = 20.sp), modifier = Modifier.testTag("text"),
+                        onTextLayout = { result, _ -> layout = result },
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("text").performTouchInput { longClick(layout.getBoundingBox(4).center) }
+        compose.runOnIdle {
+            assertEquals("APK", selection.selectedTexts.joinToString("") { it.text })
+            assertNotNull(toolbar.copy)
+        }
     }
 
     private class RecordingToolbar : TextToolbar {

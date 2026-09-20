@@ -38,7 +38,7 @@ internal fun HapticSelectionContainer(
     val view = LocalView.current
     val parent = LocalHapticFeedback.current
     val haptic = remember(parent) { SelectionHapticFeedback(parent) }
-    val uriHandler = LocalUriHandler.current
+    val uriHandler = io.github.mangi.eta.ui.markdown.rememberChatUriHandler(LocalUriHandler.current)
     val linkGuard = remember { SelectionLinkGuard() }
     val guardedUriHandler = remember(uriHandler, linkGuard) {
         object : UriHandler {

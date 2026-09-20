@@ -1216,7 +1216,17 @@ class AgentModelClientLoopTest {
         val projected = events.filterIsInstance<AgentEvent.UsageReceived>().filter { it.projected }
         assertEquals(135_880, real.first().usage.inputTokens)
         assertTrue(projected.isNotEmpty())
-        assertTrue((projected.first().usage.inputTokens ?: 0) > 135_880)
+        // Before the first bill, the loop now emits a local request estimate.
+        val firstBillIndex = events.indexOf(real.first())
+        val initialEstimates = events.take(firstBillIndex)
+            .filterIsInstance<AgentEvent.UsageReceived>().filter { it.projected }
+        assertTrue(initialEstimates.isNotEmpty())
+        assertTrue(initialEstimates.all { (it.usage.inputTokens ?: 0) > 0 })
+        // Tool results must still project from the actual billed prompt baseline.
+        val afterBill = events.drop(firstBillIndex + 1)
+            .filterIsInstance<AgentEvent.UsageReceived>().filter { it.projected }
+        assertTrue(afterBill.isNotEmpty())
+        assertTrue((afterBill.first().usage.inputTokens ?: 0) > 135_880)
         assertEquals(137_865, real.last().usage.inputTokens)
     }
 

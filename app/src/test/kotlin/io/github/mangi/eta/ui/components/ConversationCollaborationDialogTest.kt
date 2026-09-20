@@ -30,8 +30,10 @@ class ConversationCollaborationDialogTest {
             }
         }
         compose.onNodeWithText("本会话协作").assertExists()
-        compose.onNodeWithText("实现").assertExists()
-        compose.onNodeWithText("审查 / 总结").assertExists()
+        listOf("执行代理 1", "执行代理 2", "执行代理 3", "审查／总结代理").forEach {
+            compose.onNodeWithText(it).assertExists()
+        }
+        compose.onNodeWithText("点击模型行调整子代理思考深度", substring = true).assertExists()
         compose.onNodeWithText("最多两个只读子代理", substring = true).assertDoesNotExist()
         compose.onNodeWithText("自动委派").performClick()
         compose.runOnIdle { assertTrue(enabled.value) }

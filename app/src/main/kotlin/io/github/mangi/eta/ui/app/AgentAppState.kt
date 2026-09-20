@@ -3762,9 +3762,13 @@ internal class AgentAppState(
         val current = conversationsById[conversationId] ?: return
         if (conversationId in pendingInRunCompactConversationIds &&
             AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
-            updateConversation(conversationId, current.copy(history = event.history, livePromptTokens = null))
-            billedOverheadConversationId = conversationId
-            billedOverheadTokens = null
+            updateConversation(conversationId, current.copy(
+                history = event.history,
+                livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(
+                    current.livePromptTokens, current.messages),
+            ))
+            // Summary is still pending. Retain the last measured usage even if it fails;
+            // only successful summary application or a new provider bill replaces it.
             persistConversations()
             return
         }

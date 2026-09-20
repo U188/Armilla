@@ -76,8 +76,7 @@ internal object UsageStatsRepository {
 
     suspend fun recordModelUsage(delta: ModelUsageDelta) {
         modelUsageLock.withLock {
-            val current = SettingsDataStore.modelUsageJson()
-            SettingsDataStore.addModelUsage(applyModelUsageDelta(current, delta))
+            SettingsDataStore.updateModelUsage { current -> applyModelUsageDelta(current, delta) }
         }
     }
 }

@@ -1442,4 +1442,5 @@
   <string name="tool_delegate_task">委派子代理</string>
   <string name="tool_get_task_result">查询子代理结果</string>
   <string name="tool_cancel_task">取消子代理</string>
+    <string name="stats_model_accounting_note">统计本应用模型请求实际返回的用量；缓存包含在输入中，不额外相加。未返回的用量及旧版已丢失的记录无法补算，不等同于平台账单。</string>
 </resources>

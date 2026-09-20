@@ -9,7 +9,8 @@ internal object SubAgentRunner {
     fun run(config: AgentModelClient.ModelConfig, prompt: String, tools: JSONArray,
             executor: AgentModelClient.ToolExecutor, controller: AgentRunController,
             provider: AgentProviderClient = ProviderClientFactory.getClient(config),
-            workspaceMode: Boolean = false, writable: Boolean = false): String {
+            workspaceMode: Boolean = false, writable: Boolean = false,
+            sessionId: String = java.util.UUID.randomUUID().toString()): String {
         val child = config.copy(systemPrompt = "", hostedWebSearchEnabled = false,
             terminalTools = false, browserTools = false, deviceSensitiveActionTools = false)
         val messages = JSONArray()
@@ -20,7 +21,7 @@ internal object SubAgentRunner {
                 "不能在分配的工作树之外写入、发送、操作界面或创建子代理。只向主代理返回分析结果，由主代理审核并答复用户。"))
             .put(JSONObject().put("role", "user").put("content", prompt))
         return AgentLoop(config = child, messages = messages, tools = if (workspaceMode) SubAgentWorkspace.childTools(writable) else SubAgentTools.filter(tools),
-            provider = provider,
+            provider = provider, sessionId = sessionId,
             toolExecutor = if (workspaceMode) executor else SubAgentTools.guarded(executor), runController = controller,
             traceFormatter = AgentTraceFormatter(), onEvent = {}, systemCount = 1).run().content
     }

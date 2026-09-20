@@ -224,7 +224,7 @@ internal class AgentRuntimeRunExecutor(
                         val backend = requireNotNull(workspace)
                         SubAgentRunner.run(config, prompt, SubAgentWorkspace.childTools(writable),
                             backend.childExecutor(project, id, writable, controller), controller,
-                            workspaceMode = true, writable = writable)
+                            workspaceMode = true, writable = writable, sessionId = request.effectiveModelSessionId)
                     },
                 ) { config, prompt, controller ->
                     val readTools = SubAgentTools.filter(AgentToolCatalog.build(
@@ -235,7 +235,7 @@ internal class AgentRuntimeRunExecutor(
                         memoryTools = memoryEnabled,
                         capabilities = AgentToolCapabilities.capture(appContext),
                     ))
-                    SubAgentRunner.run(config, prompt, readTools, executor, controller)
+                    SubAgentRunner.run(config, prompt, readTools, executor, controller, sessionId = request.effectiveModelSessionId)
                 }
                 childBinding = runController.register { children?.close() }
                 SubAgentTools.appendTo(mcpTools, configuredChildren.mapIndexed { i, (slot, model) ->

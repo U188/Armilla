@@ -410,6 +410,11 @@ internal object SettingsDataStore {
         }
     }
 
+    suspend fun updateModelUsage(transform: (String) -> String) {
+        ensureInitialized()
+        dataStore.edit { prefs -> prefs[MODEL_USAGE_JSON] = transform(prefs[MODEL_USAGE_JSON].orEmpty()) }
+    }
+
     private fun decodeHeatmap(raw: String?): Map<LocalDate, Int> {
         if (raw.isNullOrBlank()) return emptyMap()
         return runCatching {

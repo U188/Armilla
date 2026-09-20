@@ -72,9 +72,7 @@ import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.McpServerRepository
 import io.github.mangi.eta.data.datastore.SettingsDataStore
-import io.github.mangi.eta.data.repository.ModelUsageDelta
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
-import io.github.mangi.eta.data.repository.UsageStatsRepository
 
 import io.github.mangi.eta.ui.model.AgentChatHomeUiState
 import io.github.mangi.eta.ui.model.isSteerSupplement
@@ -3669,7 +3667,6 @@ internal class AgentAppState(
                     val occupancy = event.usage.occupancyTokens()
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
                     updateLivePromptTokens(runId, occupancy)
-                    recordModelUsage(runId, event.round, event.usage)
                 }
             }
 
@@ -3994,32 +3991,6 @@ internal class AgentAppState(
     ) {
         updateMessages(runId, transform = transform)
         refreshConversationSummaries()
-    }
-
-    private fun recordModelUsage(runId: String, round: Int, usage: AgentTokenUsage) {
-        val model = modelPickerState.selectedModel ?: return
-        val input = (usage.inputTokens ?: 0).toLong()
-        val output = (usage.outputTokens ?: 0).toLong()
-        val cached = (usage.cachedTokens ?: 0).toLong()
-        if (input <= 0L && output <= 0L) return
-        val conversationId = conversationIdForRun(runId) ?: selectedConversationId
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                UsageStatsRepository.recordModelUsage(
-                    ModelUsageDelta(
-                        providerId = model.providerId,
-                        providerName = model.providerName,
-                        modelId = model.modelId,
-                        modelDisplayName = model.displayName.ifBlank { model.modelId },
-                        inputTokens = input,
-                        outputTokens = output,
-                        cachedTokens = cached,
-                        conversationId = conversationId,
-                        round = round,
-                    ),
-                )
-            }
-        }
     }
 
     private fun isStaleUsageAfterCompact(runId: String, round: Int): Boolean {

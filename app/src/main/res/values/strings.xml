@@ -1468,4 +1468,5 @@
   <string name="tool_delegate_task">Delegate task</string>
   <string name="tool_get_task_result">Get task result</string>
   <string name="tool_cancel_task">Cancel task</string>
+    <string name="stats_model_accounting_note">Counts usage returned by model requests in this app. Cached tokens are included in input tokens. Missing usage or previously lost records cannot be reconstructed; this is not the provider billing statement.</string>
 </resources>

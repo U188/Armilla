@@ -53,6 +53,11 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
             SubAgentPreferences.save(index, selection)
             selections = selections.toMutableList().also { it[index] = selection }
             editing = null
-        }, "选择${SubAgentPreferences.label(index)}模型")
+        }, "选择${SubAgentPreferences.label(index)}模型", onClearSelection = {
+            val empty = ModelFeatureSelection(true, "", "")
+            SubAgentPreferences.save(index, empty)
+            selections = selections.toMutableList().also { it[index] = empty }
+            editing = null
+        })
     }
 }

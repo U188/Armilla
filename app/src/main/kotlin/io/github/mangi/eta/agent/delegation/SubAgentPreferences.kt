@@ -23,7 +23,8 @@ internal object SubAgentPreferences {
     fun save(slot: Int, selection: ModelFeatureSelection) {
         require(slot in 0 until SLOT_COUNT)
         val previous = selection(slot)
-        if (previous.providerId != selection.providerId || previous.modelId != selection.modelId) {
+        if (selection.providerId.isBlank() || selection.modelId.isBlank() ||
+            previous.providerId != selection.providerId || previous.modelId != selection.modelId) {
             saveReasoning(slot, null)
         }
         Prefs.putString("agent_child_${slot}_provider", selection.providerId)

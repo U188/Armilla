@@ -62,6 +62,7 @@ internal fun AgentModelPickerButton(
     state: AgentModelPickerUiState,
     isStreaming: Boolean,
     isPaused: Boolean = false,
+    collaborationTaskRunning: Boolean = isStreaming,
     popupAnchorTopPx: Int,
     popupMaxHeight: Dp,
     onModelSelected: (String, String) -> Unit,
@@ -74,6 +75,7 @@ internal fun AgentModelPickerButton(
     ConversationCollaborationDialog(
         show = showCollaboration,
         enabled = collaboration,
+        taskRunning = collaborationTaskRunning,
         onEnabledChange = {
             collaboration = it
             io.github.mangi.eta.agent.delegation.SubAgentPreferences.setEnabled(conversationId, it)

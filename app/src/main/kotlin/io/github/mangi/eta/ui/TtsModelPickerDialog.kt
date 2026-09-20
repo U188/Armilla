@@ -31,6 +31,7 @@ internal fun TtsModelPickerDialog(
     onDismiss: () -> Unit,
     onModelSelected: (String, String) -> Unit,
     title: String,
+    onClearSelection: (() -> Unit)? = null,
 ) {
     if (!show) return
     val view = LocalView.current
@@ -42,6 +43,20 @@ internal fun TtsModelPickerDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                if (onClearSelection != null) {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .selectable(selected = state.selectedModel == null, role = Role.RadioButton, onClick = {
+                                TouchHaptics.click(view)
+                                onClearSelection()
+                            }).padding(horizontal = 4.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = state.selectedModel == null, onClick = null)
+                        Text("无", modifier = Modifier.weight(1f).padding(start = 12.dp))
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
                 if (state.providerGroups.isEmpty()) Text(stringResource(R.string.provider_empty))
                 state.providerGroups.forEachIndexed { index, group ->
                     if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

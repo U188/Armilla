@@ -199,6 +199,19 @@ class SubAgentCoordinatorTest {
         }
     }
 
+    @Test fun taskIdsCanBeRecoveredAfterCompactionWithoutExposingResultBodies() {
+        SubAgentCoordinator(listOf(model)) { _, _, _ -> "private evidence" }.use { c ->
+            val id = start(c).getString("task_id")
+            assertEquals("completed", get(c, id).getString("status"))
+            val list = JSONObject(c.execute(call("get_task_result", JSONObject())).content)
+            assertEquals(id, list.getJSONArray("tasks").getJSONObject(0).getString("task_id"))
+            assertEquals("completed", list.getJSONArray("tasks").getJSONObject(0).getString("status"))
+            assertFalse(list.toString().contains("private evidence"))
+            assertTrue(list.isNull("next_offset"))
+            assertEquals("private evidence", get(c, id).getString("result"))
+        }
+    }
+
     @Test fun cancelCannotBeOverwrittenByLateCompletion() {
         val started = CountDownLatch(1)
         val returned = CountDownLatch(1)

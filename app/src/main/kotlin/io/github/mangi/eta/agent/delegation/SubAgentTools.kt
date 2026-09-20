@@ -42,8 +42,9 @@ internal object SubAgentTools {
                 .put("role", JSONObject().put("type", "string").put("enum", JSONArray(listOf("research", "implementation", "review", "summary", "image_generation", "video_generation"))))
                 .put("project", text(500)).put("workspace_id", text(80)),
             JSONArray().put("task")))
-        tools.put(tool("get_task_result", "Read a child task status/result. wait_ms optionally waits up to 10000ms. Review evidence and uncertainty; do not blindly repeat conclusions.",
-            JSONObject().put("task_id", text(80)).put("wait_ms", JSONObject().put("type", "integer").put("minimum", 0).put("maximum", 10000)), JSONArray().put("task_id")))
+        tools.put(tool("get_task_result", "Read a child task status/result. Omit task_id to rediscover this run's task IDs/status after compaction (newest first, 20 per page, offset for subsequent pages; no result bodies). With task_id, wait_ms optionally waits up to 10000ms. Review evidence and uncertainty; do not blindly repeat conclusions.",
+            JSONObject().put("task_id", text(80)).put("offset", JSONObject().put("type", "integer").put("minimum", 0))
+                .put("wait_ms", JSONObject().put("type", "integer").put("minimum", 0).put("maximum", 10000)), JSONArray()))
         tools.put(tool("cancel_task", "Cancel one child task of this run. Cancellation does not affect the main agent.",
             JSONObject().put("task_id", text(80)), JSONArray().put("task_id")))
         if (workspaceEnabled) tools.put(tool("manage_agent_workspace",

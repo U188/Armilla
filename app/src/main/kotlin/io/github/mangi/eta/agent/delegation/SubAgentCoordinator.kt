@@ -225,6 +225,17 @@ internal class SubAgentCoordinator(
     private fun publishContext(stats: SubAgentContextStats) { runCatching { onContext(stats) } }
     @Synchronized private fun find(id: String): Task = requireNotNull(tasks[id]) { "Task does not belong to this run" }
     private fun get(args: JSONObject): JSONObject {
+        // Compaction may redact old sensitive tool replies. Rediscover task IDs without replaying result bodies.
+        if (!args.has("task_id")) {
+            val all = synchronized(this) { tasks.values.toList().asReversed() }
+            val offset = args.optInt("offset", 0).coerceAtLeast(0)
+            val page = all.drop(offset).take(20).map { task -> synchronized(task) {
+                JSONObject().put("task_id", task.id).put("status", task.state).put("role", task.role)
+                    .put("worker", task.worker + 1).put("agent_id", workerIds[task.worker])
+            } }
+            return JSONObject().put("ok", true).put("tasks", org.json.JSONArray(page)).put("total", all.size)
+                .put("next_offset", if (offset + page.size < all.size) offset + page.size else JSONObject.NULL)
+        }
         val task = find(args.getString("task_id"))
         val wait = args.optLong("wait_ms", 0).coerceIn(0, 10000)
         if (wait > 0 && task.state in setOf("queued", "running")) {

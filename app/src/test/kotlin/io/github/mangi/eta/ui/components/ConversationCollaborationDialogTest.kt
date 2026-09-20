@@ -56,7 +56,8 @@ class ConversationCollaborationDialogTest {
             compose.onNodeWithText("选择执行代理 1模型").assertDoesNotExist()
             compose.onNodeWithContentDescription("执行代理 1模型").performTouchInput { click() }
             compose.onNodeWithText("选择执行代理 1模型").assertExists()
-            compose.onNodeWithText("无").performClick()
+            compose.onNode(hasText("无") and SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.Role, androidx.compose.ui.semantics.Role.RadioButton)).performClick()
             compose.onNodeWithText("本会话协作").assertExists()
             compose.onNodeWithContentDescription("执行代理 1模型").performTouchInput { longClick() }
             compose.onNodeWithText("调整思考深度").assertDoesNotExist()

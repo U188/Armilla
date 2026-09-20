@@ -113,4 +113,13 @@ class SubAgentCoordinatorTest {
             assertEquals("ROLE_NOT_CONFIGURED", result.getString("code"))
         }
     }
+    @Test fun contextLimitIsReportedToParentAsActionableFailure() {
+        SubAgentCoordinator(listOf(model)) { _, _, _ -> throw SubAgentContextLimitException() }.use { c ->
+            val id = start(c).getString("task_id")
+            val result = get(c, id)
+            assertEquals("failed", result.getString("status"))
+            assertEquals("SUB_AGENT_CONTEXT_LIMIT", result.getString("error_code"))
+            assertTrue(result.getString("result").contains("拆分任务"))
+        }
+    }
 }

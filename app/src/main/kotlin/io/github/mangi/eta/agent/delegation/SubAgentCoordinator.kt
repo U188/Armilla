@@ -121,8 +121,14 @@ internal class SubAgentCoordinator(
                 if (interrupted) Thread.currentThread().interrupt()
                 synchronized(task) {
                     if (task.state == "running") {
-                        task.errorCode = (error as? WorkspaceOperationException)?.code.orEmpty()
-                        task.result = "子代理未完成，请主代理接手或重新委派。"
+                        task.errorCode = when (error) {
+                            is SubAgentContextLimitException -> "SUB_AGENT_CONTEXT_LIMIT"
+                            is WorkspaceOperationException -> error.code
+                            else -> ""
+                        }
+                        task.result = if (error is SubAgentContextLimitException)
+                            "子代理上下文不足，自动压缩不可用或未能释放足够空间。请拆分任务或调整模型窗口后重新委派；已有工作树改动保留。"
+                        else "子代理未完成，请主代理接手或重新委派。"
                         task.state = "failed"
                     }
                 }

@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
-import androidx.compose.material.icons.rounded.PersonOutline
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.RemoveRedEye
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
@@ -350,7 +350,7 @@ internal fun SettingsScreen(
                         title = stringResource(R.string.settings_assistants),
                         startAction = {
                             PreferenceIcon(
-                                icon = Icons.Rounded.PersonOutline,
+                                icon = Icons.Rounded.SmartToy,
                             )
                         },
                         onClick = { onNavigate(AppRoute.Assistants()) },

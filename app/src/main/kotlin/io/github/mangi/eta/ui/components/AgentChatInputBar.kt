@@ -425,16 +425,8 @@ internal fun AgentChatInputBar(
                     }
                 }
 
-                // The speech target is 48dp, while action buttons are 40dp.
-                // Center BOTH layers and reserve the row height even when speech is hidden.
-                Box(
-                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                ChatComposerActionRow(
+                    actions = {
                         if (isEditingMessage) {
                             IconButton(
                                 onClick = onCancelMessageEdit,
@@ -479,18 +471,6 @@ internal fun AgentChatInputBar(
                         }
 
                         Spacer(modifier = Modifier.weight(1f))
-                        if (!isEditingMessage) {
-                            VoiceEntryButton(
-                                textFieldState = textFieldState,
-                                showGeneration = showMorphLoading,
-                                interactionBlocked = drawerBlocksIme,
-                                resetKey = isStreaming to isEditingMessage,
-                                voiceState = voiceState,
-                                onStartVoiceMode = onStartVoiceMode,
-                                onStopVoiceMode = onStopVoiceMode,
-                            )
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
 
                         // Keep context details accessible even for an empty draft or an unknown limit.
                         AgentContextUsageButton(
@@ -601,19 +581,28 @@ internal fun AgentChatInputBar(
                                 }
                             }
                         }
-                    }
-                    // Editing has asymmetric controls: center against the whole row,
-                    // not the remaining space between the cancel and model/send buttons.
-                    if (isEditingMessage) {
-                        ChatSpeechIndicator(
-                            modifier = Modifier.align(Alignment.Center),
-                            textFieldState = textFieldState,
-                            showGeneration = showMorphLoading,
-                            interactionBlocked = drawerBlocksIme,
-                            resetKey = isStreaming to isEditingMessage,
-                        )
-                    }
-                }
+                    },
+                    indicator = {
+                        if (isEditingMessage) {
+                            ChatSpeechIndicator(
+                                textFieldState = textFieldState,
+                                showGeneration = showMorphLoading,
+                                interactionBlocked = drawerBlocksIme,
+                                resetKey = isStreaming to isEditingMessage,
+                            )
+                        } else {
+                            VoiceEntryButton(
+                                textFieldState = textFieldState,
+                                showGeneration = showMorphLoading,
+                                interactionBlocked = drawerBlocksIme,
+                                resetKey = isStreaming to isEditingMessage,
+                                voiceState = voiceState,
+                                onStartVoiceMode = onStartVoiceMode,
+                                onStopVoiceMode = onStopVoiceMode,
+                            )
+                        }
+                    },
+                )
             }
         }
     }

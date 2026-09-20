@@ -64,6 +64,8 @@ internal class AgentLoop(
         val result: AgentModelClient.ToolResult,
     )
 
+    private val auxiliaryVision = AuxiliaryVision.create(config, runController, sessionId)
+
     private var toolCallValidator = AgentToolCallValidator(tools)
     private val accumulatedReasoning = StringBuilder()
     private val sensitiveToolCallIds = linkedSetOf<String>()
@@ -119,10 +121,20 @@ internal class AgentLoop(
         messages.optJSONObject(messages.length() - 1)?.put(AgentTurnIdentity.JSON_KEY, turnId)
         var round = 1
 
-        while (true) {
+        roundLoop@ while (true) {
             runController.throwIfCancelled()
             appendPendingSteeringMessage()
             currentRoundTools = toolsForRound?.invoke() ?: tools
+            try {
+                auxiliaryVision.prepare(messages)
+            } catch (failure: Exception) {
+                runController.throwIfCancelled()
+                if (runController.hasPausedInterrupt || runController.hasPendingSteering) {
+                    runController.consumePausedInterrupt()
+                    continue
+                }
+                throw failure
+            }
             maybeCompactBeforeRound(round)
             var reductions = 0
             while (requestOverBudget() || overflowPending) {
@@ -139,6 +151,16 @@ internal class AgentLoop(
                 reductions = 0
                 appendPendingSteeringMessage()
                 currentRoundTools = toolsForRound?.invoke() ?: tools
+                try {
+                    auxiliaryVision.prepare(messages)
+                } catch (failure: Exception) {
+                    runController.throwIfCancelled()
+                    if (runController.hasPausedInterrupt || runController.hasPendingSteering) {
+                        runController.consumePausedInterrupt()
+                        continue@roundLoop
+                    }
+                    throw failure
+                }
                 maybeCompactBeforeRound(round)
                 if (manualBudgetAttempt) overflowRecoveryAttempts = 0
             }
@@ -772,7 +794,9 @@ internal class AgentLoop(
             .distinct()
             .joinToString(", ")
         pendingToolImageMessage = AgentConversationCodec.userMessage(
-            text = "Latest observation image(s) returned by tool(s): $toolNames.",
+            text = "Latest observation image(s) returned by tool(s): $toolNames.\n" +
+                imageOutcomes.joinToString("\n") { AuxiliaryVision.observationMetadata(it.result.content) } +
+                images.mapIndexed { index, image -> "image ${index + 1}: ${image.width ?: "unknown"} x ${image.height ?: "unknown"} px" }.joinToString("\n", prefix = "\n"),
             images = images,
         ).put(AgentTurnIdentity.JSON_KEY, turnId).also(messages::put)
 

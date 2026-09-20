@@ -36,7 +36,10 @@ internal object AgentPromptBuilder {
         }
         messages.put(
             systemMessage(
-                (if (!config.supportsVision) {
+                (if (!config.supportsVision && ModelFeaturePreferences.visionEnabled()) {
+                    "当前主模型不直接接收图片；已配置辅助视觉模型，聊天图片及 read_image、屏幕和浏览器截图会先由它分析再返回文字证据。" +
+                        "需要视觉信息时正常调用图片和截图工具，根据辅助视觉观察回答；描述不清时重新获取图像，不编造已看到的内容。\n"
+                } else if (!config.supportsVision) {
                     "当前模型未启用图片输入。read_image 或截图工具不能让纯文本模型获得视觉能力；" +
                         "不能声称已经看见图片，需要分析图片时应要求切换视觉模型。\n"
                 } else "") +

@@ -1247,10 +1247,13 @@ internal class AgentAppState(
         }
     }
 
+    private val manuallyRenamedDuringTitleRequest = mutableSetOf<String>()
+
     fun renameConversation(conversationId: String, title: String) {
         if (rejectConversationArchiveMutation()) return
         val trimmed = title.trim()
         if (trimmed.isBlank()) return
+        manuallyRenamedDuringTitleRequest += conversationId
         conversationTitles = conversationTitles + (conversationId to trimmed)
         conversationUpdatedAt = conversationUpdatedAt + (conversationId to System.currentTimeMillis())
         refreshConversationSummaries()
@@ -1356,7 +1359,7 @@ internal class AgentAppState(
             updateConversation(conversationId, homeState)
             refreshConversationSummaries()
         }
-        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true)
+        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true) || io.github.mangi.eta.agent.model.ModelFeaturePreferences.visionEnabled()
         val supportsVideo = modelPickerState.selectedModel?.supportsVideo ?: false
         if (pendingImages.isNotEmpty()) {
             val ownerState = homeState
@@ -1683,7 +1686,7 @@ internal class AgentAppState(
         val parsed = AgentFileReferencePromptCodec.parse(boundary.userMessage.content)
         val generateVideo = selectedModelGeneratesVideos()
         val generateImage = !generateVideo && selectedModelGeneratesImages()
-        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true)
+        val supportsVision = generateImage || generateVideo || (modelPickerState.selectedModel?.supportsVision == true) || io.github.mangi.eta.agent.model.ModelFeaturePreferences.visionEnabled()
         if (!generateImage && !generateVideo && rejectSendIfContextWindowExceeded(boundary.historyPrefix, parsed.request, images, parsed.references.mapIndexed { index, reference ->
                 PendingFileReferenceUi(id = "regen-$index", reference = reference)
             }, parsed.conversations.map { PendingConversationMentionUi(it.id, it.id, it.title, it.transcript) })) {
@@ -2171,6 +2174,51 @@ internal class AgentAppState(
             preparationJob.invokeOnCompletion { AgentExecutionService.release(leaseId) }
         }
         preparationJob.start()
+        if (history.isEmpty() && !generateImage && !generateVideo) {
+            requestConversationTitle(conversationId, state, prompt, messages.lastOrNull()?.id,
+                initialPersistence)
+        }
+    }
+
+    private fun requestConversationTitle(
+        conversationId: String,
+        state: AgentChatHomeUiState,
+        prompt: String,
+        firstMessageId: String?,
+        persisted: Deferred<Boolean>,
+    ) {
+        if (firstMessageId == null || conversationId in manuallyRenamedDuringTitleRequest) return
+        val expectedTitle = conversationTitles[conversationId] ?: return
+        val selection = io.github.mangi.eta.agent.model.ModelFeaturePreferences.selection(
+            io.github.mangi.eta.agent.model.ModelFeature.TITLE)
+        // Only send the visible question, never hidden tool snapshots, file bytes or system prompts.
+        val question = AgentFileReferencePromptCodec.parse(prompt).request.ifBlank { expectedTitle }
+        scope.launch {
+            try {
+                if (!persisted.await()) return@launch
+                val title = withContext(Dispatchers.IO) {
+                    val current = runtimeConfigForBoundModel(state, assistant = null) ?: return@withContext null
+                    val config = io.github.mangi.eta.agent.model.ConversationTitleModel.resolve(selection, current)
+                    kotlinx.coroutines.runInterruptible {
+                        io.github.mangi.eta.agent.model.ConversationTitleModel.generate(
+                            config, question, io.github.mangi.eta.agent.runtime.AgentRunController())
+                    }
+                } ?: return@launch
+                val current = conversationsById[conversationId]
+                if (conversationArchiveBusy || !io.github.mangi.eta.agent.model.ConversationTitleModel.mayApply(
+                        current != null, conversationId in manuallyRenamedDuringTitleRequest,
+                        conversationTitles[conversationId], expectedTitle,
+                        current?.messages?.firstOrNull()?.id, firstMessageId)) return@launch
+                conversationTitles = conversationTitles + (conversationId to title)
+                refreshConversationSummaries()
+                persistConversations()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Title requests are optional: preserve the local title and the chat run.
+                AndroidAgentLogger.warn("标题生成失败，保留本地标题")
+            }
+        }
     }
 
     private fun selectedModelGeneratesImages(): Boolean =

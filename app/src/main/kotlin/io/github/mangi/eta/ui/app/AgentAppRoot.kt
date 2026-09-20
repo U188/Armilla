@@ -797,6 +797,14 @@ fun AgentAppRoot(
                     currentModelId = agentState.homeState.modelId,
                 )
             }
+            entry<AppRoute.AuxiliaryVision>(swipeDismiss = swipeDismiss) {
+                io.github.mangi.eta.ui.ModelFeatureSettingsScreen(
+                    feature = io.github.mangi.eta.agent.model.ModelFeature.VISION, onBack = ::popRoute)
+            }
+            entry<AppRoute.TitleModel>(swipeDismiss = swipeDismiss) {
+                io.github.mangi.eta.ui.ModelFeatureSettingsScreen(
+                    feature = io.github.mangi.eta.agent.model.ModelFeature.TITLE, onBack = ::popRoute)
+            }
             entry<AppRoute.TtsSettings>(swipeDismiss = swipeDismiss) {
                 io.github.mangi.eta.ui.TtsSettingsScreen(onBack = ::popRoute)
             }

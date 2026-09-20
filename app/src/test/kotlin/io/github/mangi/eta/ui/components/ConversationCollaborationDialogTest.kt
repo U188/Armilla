@@ -86,7 +86,9 @@ class ConversationCollaborationDialogTest {
         compose.onNodeWithText("完成").assertIsNotEnabled()
         compose.onNodeWithText("执行代理 1").assertIsNotEnabled()
         compose.onNodeWithText("执行代理 1").performTouchInput { click(); longClick() }
+        compose.runOnIdle { org.junit.Assert.assertEquals("disabled model row must not dismiss", 0, dismissals) }
         compose.onNodeWithText("自动委派").performTouchInput { click() }
+        compose.runOnIdle { org.junit.Assert.assertEquals("disabled toggle must not dismiss", 0, dismissals) }
         compose.onNodeWithText("完成").performTouchInput { click() }
         compose.runOnIdle {
             org.junit.Assert.assertEquals(0, changes)

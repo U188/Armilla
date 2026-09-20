@@ -16,6 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
@@ -72,7 +74,19 @@ internal fun ConversationCollaborationDialog(
         }
     }
     WindowDialog(show = taskRunning || (editingSlot == null && modelSlot == null), title = "本会话协作", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().alpha(if (taskRunning) 0.38f else 1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(
+            Modifier.fillMaxWidth().alpha(if (taskRunning) 0.38f else 1f)
+                .pointerInput(taskRunning) {
+                    if (taskRunning) awaitPointerEventScope {
+                        // Disabled children do not consume taps. Keep them inside the dialog
+                        // instead of allowing the backdrop's dismiss handler to receive them.
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        }
+                    }
+                },
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SwitchPreference(

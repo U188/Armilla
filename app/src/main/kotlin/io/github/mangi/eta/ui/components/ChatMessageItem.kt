@@ -978,6 +978,22 @@ private fun AgentMessageBlock(
                         }
                     }
                 }
+                if (LocalAppearanceSettings.current.messageTimestampsEnabled) {
+                    val timestamp = message.generatedAtMillis?.takeIf { it > 0L }
+                    if (timestamp != null) {
+                        val zone = java.time.ZoneId.systemDefault()
+                        val label = remember(timestamp, zone) { formatMessageTimestamp(timestamp, zone) }
+                        Text(
+                            text = label,
+                            modifier = Modifier.weight(1f).padding(start = 6.dp),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.75f),
+                            fontSize = 11.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
     }

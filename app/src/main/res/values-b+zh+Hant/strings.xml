@@ -1433,4 +1433,6 @@
   <string name="title_feature_default">目前會話模型</string>
   <string name="vision_feature_off">未開啟：非視覺模型無法看圖</string>
   <string name="revision_history_unavailable">無法定位這則訊息對應的原始上下文，已取消操作並保留現有歷史；這不代表會話已壓縮。</string>
+  <string name="appearance_message_timestamps">訊息時間戳</string>
+  <string name="appearance_message_timestamps_summary">在回覆操作列右側顯示本輪回覆產生完成的時間。</string>
 </resources>

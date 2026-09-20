@@ -304,7 +304,7 @@ internal class AgentLoop(
                     finishedContent.isNotBlank() &&
                     finishedContent != "null"
                 if (finishedNaturally) {
-                    onEvent(AgentEvent.RunFinished(round = round, contentChars = finishedContent.length))
+                    onEvent(AgentEvent.RunFinished(round = round, contentChars = finishedContent.length, generatedAtMillis = System.currentTimeMillis()))
                     return Result(
                         content = (interruptedTextPrefix.toString() + assistantMessage.optString("content")).trim(),
                         reasoningContent = reasoningSnapshot(),
@@ -366,7 +366,7 @@ internal class AgentLoop(
                 error("模型接口第 $round 轮返回为空${finishReason.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()}")
             }
 
-            onEvent(AgentEvent.RunFinished(round = round, contentChars = content.length))
+            onEvent(AgentEvent.RunFinished(round = round, contentChars = content.length, generatedAtMillis = System.currentTimeMillis()))
             return Result(
                 content = (interruptedTextPrefix.toString() + assistantMessage.optString("content")).trim(),
                 reasoningContent = reasoningSnapshot(),

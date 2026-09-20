@@ -271,6 +271,7 @@ internal object AgentConversationStore {
                         outputTokens = usage?.outputTokens,
                         reasoningTokens = usage?.reasoningTokens,
                         cachedTokens = usage?.cachedTokens,
+                        generatedAtMillis = generatedAtMillis,
                     )
                 }
             }
@@ -354,6 +355,7 @@ internal object AgentConversationStore {
                 content = content,
                 isStreaming = false,
                 renderMarkdown = renderMarkdown ?: true,
+                generatedAtMillis = generatedAtMillis,
                 usage = TokenUsageUi(
                     contextTokens = contextTokens,
                     inputTokens = inputTokens,

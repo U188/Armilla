@@ -158,6 +158,7 @@ internal class AgentAppState(
     private val appContext = context.applicationContext
     private val skillZipImportGateway = skillZipImportGateway ?: CoreSkillZipImportGateway(appContext)
     private val runConversationIds = mutableMapOf<String, String>()
+    private val runGeneratedAtMillis = mutableMapOf<String, Long>()
     // A stopped worker still owns its transcript until its terminal result is committed.
     private val stoppingRuns = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val modelRetryState = AgentRunRetryState()
@@ -762,6 +763,8 @@ internal class AgentAppState(
                     result = result,
                     promptSupplement = payload.promptSupplement,
                     supplements = payload.supplements,
+                    generatedAtMillis = recoveryPlan.checkpoint?.events
+                        ?.filterIsInstance<AgentEvent.RunFinished>()?.lastOrNull()?.generatedAtMillis,
                 )
                 if (recovery.alreadyApplied) {
                     acknowledgeAfterSave += runId
@@ -838,6 +841,7 @@ internal class AgentAppState(
         }
         setConversationStreaming(runId, false)
         runMessageProjector.clearRun(runId)
+        runGeneratedAtMillis.remove(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
         conversationUpdatedAt = conversationUpdatedAt +
@@ -2365,10 +2369,11 @@ internal class AgentAppState(
         if (runId !in imageGenerationRunIds) return
         runJobs.remove(runId)
         imageGenerationRunIds.remove(runId)
-        completeLatestAssistantMessage(runId, content)
+        completeLatestAssistantMessage(runId, content, generatedAtMillis = System.currentTimeMillis())
         snapshotPartialAssistantToHistory(runId)
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
+        runGeneratedAtMillis.remove(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
         runCompressedDuringRun.remove(runId)
@@ -2386,6 +2391,7 @@ internal class AgentAppState(
         replaceLatestAssistantWithNotice(runId, SystemNoticeCode.RuntimeFailed, error)
         setConversationStreaming(runId, false)
         val conversationId = conversationIdForRun(runId)
+        runGeneratedAtMillis.remove(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
         runCompressedDuringRun.remove(runId)
@@ -2867,6 +2873,7 @@ internal class AgentAppState(
         setConversationStreaming(runId, false)
         if (imageGen) {
             runMessageProjector.clearRun(runId)
+            runGeneratedAtMillis.remove(runId)
             runConversationIds.remove(runId)
             runOverheadTokens.remove(runId)
             runCompressedDuringRun.remove(runId)
@@ -2940,6 +2947,7 @@ internal class AgentAppState(
                 AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
             }
             runMessageProjector.clearRun(runId)
+            runGeneratedAtMillis.remove(runId)
             runConversationIds.remove(runId)
             runOverheadTokens.remove(runId)
             runCompressedDuringRun.remove(runId)
@@ -3726,9 +3734,11 @@ internal class AgentAppState(
             }
 
             is AgentEvent.RunFinished -> {
+                event.generatedAtMillis?.takeIf { it > 0 }?.let { runGeneratedAtMillis[runId] = it }
                 updateRunTrace(runId) { messages ->
                     val finalizedThinking = runMessageProjector.finalizeThinking(runId, messages)
-                    runMessageProjector.finalizeText(runId, finalizedThinking)
+                    val finalized = runMessageProjector.finalizeText(runId, finalizedThinking)
+                    stampCompletedReply(finalized, runId, event.generatedAtMillis)
                 }
                 runMessageProjector.seal(runId)
             }
@@ -3937,6 +3947,7 @@ internal class AgentAppState(
         val conversationId = conversationIdForRun(runId)
         conversationId?.let(pendingInRunCompactConversationIds::remove)
         runMessageProjector.clearRun(runId)
+        runGeneratedAtMillis.remove(runId)
         runConversationIds.remove(runId)
         runOverheadTokens.remove(runId)
         runCompressedDuringRun.remove(runId)
@@ -4077,6 +4088,7 @@ internal class AgentAppState(
     private fun completeLatestAssistantMessage(
         runId: String,
         fallbackContent: String,
+        generatedAtMillis: Long? = runGeneratedAtMillis[runId],
     ) {
         updateMessages(runId) { messages ->
             val targetIndex = AgentRunMessageProjector.resultTargetIndex(runId, messages)
@@ -4086,6 +4098,7 @@ internal class AgentAppState(
                     content = fallbackContent,
                     isStreaming = false,
                     renderMarkdown = true,
+                    generatedAtMillis = generatedAtMillis,
                 )
             } else {
                 val targetRound = (messages[targetIndex] as AgentMessageUi).id
@@ -4105,6 +4118,7 @@ internal class AgentAppState(
                             },
                             isStreaming = false,
                             renderMarkdown = true,
+                            generatedAtMillis = message.generatedAtMillis ?: generatedAtMillis,
                         )
                     } else {
                         message

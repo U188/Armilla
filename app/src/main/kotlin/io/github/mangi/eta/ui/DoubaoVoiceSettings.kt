@@ -200,8 +200,7 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                                         }
                                     }
                                     VoiceAction(text = "保存连接设置", primary = true, enabled = asrKey.isNotBlank(), onClick = { DoubaoVoiceConfig.save(context, config.copy(asrKey = asrKey)); notice = "已保存。返回聊天页说一句话，文字出现即识别成功。" })
-                                    VoiceConsoleHelp()
-                                    Text("API Key 是账户连接凭证。保存成功不代表已验证识别权限。", style = MaterialTheme.typography.bodyMedium)
+                                    VoiceConsoleHelp(showKeyHelp = false)
                                 }
                             }
                             if (page == "voices") {

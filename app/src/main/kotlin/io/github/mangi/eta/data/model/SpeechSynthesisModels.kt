@@ -17,7 +17,6 @@ internal object SpeechSynthesisModels {
     /** Read-aloud needs plain text + a selectable voice; creation-only models stay in the full catalog. */
     fun isReadAloudModel(model: Model, provider: ProviderSetting? = null): Boolean {
         val id = model.modelId.lowercase()
-        if (isCompatibleSpeechModel(id)) return provider != null && isCompatibleSpeechProvider(provider)
         return model.supportsSpeechSynthesis &&
             listOf("seed-audio", "voiceclone", "voice-clone", "voice_clone",
                 "voicedesign", "voice-design", "voice_design").none { it in id }

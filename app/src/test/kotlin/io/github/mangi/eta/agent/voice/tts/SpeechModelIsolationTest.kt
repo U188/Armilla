@@ -55,13 +55,13 @@ class SpeechModelIsolationTest {
         assertEquals(listOf("seed-audio-1.0", "seed-tts-2.0"), picker.providerGroups.single().models.map { it.modelId })
     }
 
-    @Test fun chatProviderCosyVoiceStaysOutOfReadAloudPicker() {
+    @Test fun chatProviderCosyVoiceAppearsOnlyInReadAloudPicker() {
         val chat = OpenAiCompatibleProviderSetting(
             id = "fish", name = "鱼", baseUrl = "https://api.example.com/v1", apiKey = "key",
             models = listOf(Model("chat", "gpt-chat", "chat"), Model("voice", "CosyVoice2", "CosyVoice2")),
         )
         val tts = AgentModelPickerProjector.project(listOf(chat), "fish", "voice", includeSpeechModels = true, speechOnly = true)
-        assertTrue(tts.providerGroups.isEmpty() || tts.providerGroups.single().models.none { it.modelId == "CosyVoice2" })
+        assertEquals(listOf("CosyVoice2"), tts.providerGroups.single().models.map { it.modelId })
         val chatPicker = AgentModelPickerProjector.project(listOf(chat), "fish", "chat")
         assertEquals(listOf("gpt-chat"), chatPicker.providerGroups.single().models.map { it.modelId })
     }

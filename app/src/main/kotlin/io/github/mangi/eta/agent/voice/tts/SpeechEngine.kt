@@ -52,8 +52,8 @@ internal object SpeechEngineResolver {
                 (id.contains("gemini") && id.contains("tts")) -> SpeechEngine.GEMINI
             host.contains("elevenlabs") -> SpeechEngine.ELEVENLABS
             host.contains("fish.audio") || id.contains("fish-speech") -> SpeechEngine.FISH
-            source == ProviderSourceTypes.COMPATIBLE_SPEECH && "cosyvoice" in id -> SpeechEngine.COSYVOICE
-            source == ProviderSourceTypes.COMPATIBLE_SPEECH && ("moss-ttsd" in id || "moss_ttsd" in id) ->
+            "cosyvoice" in id -> SpeechEngine.COSYVOICE
+            ("moss-ttsd" in id || "moss_ttsd" in id) ->
                 SpeechEngine.MOSS
             else -> SpeechEngine.OPENAI
         }

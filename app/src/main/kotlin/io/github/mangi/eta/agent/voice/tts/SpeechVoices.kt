@@ -28,8 +28,8 @@ internal object SpeechVoices {
         SpeechEngine.GEMINI -> gemini
         SpeechEngine.ELEVENLABS -> elevenlabs
         SpeechEngine.FISH -> emptyList()
-        SpeechEngine.COSYVOICE -> cosyVoice(model)
-        SpeechEngine.MOSS -> moss
+        SpeechEngine.COSYVOICE -> relayVoices(model, "FunAudioLLM/CosyVoice2-0.5B")
+        SpeechEngine.MOSS -> relayVoices(model, "fnlp/MOSS-TTSD-v0.5")
     }
 
     private val openai = listOf(
@@ -104,38 +104,17 @@ internal object SpeechVoices {
         SpeechVoice("JBFqnCBsd6RMkjVDRZzb", "George"),
     )
 
-    private val moss = listOf(
-        SpeechVoice("default", "默认"),
-        SpeechVoice("female", "女声"),
-        SpeechVoice("male", "男声"),
-    )
-
-    private fun cosyVoice(model: String): List<SpeechVoice> {
-        val id = model.lowercase()
-        return if ("2" in id || "v2" in id) cosyVoice2 + cosyVoice1 else cosyVoice1
+    // SiliconFlow's documented preset IDs include the upstream model name.
+    // Keep full model IDs intact; the relay's short aliases need canonical prefixes.
+    private fun relayVoices(model: String, canonicalModel: String): List<SpeechVoice> {
+        val prefix = if ("/" in model) model else canonicalModel
+        return listOf(
+            "alex" to "沉稳男声", "benjamin" to "低沉男声",
+            "charles" to "磁性男声", "david" to "欢快男声",
+            "anna" to "沉稳女声", "bella" to "激情女声",
+            "claire" to "温柔女声", "diana" to "欢快女声",
+        ).map { (id, name) -> SpeechVoice("$prefix:$id", name) }
     }
-
-    private val cosyVoice1 = listOf(
-        SpeechVoice("中文女", "中文女"),
-        SpeechVoice("中文男", "中文男"),
-        SpeechVoice("日语男", "日语男"),
-        SpeechVoice("粤语女", "粤语女"),
-        SpeechVoice("韩语女", "韩语女"),
-        SpeechVoice("四川话女", "四川女"),
-        SpeechVoice("上海话女", "上海女"),
-    )
-
-    private val cosyVoice2 = listOf(
-        SpeechVoice("longxiaochun_v2", "龙小淳"),
-        SpeechVoice("longxiaoxia_v2", "龙小夏"),
-        SpeechVoice("longxiaocheng_v2", "龙小诚"),
-        SpeechVoice("longxiaobai_v2", "龙小白"),
-        SpeechVoice("longwan_v2", "龙婉"),
-        SpeechVoice("longcheng_v2", "龙橙"),
-        SpeechVoice("longhua_v2", "龙华"),
-        SpeechVoice("loongstella", "Stella"),
-        SpeechVoice("loongbella", "Bella"),
-    )
 
     private fun qwen(model: String): List<SpeechVoice> {
         val id = model.lowercase()

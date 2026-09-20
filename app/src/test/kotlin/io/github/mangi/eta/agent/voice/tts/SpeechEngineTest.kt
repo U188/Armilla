@@ -38,12 +38,12 @@ class SpeechEngineTest {
         assertTrue(SpeechProtocols.decodeMimoSse(sse).contentEquals(pcm))
     }
 
-    @Test fun chatRelaysDoNotTreatCosyVoiceAsDedicatedSpeech() {
+    @Test fun chatRelaysResolveTheirActualSpeechModel() {
         val chat = OpenAiCompatibleProviderSetting(
             id = "fish", name = "鱼", baseUrl = "https://api.example.com/v1", apiKey = "k",
         )
-        assertEquals(SpeechEngine.OPENAI, SpeechEngineResolver.resolve(chat, "CosyVoice2"))
-        assertFalse(SpeechSynthesisModels.isReadAloudModel(Model("c", "CosyVoice2", "CosyVoice2"), chat))
+        assertEquals(SpeechEngine.COSYVOICE, SpeechEngineResolver.resolve(chat, "CosyVoice2"))
+        assertTrue(SpeechSynthesisModels.isReadAloudModel(Model("c", "CosyVoice2", "CosyVoice2"), chat))
     }
 
     @Test fun dedicatedSpeechProviderMapsCosyVoiceAndMoss() {
@@ -54,15 +54,15 @@ class SpeechEngineTest {
         assertEquals(SpeechEngine.COSYVOICE, SpeechEngineResolver.resolve(provider, "CosyVoice2"))
         assertEquals(SpeechEngine.MOSS, SpeechEngineResolver.resolve(provider, "MOSS-TTSD"))
         val cosy = SpeechVoices.catalog(SpeechEngine.COSYVOICE, "CosyVoice2")
-        assertEquals("longxiaochun_v2", cosy.first().id)
-        assertTrue(cosy.any { it.id == "中文女" })
+        assertEquals("FunAudioLLM/CosyVoice2-0.5B:alex", cosy.first().id)
+        assertTrue(cosy.any { it.id == "FunAudioLLM/CosyVoice2-0.5B:anna" })
         assertTrue(cosy.none { it.id == "alloy" })
-        assertEquals("default", SpeechVoices.catalog(SpeechEngine.MOSS, "MOSS-TTSD").first().id)
+        assertEquals("fnlp/MOSS-TTSD-v0.5:alex", SpeechVoices.catalog(SpeechEngine.MOSS, "MOSS-TTSD").first().id)
         val request = SpeechProtocols.request(
             SpeechEngine.COSYVOICE,
             AgentModelClient.ModelConfig(baseUrl = "https://api.example.com/v1", apiKey = "k", model = "CosyVoice2", systemPrompt = ""),
             "你好",
-            "longxiaochun_v2",
+            "FunAudioLLM/CosyVoice2-0.5B:alex",
         )
         assertTrue(request.url.toString().endsWith("/audio/speech"))
     }

@@ -44,13 +44,14 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
         AgentModelPickerProjector.project(providers.filter(SpeechSynthesisModels::isReadAloudProvider), providerId, modelId, includeSpeechModels = true, speechOnly = true)
     }
     val selectedProvider = remember(providers, providerId) { providers.firstOrNull { it.id == providerId } }
-    val engine = remember(selectedProvider, modelId) { SpeechEngineResolver.resolve(selectedProvider, modelId) }
+    val speechModelId = models.selectedModel?.modelId.orEmpty()
+    val engine = remember(selectedProvider, speechModelId) { SpeechEngineResolver.resolve(selectedProvider, speechModelId) }
     val mimoVoices by io.github.mangi.eta.agent.voice.mimo.MimoPersonalVoices.state.collectAsState()
     LaunchedEffect(Unit) { runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { io.github.mangi.eta.agent.voice.mimo.MimoPersonalVoices.load(context) } } }
     val personalVoices by io.github.mangi.eta.agent.voice.doubao.PersonalVoices.state.collectAsState()
     LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(context) }
-    val catalog = remember(engine, modelId, personalVoices, mimoVoices, selectedProvider) {
-        SpeechVoices.catalog(engine, modelId) + if (engine == io.github.mangi.eta.agent.voice.tts.SpeechEngine.DOUBAO && !io.github.mangi.eta.agent.voice.tts.DoubaoSpeech.usesCreate(modelId)) {
+    val catalog = remember(engine, speechModelId, personalVoices, mimoVoices, selectedProvider) {
+        SpeechVoices.catalog(engine, speechModelId) + if (engine == io.github.mangi.eta.agent.voice.tts.SpeechEngine.DOUBAO && !io.github.mangi.eta.agent.voice.tts.DoubaoSpeech.usesCreate(speechModelId)) {
             personalVoices.filter { it.tts && it.accepted && it.account == io.github.mangi.eta.agent.voice.doubao.PersonalVoices.account(selectedProvider?.apiKey.orEmpty()) }
                 .map { SpeechVoice(it.id, it.name, personal = true) }
         } else if (engine == io.github.mangi.eta.agent.voice.tts.SpeechEngine.MIMO) {

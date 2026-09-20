@@ -973,7 +973,7 @@ private fun VoiceEntryButton(
         picker = false
     }
     val active = voiceState.active || voiceState.error != null
-    val choose: (() -> Unit)? = if (canChoose) ({ TouchHaptics.click(view); picker = true }) else null
+    val choose: (() -> Unit)? = if (canChoose) ({ picker = true }) else null
     Box {
     if (VoiceEntryMode.DICTATION in modes && !active) {
         ChatSpeechIndicator(
@@ -1004,7 +1004,13 @@ private fun VoiceEntryButton(
                     enabled = !interactionBlocked,
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
-                    onLongClick = if (!active) choose else null,
+                    hapticFeedbackEnabled = false,
+                    onLongClick = if (!active) choose?.let { callback ->
+                        {
+                            TouchHaptics.longPress(view)
+                            callback()
+                        }
+                    } else null,
                     onClick = {
                         TouchHaptics.click(view)
                         when {

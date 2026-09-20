@@ -178,7 +178,13 @@ internal fun ChatSpeechIndicator(
                     role = Role.Button,
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
-                    onLongClick = onLongClick,
+                    hapticFeedbackEnabled = false,
+                    onLongClick = onLongClick?.let { callback ->
+                        {
+                            TouchHaptics.longPress(view)
+                            callback()
+                        }
+                    },
                     onClick = {
                         TouchHaptics.click(view)
                         if (active || pendingPermission) stop()

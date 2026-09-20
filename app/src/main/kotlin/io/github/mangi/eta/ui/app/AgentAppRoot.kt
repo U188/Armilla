@@ -104,6 +104,7 @@ import io.github.mangi.eta.ui.screens.tools.AgentToolsScreen
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -135,6 +136,16 @@ fun AgentAppRoot(
     val navigator = remember(backStack) { AgentNavigator(backStack) }
     val appViewModel = viewModel<AgentAppViewModel>()
     val agentState = appViewModel.state
+    val usageConversationId = agentState.conversationPaneState.selectedConversationId
+    val recordedUsageState by remember(usageConversationId) {
+        io.github.mangi.eta.data.repository.UsageStatsRepository.conversationUsageFlow(usageConversationId)
+            .map { usageConversationId to it }
+    }.collectAsState(initial = null)
+    val recordedUsage = recordedUsageState?.takeIf { it.first == usageConversationId }?.second
+    val cumulativeUsage = recordedUsage?.let {
+        io.github.mangi.eta.ui.model.ConversationTokenUsageUi(it.input, it.output, it.cached)
+    } ?: conversationTokenUsage(agentState.homeState.messages)
+
     DisposableEffect(backStack.lastOrNull(), agentState.conversationPaneState.selectedConversationId) {
         onDispose { io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop() }
     }
@@ -399,7 +410,7 @@ fun AgentAppRoot(
                 conversationPaneOpen = false
                 agentState.openHistorySearchHit(hit)
             },
-            tokenUsage = conversationTokenUsage(agentState.homeState.messages),
+            tokenUsage = cumulativeUsage,
             selectedProviderId = agentState.modelPickerState.selectedModel?.providerId,
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
             onConversationRename = { conversation ->

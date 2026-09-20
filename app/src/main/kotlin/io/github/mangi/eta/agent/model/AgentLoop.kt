@@ -559,6 +559,7 @@ internal class AgentLoop(
                     budgetKeepRecent,
                     compressConfig,
                     compactionArchive = compactionArchive,
+                    usageConversationId = sessionId,
                 ),
                 keepStartOverride = cut, controller = runController,
                 replay = if (compressConfig.providerType == config.providerType && compressConfig.baseUrl == config.baseUrl &&

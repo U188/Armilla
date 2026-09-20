@@ -1873,6 +1873,7 @@ internal class AgentAppState(
             keepRecentMessages = coerceKeepRecent(resolvedKeepRecent),
             compressModelConfig = compressModelConfig,
             compactionArchive = archive,
+            usageConversationId = conversationId,
         )
         return try {
             var summaryFailure: String? = null
@@ -2235,7 +2236,7 @@ internal class AgentAppState(
                     val config = io.github.mangi.eta.agent.model.ConversationTitleModel.resolve(selection, current)
                     kotlinx.coroutines.runInterruptible {
                         io.github.mangi.eta.agent.model.ConversationTitleModel.generate(
-                            config, question, io.github.mangi.eta.agent.runtime.AgentRunController())
+                            config, question, io.github.mangi.eta.agent.runtime.AgentRunController(), conversationId)
                     }
                 } ?: return@launch
                 val current = conversationsById[conversationId]

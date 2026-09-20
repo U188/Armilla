@@ -168,7 +168,7 @@ internal fun applyModelUsageDelta(raw: String?, delta: ModelUsageDelta): String 
     if (delta.inputTokens <= 0L && delta.outputTokens <= 0L && delta.conversationId.isNullOrBlank()) {
         return raw.orEmpty()
     }
-    val root = runCatching { JSONObject(raw.takeUnless { it.isNullOrBlank() } ?: "{}") }
+    val root = runCatching { JSONObject(seedConversationUsage(raw, emptyMap())) }
         .getOrDefault(JSONObject())
     val providers = root.optJSONObject("providers") ?: JSONObject().also {
         root.put("providers", it)
@@ -206,6 +206,7 @@ internal fun applyModelUsageDelta(raw: String?, delta: ModelUsageDelta): String 
             !incoming.conversationId.isNullOrBlank() && event.round == incoming.round &&
             event.conversationId == incoming.conversationId
     }
+    updateConversationUsage(root, incoming, events.getOrNull(replaceAt))
     if (replaceAt >= 0) {
         val previous = events[replaceAt]
         model.put("inputTokens", model.optLong("inputTokens") - previous.inputTokens + incoming.inputTokens)

@@ -36,7 +36,7 @@ internal class UsageRecordingProvider(
                     inputTokens = (usage.inputTokens ?: 0).toLong(),
                     outputTokens = (usage.outputTokens ?: 0).toLong(),
                     cachedTokens = (usage.cachedTokens ?: 0).toLong(),
-                    conversationId = request.sessionId, requestId = requestId, atMillis = startedAt,
+                    conversationId = request.usageConversationId, requestId = requestId, atMillis = startedAt,
                 ))
             }.onSuccess { saved = usage }
         }

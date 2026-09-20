@@ -13,6 +13,7 @@ internal object ModelFeatureCompletion {
         timeoutMs: Long = 60_000,
         outputLimit: Int = 2048,
         providerOverride: AgentProviderClient? = null,
+        usageConversationId: String = sessionId,
     ): String {
         val owner = Thread.currentThread()
         val child = AgentRunController()
@@ -42,7 +43,7 @@ internal object ModelFeatureCompletion {
                 summaryOutputLimit = outputLimit,
             )
             val response = (providerOverride ?: ProviderClientFactory.getClient(requestConfig)).complete(
-                ProviderRequest(requestConfig, messages, JSONArray(), sessionId), child,
+                ProviderRequest(requestConfig, messages, JSONArray(), sessionId, usageConversationId), child,
             ) {}
             controller.throwIfCancelled()
             check(!child.isCancelled && !owner.isInterrupted) { "辅助模型请求已取消或超时" }

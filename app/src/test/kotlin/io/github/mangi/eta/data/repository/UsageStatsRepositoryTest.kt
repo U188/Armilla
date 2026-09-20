@@ -8,6 +8,7 @@ import io.github.mangi.eta.data.db.EtaDatabase
 import io.github.mangi.eta.data.model.ReasoningEffort
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -123,6 +124,33 @@ class UsageStatsRepositoryTest {
         assertEquals(27L, stats.totalOutputTokens)
         assertEquals(3L, stats.totalCachedTokens)
         assertEquals(2, stats.conversationsPerDay[day])
+    }
+
+    @Test
+    fun conversationMigrationUsesRoomOwnerAndRequestUpdatesFlow() = runBlocking {
+        val dao = EtaDatabase.get(context).conversationDao()
+        SettingsDataStore.addModelUsage("{}")
+        dao.insertConversations(listOf(ConversationEntity(
+            id = "usage-owner", title = "usage", thinkingEnabled = false,
+            reasoningEffort = ReasoningEffort.DEFAULT.wireValue, createdAt = 1, updatedAt = 1,
+        )))
+        dao.insertMessages(listOf(ConversationMessageEntity(
+            id = "legacy-usage", conversationId = "usage-owner", sortIndex = 0,
+            type = "assistant", content = "answer", inputTokens = 1000, outputTokens = 100, cachedTokens = 800,
+        )))
+        UsageStatsRepository.initializeConversationUsage(context)
+        assertEquals(ConversationUsageTotals(1000, 100, 800),
+            UsageStatsRepository.conversationUsageFlow("usage-owner").first())
+        UsageStatsRepository.recordModelUsage(ModelUsageDelta(
+            providerId = "provider", providerName = "Provider", modelId = "summary", modelDisplayName = "Summary",
+            inputTokens = 200, outputTokens = 20, cachedTokens = 100,
+            conversationId = "usage-owner", requestId = "one-request",
+        ))
+        UsageStatsRepository.initializeConversationUsage(context)
+        assertEquals(ConversationUsageTotals(1200, 120, 900),
+            UsageStatsRepository.conversationUsageFlow("usage-owner").first())
+        assertEquals(null, UsageStatsRepository.conversationUsageFlow("other-owner").first())
+        SettingsDataStore.addModelUsage("{}")
     }
 
     @Test

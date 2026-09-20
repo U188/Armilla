@@ -70,4 +70,12 @@ class UsageRecordingProviderTest {
         }
         assertEquals(1, records.size)
     }
+    @Test fun accountingUsesConversationOwnerNotNetworkSession() {
+        val records = mutableListOf<ModelUsageDelta>()
+        val decorated = UsageRecordingProvider(provider { emit ->
+            emit(ProviderEvent.Usage(AgentTokenUsage(inputTokens = 100))); answer()
+        }) { records += it }
+        decorated.complete(request.copy(sessionId = "isolated-title-session", usageConversationId = "owner"), AgentRunController()) {}
+        assertEquals("owner", records.single().conversationId)
+    }
 }

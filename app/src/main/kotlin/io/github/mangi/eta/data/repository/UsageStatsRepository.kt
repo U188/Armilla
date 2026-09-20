@@ -9,6 +9,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -72,6 +73,21 @@ internal object UsageStatsRepository {
             launchCount = SettingsDataStore.launchCount(),
             modelUsage = decodeModelUsageSnapshot(SettingsDataStore.modelUsageJson()),
         )
+    }
+
+    suspend fun initializeConversationUsage(context: Context) {
+        modelUsageLock.withLock {
+            val rows = EtaDatabase.get(context.applicationContext).conversationDao().usageContentRows()
+            val legacy = rows.filter { it.conversationId.isNotBlank() }.groupBy { it.conversationId }
+                .mapValues { (_, messages) -> aggregateVisibleTokens(messages).let {
+                    ConversationUsageTotals(it.input, it.output, it.cached)
+                } }
+            SettingsDataStore.updateModelUsage { raw -> seedConversationUsage(raw, legacy) }
+        }
+    }
+
+    fun conversationUsageFlow(id: String?) = SettingsDataStore.modelUsageFlow().map { raw ->
+        conversationUsageTotals(raw, id)
     }
 
     suspend fun recordModelUsage(delta: ModelUsageDelta) {

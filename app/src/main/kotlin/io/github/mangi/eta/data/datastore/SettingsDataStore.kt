@@ -392,6 +392,11 @@ internal object SettingsDataStore {
         }
     }
 
+    fun modelUsageFlow(): Flow<String> {
+        ensureInitialized()
+        return dataStore.data.map { it[MODEL_USAGE_JSON].orEmpty() }
+    }
+
     suspend fun modelUsageJson(): String {
         ensureInitialized()
         return dataStore.data

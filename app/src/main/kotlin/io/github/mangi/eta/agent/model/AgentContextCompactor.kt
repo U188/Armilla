@@ -50,6 +50,7 @@ internal object AgentContextCompactor {
         val compressModelConfig: AgentModelClient.ModelConfig? = null,
         val summaryProvider: AgentProviderClient? = null,
         val compactionArchive: AgentCompactionArchive? = null,
+        val usageConversationId: String? = null,
     )
 
     fun keepRecentFor(): Int = 0
@@ -510,11 +511,12 @@ internal object AgentContextCompactor {
             summaryProvider = config.summaryProvider,
             diagnosticGroup = diagnosticGroup,
             diagnosticPhase = diagnosticPhase,
+            usageConversationId = config.usageConversationId ?: replay?.sessionId,
         )
         val text = response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")
         coerceSummary(text)?.let { return it }
-        val repaired = repairSummaryWithModel(text, resolved, controller, config.summaryProvider, diagnosticGroup, "$diagnosticPhase/repair")
+        val repaired = repairSummaryWithModel(text, resolved, controller, config.summaryProvider, diagnosticGroup, "$diagnosticPhase/repair", config.usageConversationId ?: replay?.sessionId)
         return coerceSummary(repaired)
             ?: error("摘要结构不完整或顺序无效，原历史保持不变")
     }
@@ -528,6 +530,7 @@ internal object AgentContextCompactor {
         summaryProvider: AgentProviderClient?,
         diagnosticGroup: String,
         diagnosticPhase: String,
+        usageConversationId: String? = null,
     ): Pair<AgentModelClient.ModelConfig, ProviderResponse> {
         val ladder = io.github.mangi.eta.agent.runtime.AgentRuntimePolicy.compressionEffortLadder(base)
         val remembered = CompressionReasoningStore.effortFor(base)
@@ -601,7 +604,7 @@ internal object AgentContextCompactor {
                         runCatching { AndroidAgentLogger.info(
                             "摘要接口：$diagnosticKey, attempt=$attemptNumber, endpoint=${provider.capabilities.endpoint}, streaming_text=${provider.capabilities.streamingText}") }
                         val response = provider.complete(
-                            ProviderRequest(model, outbound, tools, sessionId), timed,
+                            ProviderRequest(model, outbound, tools, sessionId, usageConversationId ?: sessionId), timed,
                         ) { event ->
                             val milestone = trace.record(event)
                             if (milestone != null) runCatching { AndroidAgentLogger.info(
@@ -799,6 +802,7 @@ internal object AgentContextCompactor {
         summaryProvider: AgentProviderClient?,
         diagnosticGroup: String,
         diagnosticPhase: String,
+        usageConversationId: String? = null,
     ): String {
         controller.throwIfCancelled()
         val headings = SUMMARY_SECTIONS.joinToString("\n") { heading -> "## $heading" }
@@ -817,7 +821,7 @@ internal object AgentContextCompactor {
             .put(org.json.JSONObject().put("role", "user").put("content", prompt))
         val (_, response) = completeCompression(
             model, input, org.json.JSONArray(), java.util.UUID.randomUUID().toString(),
-            controller, summaryProvider, diagnosticGroup, diagnosticPhase,
+            controller, summaryProvider, diagnosticGroup, diagnosticPhase, usageConversationId,
         )
         return response.assistantMessage.optString("content").trim().takeIf { it.isNotBlank() }
             ?: error("摘要模型返回为空")

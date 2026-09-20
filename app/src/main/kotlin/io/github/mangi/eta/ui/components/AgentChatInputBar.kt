@@ -981,7 +981,6 @@ private fun VoiceEntryButton(
         VoiceEntryMode.DOUBAO_DUPLEX -> R.string.voice_mode_doubao
         null -> R.string.voice_mode_choose
     }
-    var dictationStartRequest by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.load(context) }
     LaunchedEffect(modes) {
         if (!canChoose) picker = false
@@ -1011,7 +1010,6 @@ private fun VoiceEntryButton(
             idleDescription = context.getString(directLabel),
             onStartRequested = { rememberMode(VoiceEntryMode.DICTATION) },
             suspendCapture = picker,
-            startRequest = dictationStartRequest,
             forceVisible = true,
         )
     } else {
@@ -1049,12 +1047,12 @@ private fun VoiceEntryButton(
         onDismiss = { picker = false },
         onSelect = { mode ->
             picker = false
-            if (mode in modes) {
+            pendingMode = null
+            if (!interactionBlocked && io.github.mangi.eta.agent.voice.VoiceEntryPolicy.enabled(
+                    io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.value, mode)) {
                 TouchHaptics.click(view)
-                if (mode == VoiceEntryMode.DICTATION) {
-                    rememberMode(mode)
-                    dictationStartRequest++
-                } else startMode(mode)
+                // Choosing changes the default only; a separate tap starts capture or a call.
+                rememberMode(mode)
             }
         },
     )

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.agent.voice.tts.SpeechEngineResolver
+import io.github.mangi.eta.agent.voice.tts.ReadAloudVoiceHistory
 import io.github.mangi.eta.agent.voice.tts.SpeechPlayback
 import io.github.mangi.eta.agent.voice.tts.SpeechVoice
 import io.github.mangi.eta.agent.voice.tts.SpeechVoices
@@ -48,6 +49,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
         return
     }
     val context = LocalContext.current
+    val view = LocalView.current
     var cloud by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_TTS_MODE) == "cloud") }
     var providerId by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_PROVIDER_ID)) }
     var modelId by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_TTS_MODEL_ID)) }
@@ -72,6 +74,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
             mimoVoices.filter { it.providerId == selectedProvider?.id }.map { SpeechVoice(it.id, it.name, personal = true) }
         } else emptyList()
     }
+    LaunchedEffect(Unit) { ReadAloudVoiceHistory.rememberCurrent(context) }
     val playback by SpeechPlayback.state.collectAsState()
     val sample = stringResource(R.string.tts_sample)
     LaunchedEffect(cloud, providerId, selectedProvider?.id, engine, modelId, catalog, voice) {
@@ -90,12 +93,13 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
         val fallback = catalog.first().id
         voice = fallback
         Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, fallback)
+        ReadAloudVoiceHistory.remember(context, providerId, modelId, fallback)
     }
     MiuixScaffoldPage(title = stringResource(R.string.tts_title), onBack = onBack) {
         item(key = "my_voices") {
             Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 ArrowPreference(title = "我的声音", summary = "导入、制作和试听个人声音",
-                    insideMargin = PaddingValues(16.dp), onClick = { personalPage = true })
+                    insideMargin = PaddingValues(16.dp), onClick = { TouchHaptics.click(view); personalPage = true })
             }
         }
         item(key = "tts_mode") {
@@ -106,6 +110,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
                     checked = cloud,
                     insideMargin = PaddingValues(16.dp),
                     onCheckedChange = {
+                        TouchHaptics.click(view)
                         SpeechPlayback.stop()
                         cloud = it
                         Prefs.putString(Prefs.Keys.AGENT_TTS_MODE, if (it) "cloud" else "system")
@@ -120,7 +125,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
                         title = stringResource(R.string.tts_model),
                         summary = models.selectedModel?.let { "${it.providerName} · ${it.displayName}" } ?: stringResource(R.string.tts_select_model),
                         insideMargin = PaddingValues(16.dp),
-                        onClick = { picker = true },
+                        onClick = { TouchHaptics.click(view); picker = true },
                     )
                     ArrowPreference(
                         title = stringResource(R.string.tts_voice),
@@ -128,12 +133,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
                             ?: voice.ifBlank { stringResource(R.string.tts_select_voice) },
                         insideMargin = PaddingValues(16.dp),
                         enabled = models.selectedModel != null && catalog.isNotEmpty(),
-                        onClick = { voicePicker = true },
-                    )
-                    Text(
-                        stringResource(R.string.tts_protocol_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        onClick = { TouchHaptics.click(view); voicePicker = true },
                     )
                 }
             }
@@ -146,13 +146,9 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
                         ?: stringResource(if (playback.preparing) R.string.tts_preparing else R.string.tts_manual_hint),
                     insideMargin = PaddingValues(16.dp),
                     enabled = !playback.recording && (!cloud || (models.selectedModel != null && voice.isNotBlank())),
-                    onClick = { SpeechPlayback.toggle(context, "tts-preview", sample) },
+                    onClick = { TouchHaptics.click(view); SpeechPlayback.toggle(context, "tts-preview", sample) },
                 )
             }
-        }
-        item(key = "tts_privacy") {
-            Text(stringResource(R.string.tts_privacy), style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 28.dp, vertical = 10.dp))
         }
     }
     TtsModelPickerDialog(
@@ -161,8 +157,9 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
         onModelSelected = { provider, model ->
             SpeechPlayback.stop()
             if (providerId != provider || modelId != model) {
-                voice = ""
-                Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, "")
+                ReadAloudVoiceHistory.remember(context, providerId, modelId, voice)
+                voice = ReadAloudVoiceHistory.restore(context, provider, model)
+                Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, voice)
             }
             providerId = provider
             modelId = model
@@ -180,6 +177,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
             SpeechPlayback.stop()
             voice = id
             Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, id)
+            ReadAloudVoiceHistory.remember(context, providerId, modelId, id)
             voicePicker = false
         },
     )

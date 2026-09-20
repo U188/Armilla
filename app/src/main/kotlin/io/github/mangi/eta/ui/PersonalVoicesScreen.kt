@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.voice.mimo.MimoPersonalVoices
+import io.github.mangi.eta.agent.voice.tts.ReadAloudVoiceHistory
 import io.github.mangi.eta.agent.voice.tts.SpeechPlayback
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.SpeechSynthesisModels
@@ -142,10 +143,12 @@ private fun MimoVoicesScreen(onBack: () -> Unit) {
                                 val model = bound?.let { SpeechSynthesisModels.mergeCatalog(it) }?.firstOrNull { it.modelId == "mimo-v2.5-tts" && it.isEnabled }
                                 if (model == null) notice = "请先启用 MiMo 朗读模型" else {
                                     SpeechPlayback.stop()
+                                    ReadAloudVoiceHistory.rememberCurrent(context)
                                     Prefs.putString(Prefs.Keys.AGENT_TTS_MODE, "cloud")
                                     Prefs.putString(Prefs.Keys.AGENT_TTS_MODEL_PROVIDER_ID, voice.providerId)
                                     Prefs.putString(Prefs.Keys.AGENT_TTS_MODEL_ID, model.id)
                                     Prefs.putString(Prefs.Keys.AGENT_TTS_VOICE, voice.id)
+                                    ReadAloudVoiceHistory.remember(context, voice.providerId, model.id, voice.id)
                                     notice = "已将“${voice.name}”设为朗读声音"
                                 }
                             }) { Text("用于朗读") }

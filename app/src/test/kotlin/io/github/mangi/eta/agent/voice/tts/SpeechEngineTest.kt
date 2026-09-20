@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.voice.tts
 
+import io.github.mangi.eta.agent.model.AgentModelClient
+
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
 import io.github.mangi.eta.data.model.ProviderSourceTypes
 import java.util.Base64
@@ -31,5 +33,25 @@ class SpeechEngineTest {
 
         """.trimIndent()
         assertTrue(SpeechProtocols.decodeMimoSse(sse).contentEquals(pcm))
+    }
+
+    @Test fun cosyVoiceAndMossOnOpenAiCompatibleHostAreNotAlloy() {
+        val provider = OpenAiCompatibleProviderSetting(
+            id = "fish", name = "鱼", baseUrl = "https://api.example.com/v1", apiKey = "k",
+        )
+        assertEquals(SpeechEngine.COSYVOICE, SpeechEngineResolver.resolve(provider, "CosyVoice2"))
+        assertEquals(SpeechEngine.MOSS, SpeechEngineResolver.resolve(provider, "MOSS-TTSD"))
+        val cosy = SpeechVoices.catalog(SpeechEngine.COSYVOICE, "CosyVoice2")
+        assertEquals("longxiaochun_v2", cosy.first().id)
+        assertTrue(cosy.any { it.id == "中文女" })
+        assertTrue(cosy.none { it.id == "alloy" })
+        assertEquals("default", SpeechVoices.catalog(SpeechEngine.MOSS, "MOSS-TTSD").first().id)
+        val request = SpeechProtocols.request(
+            SpeechEngine.COSYVOICE,
+            AgentModelClient.ModelConfig(baseUrl = "https://api.example.com/v1", apiKey = "k", model = "CosyVoice2", systemPrompt = ""),
+            "你好",
+            "longxiaochun_v2",
+        )
+        assertTrue(request.url.toString().endsWith("/audio/speech"))
     }
 }

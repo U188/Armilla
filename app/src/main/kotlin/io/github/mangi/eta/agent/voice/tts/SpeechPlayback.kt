@@ -153,6 +153,8 @@ internal object SpeechPlayback {
                                 SpeechEngine.GEMINI -> "Gemini"
                                 SpeechEngine.ELEVENLABS -> "ElevenLabs"
                                 SpeechEngine.FISH -> "Fish Audio"
+                                SpeechEngine.COSYVOICE -> "CosyVoice"
+                                SpeechEngine.MOSS -> "MOSS-TTSD"
                                 SpeechEngine.OPENAI -> "云端 Speech"
                             }
                             supervisorScope {

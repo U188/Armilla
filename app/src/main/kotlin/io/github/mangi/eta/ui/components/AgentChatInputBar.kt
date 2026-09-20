@@ -947,6 +947,11 @@ private fun VoiceEntryButton(
     val view = LocalView.current
     val context = LocalContext.current
     var picker by remember { mutableStateOf(false) }
+    var lastSelected by remember { mutableStateOf(Prefs.getString(Prefs.Keys.AGENT_VOICE_LAST_ENTRY)) }
+    fun rememberMode(mode: VoiceEntryMode) {
+        lastSelected = mode.wireValue
+        Prefs.putString(Prefs.Keys.AGENT_VOICE_LAST_ENTRY, mode.wireValue)
+    }
     var pendingMode by remember { mutableStateOf<VoiceEntryMode?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val mode = pendingMode
@@ -958,6 +963,7 @@ private fun VoiceEntryButton(
     fun startMode(mode: VoiceEntryMode) {
         if (!io.github.mangi.eta.agent.voice.VoiceEntryPolicy.enabled(
                 io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.value, mode)) return
+        rememberMode(mode)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             onStartVoiceMode(mode)
         } else {
@@ -968,6 +974,13 @@ private fun VoiceEntryButton(
     val config by io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.state.collectAsState()
     val modes = io.github.mangi.eta.agent.voice.VoiceEntryPolicy.modes(config)
     val canChoose = io.github.mangi.eta.agent.voice.VoiceEntryPolicy.canChoose(config)
+    val directMode = io.github.mangi.eta.agent.voice.VoiceEntryPolicy.directMode(config, lastSelected)
+    val directLabel = when (directMode) {
+        VoiceEntryMode.DICTATION -> R.string.voice_mode_dictation
+        VoiceEntryMode.UNIVERSAL -> R.string.voice_mode_universal
+        VoiceEntryMode.DOUBAO_DUPLEX -> R.string.voice_mode_doubao
+        null -> R.string.voice_mode_choose
+    }
     var dictationStartRequest by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.DoubaoVoiceConfig.load(context) }
     LaunchedEffect(modes) {
@@ -989,8 +1002,14 @@ private fun VoiceEntryButton(
             interactionBlocked = interactionBlocked,
             resetKey = resetKey,
             onLongClick = choose,
-            onUnavailableClick = choose,
-            onIdleClick = choose,
+            onUnavailableClick = if (canChoose) ({ picker = true }) else null,
+            onIdleClick = when (directMode) {
+                VoiceEntryMode.DICTATION -> null
+                null -> if (canChoose) ({ picker = true }) else null
+                else -> ({ startMode(directMode) })
+            },
+            idleDescription = context.getString(directLabel),
+            onStartRequested = { rememberMode(VoiceEntryMode.DICTATION) },
             suspendCapture = picker,
             startRequest = dictationStartRequest,
             forceVisible = true,
@@ -1001,7 +1020,7 @@ private fun VoiceEntryButton(
                 .size(48.dp)
                 .clip(CircleShape)
                 .then(if (modes.isNotEmpty() || active) Modifier.semantics {
-                    contentDescription = context.getString(if (active) R.string.voice_mode_stop else R.string.voice_mode_open)
+                    contentDescription = context.getString(if (active) R.string.voice_mode_stop else directLabel)
                 }.combinedClickable(
                     enabled = !interactionBlocked,
                     indication = null,
@@ -1011,7 +1030,7 @@ private fun VoiceEntryButton(
                         TouchHaptics.click(view)
                         when {
                             active -> onStopVoiceMode()
-                            modes.size == 1 -> io.github.mangi.eta.agent.voice.VoiceEntryPolicy.directMode(config)?.let(::startMode)
+                            directMode != null -> startMode(directMode)
                             modes.size > 1 -> picker = true
                         }
                     },
@@ -1031,7 +1050,11 @@ private fun VoiceEntryButton(
         onSelect = { mode ->
             picker = false
             if (mode in modes) {
-                if (mode == VoiceEntryMode.DICTATION) dictationStartRequest++ else startMode(mode)
+                TouchHaptics.click(view)
+                if (mode == VoiceEntryMode.DICTATION) {
+                    rememberMode(mode)
+                    dictationStartRequest++
+                } else startMode(mode)
             }
         },
     )

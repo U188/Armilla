@@ -7,7 +7,8 @@ import org.json.JSONObject
 
 internal object SubAgentRunner {
     fun run(config: AgentModelClient.ModelConfig, prompt: String, tools: JSONArray,
-            executor: AgentModelClient.ToolExecutor, controller: AgentRunController): String {
+            executor: AgentModelClient.ToolExecutor, controller: AgentRunController,
+            provider: AgentProviderClient = ProviderClientFactory.getClient(config)): String {
         val child = config.copy(systemPrompt = "", hostedWebSearchEnabled = false,
             terminalTools = false, browserTools = false, deviceSensitiveActionTools = false)
         val messages = JSONArray()
@@ -17,7 +18,7 @@ internal object SubAgentRunner {
                 "不能写入、发送、操作界面或创建子代理。只向主代理返回分析结果，由主代理审核并答复用户。"))
             .put(JSONObject().put("role", "user").put("content", prompt))
         return AgentLoop(config = child, messages = messages, tools = tools,
-            provider = ProviderClientFactory.getClient(child),
+            provider = provider,
             toolExecutor = SubAgentTools.guarded(executor), runController = controller,
             traceFormatter = AgentTraceFormatter(), onEvent = {}, systemCount = 1).run().content
     }

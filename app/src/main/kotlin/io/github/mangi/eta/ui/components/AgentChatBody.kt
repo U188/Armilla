@@ -312,6 +312,7 @@ internal fun AgentChatBody(
     }
     ChatImagePreviewHost(gallery = previewGallery) {
         AgentChatScaffold(
+            collaborationConversationId = collaborationConversationId,
             visibleMessages = visibleMessages,
             hasMessages = visibleMessages.isNotEmpty(),
             scrollState = scrollState,
@@ -411,6 +412,7 @@ private fun AgentChatScaffold(
     pendingFileReferences: List<PendingFileReferenceUi>,
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
+    collaborationConversationId: String? = null,
     assistantId: String = "",
     voiceState: VoiceModeState = VoiceModeState(),
     onStartVoiceMode: (VoiceEntryMode) -> Unit = {},
@@ -475,6 +477,7 @@ private fun AgentChatScaffold(
         ),
         bottomBar = {
             AgentChatBottomBar(
+                collaborationConversationId = collaborationConversationId,
                 messageBackdrop = messageBackdrop.takeIf { frostEnabled },
                 input = input,
                 draftField = draftField,
@@ -1247,6 +1250,7 @@ private fun AgentChatBottomBar(
     pendingFileReferences: List<PendingFileReferenceUi>,
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
+    collaborationConversationId: String? = null,
     assistantId: String = "",
     voiceState: VoiceModeState = VoiceModeState(),
     onStartVoiceMode: (VoiceEntryMode) -> Unit = {},

@@ -208,7 +208,8 @@ internal class AgentRuntimeRunExecutor(
             toolsBinding = runController.register { routingExecutor.close() }
             timing.preparationFinished(skillContext.installedSkills.size)
             val childModels = if (SubAgentPreferences.enabled(request.effectiveModelSessionId)) runBlocking {
-                (0..1).mapNotNull { SubAgentPreferences.selection(it).resolve() }
+                (0..1).mapNotNull { runCatching { SubAgentPreferences.selection(it).resolve() }.getOrNull() }
+                    .filter { it.apiKey.isNotBlank() && it.baseUrl.isNotBlank() }
                     .filterNot { it.providerId == request.config.providerId && it.model == request.config.model }
                     .distinctBy { it.providerId to it.model }
             } else emptyList()

@@ -16,3 +16,9 @@
 - `ConversationTurnProjectionTest`：工具分组、追加指令和隐藏恢复消息下的真实索引。
 - `ConversationTurnNavigationButtonTest`：两个方向短按/长按、回调次数、显式触感次数以及内建触感不得叠加。
 - 完整 Android/Compose 测试须在获准后由 GitHub Actions 执行；实机触感和流式滚动仍须验收。
+
+## 追加信息处短暂停顿修正
+
+- 轮次跳转不再调用 `animateScrollToItem`，改为一次 `scrollToItem` 定位；保持既有方向、轮次过滤和单次触感。
+- 该修改有意取消轮次切换时的滚动过渡，避免中途经过追加信息造成“先停一下，再到目标”的观感。手动滑动和流式跟底不变。
+- 新增多条同轮追加信息的向上目标测试，以及长短消息交错的 Compose 列表测试，断言跳转不暴露中间消息索引。测试待云端运行和实机验证。

@@ -24,6 +24,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -53,6 +54,8 @@ internal fun ConversationCollaborationDialog(
 ) {
     if (!show) return
     val view = LocalView.current
+    // Reserve space for the dialog title, margins and fixed dismiss button on small screens.
+    val listMaxHeight = (LocalConfiguration.current.screenHeightDp - 280).coerceIn(80, 360).dp
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
     var modelSlot by remember { mutableStateOf<Int?>(null) }
     var selections by remember { mutableStateOf((0 until SubAgentPreferences.SLOT_COUNT).map(SubAgentPreferences::selection)) }
@@ -87,7 +90,7 @@ internal fun ConversationCollaborationDialog(
                 },
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+            Column(Modifier.heightIn(max = listMaxHeight).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SwitchPreference(
                     title = "自动委派",

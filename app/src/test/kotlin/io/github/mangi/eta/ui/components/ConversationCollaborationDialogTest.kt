@@ -15,7 +15,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 @RunWith(RobolectricTestRunner::class)
-@Config(application = io.github.mangi.eta.EtaApp::class, sdk = [36])
+@Config(application = io.github.mangi.eta.EtaApp::class, sdk = [36], qualifiers = "w411dp-h891dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ConversationCollaborationDialogTest {
     @get:Rule val compose = createComposeRule()
@@ -83,7 +83,7 @@ class ConversationCollaborationDialogTest {
         compose.onNodeWithText("选择执行代理 1模型").assertExists()
         compose.runOnIdle { running.value = true }
         compose.onNodeWithText("选择执行代理 1模型").assertDoesNotExist()
-        compose.onNodeWithText("完成").assertIsNotEnabled()
+        compose.onNodeWithText("完成").assertIsDisplayed().assertIsNotEnabled()
         compose.onNodeWithText("执行代理 1").assertIsNotEnabled()
         compose.onNodeWithText("执行代理 1").performTouchInput { click(); longClick() }
         compose.runOnIdle { org.junit.Assert.assertEquals("disabled model row must not dismiss", 0, dismissals) }
@@ -98,6 +98,20 @@ class ConversationCollaborationDialogTest {
         compose.onNodeWithText("执行代理 1").assertIsEnabled()
         compose.onNodeWithText("完成").assertIsEnabled().performClick()
         compose.runOnIdle { org.junit.Assert.assertEquals(1, dismissals) }
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h480dp")
+    fun lockedDialogKeepsDisabledDoneButtonInsideSmallViewport() {
+        var dismissals = 0
+        compose.setContent {
+            MiuixTheme(colors = lightColorScheme()) {
+                ConversationCollaborationDialog(true, true, {}, { dismissals++ }, taskRunning = true)
+            }
+        }
+        compose.onNodeWithText("完成").assertIsDisplayed().assertIsNotEnabled()
+            .performTouchInput { click() }
+        compose.runOnIdle { org.junit.Assert.assertEquals(0, dismissals) }
     }
 
 }

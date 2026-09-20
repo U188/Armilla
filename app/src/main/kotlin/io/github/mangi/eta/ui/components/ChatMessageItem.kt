@@ -169,6 +169,7 @@ import io.github.mangi.eta.ui.model.isVideoAt
 import io.github.mangi.eta.ui.model.durationMsAt
 import io.github.mangi.eta.agent.media.AgentVideoCodec
 import io.github.mangi.eta.ui.model.fullImageSourceAt
+import io.github.mangi.eta.ui.model.visibleFileReferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -575,6 +576,9 @@ private fun UserMessageBubble(
     val visiblePrompt = remember(message.content) {
         AgentFileReferencePromptCodec.parse(message.content)
     }
+    val visibleFiles = remember(visiblePrompt.references, message.images, message.imageSources) {
+        message.visibleFileReferences(visiblePrompt.references)
+    }
     val copyText = visiblePrompt.request.ifBlank {
         visiblePrompt.conversations.joinToString(" ") { "@${it.title}" }
     }
@@ -672,9 +676,9 @@ private fun UserMessageBubble(
                     modifier = Modifier.padding(bottom = 6.dp),
                 )
             }
-            if (visiblePrompt.references.isNotEmpty()) {
+            if (visibleFiles.isNotEmpty()) {
                 SentFileReferenceFlow(
-                    references = visiblePrompt.references,
+                    references = visibleFiles,
                     modifier = Modifier.padding(
                         bottom = if (visiblePrompt.request.isNotBlank()) 8.dp else 0.dp
                     ),

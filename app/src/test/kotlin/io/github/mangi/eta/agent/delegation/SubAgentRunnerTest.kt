@@ -12,6 +12,8 @@ class SubAgentRunnerTest {
         val config = AgentModelClient.ModelConfig(baseUrl = "https://example.com", apiKey = "test",
             model = "child", systemPrompt = "PRIVATE ASSISTANT INSTRUCTIONS", hostedWebSearchEnabled = true)
         val tools = JSONArray().put(AgentToolSchema.function("device_status", "read", JSONObject().put("type", "object")))
+        tools.put(AgentToolSchema.function("write_file", "write", JSONObject().put("type", "object")))
+        SubAgentTools.appendTo(tools, listOf("recursive worker"))
         var rounds = 0
         var executions = 0
         val provider = object : AgentProviderClient {

@@ -950,7 +950,9 @@ internal fun AgentConversationMessages(
                             onRegenerateMessage = onRegenerateMessage,
                             onBranchMessage = onBranchMessage,
                             isPaused = isPaused,
-                            modifier = if (isStreaming) Modifier else Modifier.animateItem(
+                            // Keep this modifier stable. Attaching fadeIn only after the run
+                            // ends replays appearance on the already-visible answer.
+                            modifier = Modifier.animateItem(
                                 fadeInSpec = tween(durationMillis = 180),
                                 placementSpec = null,
                                 fadeOutSpec = null,
@@ -976,7 +978,9 @@ internal fun AgentConversationMessages(
                             isPaused = isPaused,
                             isTrailing = entry.key == trailingWorkKey,
                             turnStreaming = isStreaming,
-                            modifier = if (isStreaming) Modifier else Modifier.animateItem(
+                            // Keep this modifier stable. Attaching fadeIn only after the run
+                            // ends replays appearance on the already-visible answer.
+                            modifier = Modifier.animateItem(
                                 fadeInSpec = tween(durationMillis = 180),
                                 placementSpec = null,
                                 fadeOutSpec = null,

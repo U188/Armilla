@@ -4132,11 +4132,7 @@ internal class AgentAppState(
                 messages.mapIndexed { index, message ->
                     if (index == targetIndex && message is AgentMessageUi) {
                         message.copy(
-                            content = if (sameRoundBlocks <= 1) {
-                                fallbackContent
-                            } else {
-                                message.content.ifBlank { fallbackContent }
-                            },
+                            content = mergeCompletedAssistantContent(message.content, fallbackContent, sameRoundBlocks),
                             isStreaming = false,
                             renderMarkdown = true,
                             generatedAtMillis = message.generatedAtMillis ?: generatedAtMillis,

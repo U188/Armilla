@@ -44,7 +44,7 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 internal fun TtsSettingsScreen(onBack: () -> Unit) {
     var personalPage by remember { mutableStateOf(false) }
     if (personalPage) {
-        DoubaoVoiceSettings(page = "voices", onBack = { personalPage = false })
+        PersonalVoicesScreen(onBack = { personalPage = false })
         return
     }
     val context = LocalContext.current
@@ -60,19 +60,23 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
     }
     val selectedProvider = remember(providers, providerId) { providers.firstOrNull { it.id == providerId } }
     val engine = remember(selectedProvider, modelId) { SpeechEngineResolver.resolve(selectedProvider, modelId) }
+    val mimoVoices by io.github.mangi.eta.agent.voice.mimo.MimoPersonalVoices.state.collectAsState()
+    LaunchedEffect(Unit) { runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { io.github.mangi.eta.agent.voice.mimo.MimoPersonalVoices.load(context) } } }
     val personalVoices by io.github.mangi.eta.agent.voice.doubao.PersonalVoices.state.collectAsState()
     LaunchedEffect(Unit) { io.github.mangi.eta.agent.voice.doubao.PersonalVoices.load(context) }
-    val catalog = remember(engine, modelId, personalVoices, selectedProvider) {
+    val catalog = remember(engine, modelId, personalVoices, mimoVoices, selectedProvider) {
         SpeechVoices.catalog(engine, modelId) + if (engine == io.github.mangi.eta.agent.voice.tts.SpeechEngine.DOUBAO && !io.github.mangi.eta.agent.voice.tts.DoubaoSpeech.usesCreate(modelId)) {
             personalVoices.filter { it.tts && it.accepted && it.account == io.github.mangi.eta.agent.voice.doubao.PersonalVoices.account(selectedProvider?.apiKey.orEmpty()) }
                 .map { SpeechVoice(it.id, it.name, personal = true) }
+        } else if (engine == io.github.mangi.eta.agent.voice.tts.SpeechEngine.MIMO) {
+            mimoVoices.filter { it.providerId == selectedProvider?.id }.map { SpeechVoice(it.id, it.name, personal = true) }
         } else emptyList()
     }
     val playback by SpeechPlayback.state.collectAsState()
     val sample = stringResource(R.string.tts_sample)
     LaunchedEffect(cloud, providerId, selectedProvider?.id, engine, modelId, catalog, voice) {
         // A missing/expired personal voice must not silently become a public voice.
-        if (voice.startsWith("etaClone") || voice.startsWith("S_")) return@LaunchedEffect
+        if (voice.startsWith("etaClone") || voice.startsWith("S_") || voice.startsWith("mimo-local-")) return@LaunchedEffect
         if (!SpeechVoices.shouldReplaceStoredVoice(
                 cloud = cloud,
                 providerId = providerId,
@@ -151,7 +155,7 @@ internal fun TtsSettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 28.dp, vertical = 10.dp))
         }
     }
-    CompressModelPickerDialog(
+    TtsModelPickerDialog(
         state = models, show = picker, onDismiss = { picker = false },
         title = stringResource(R.string.tts_model),
         onModelSelected = { provider, model ->

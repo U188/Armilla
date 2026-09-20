@@ -2,6 +2,8 @@ package io.github.mangi.eta.agent.voice.doubao
 
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.os.Handler
+import android.os.Looper
 import io.github.mangi.eta.agent.voice.VoiceDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +46,13 @@ internal class AndroidVoicePreviewPlayer : VoicePreviewPlayer {
 internal class PersonalVoicePreview(
     private val factory: () -> VoicePreviewPlayer = { AndroidVoicePreviewPlayer() },
     private val traceFactory: () -> VoiceDiagnostics = { VoiceDiagnostics("personal-preview") },
+    private val after: (Long, () -> Unit) -> (() -> Unit) = { delayMs, action ->
+        val handler = Handler(Looper.getMainLooper())
+        val task = Runnable { action() }
+        handler.postDelayed(task, delayMs)
+        val cancel: () -> Unit = { handler.removeCallbacks(task) }
+        cancel
+    },
 ) {
     data class State(val account: String = "", val id: String = "", val loading: Boolean = false, val error: String? = null) {
         val active get() = id.isNotEmpty()
@@ -54,6 +63,17 @@ internal class PersonalVoicePreview(
     private var player: VoicePreviewPlayer? = null
     private var trace: VoiceDiagnostics? = null
     private var generation = 0
+    private var draining = false
+    private var cancelDrain: (() -> Unit)? = null
+
+    internal companion object {
+        // Some Android output paths report completion before their queued tail is audible.
+        // This is a bounded release grace period, not a seek/replay or a substitute for missing audio.
+        fun drainDelayMs(duration: Int, position: Int): Long {
+            val remaining = if (duration > 0 && position >= 0) (duration.toLong() - position).coerceIn(0L, 2000L) else 0L
+            return remaining + 150L
+        }
+    }
 
     fun toggle(account: String, id: String, url: String) {
         if (mutable.value.matches(account, id)) { stop(1); return }
@@ -86,7 +106,17 @@ internal class PersonalVoicePreview(
                         val position = safePosition(owned)
                         diagnostic.mark("preview.complete", "durationMs" to duration, "positionMs" to position,
                             "early" to if (duration > 0 && position >= 0 && duration - position > 500) 1 else 0)
-                        stop(3)
+                        if (!draining) {
+                            draining = true
+                            val delayMs = drainDelayMs(duration, position)
+                            diagnostic.mark("preview.drain", "delayMs" to delayMs)
+                            cancelDrain = after(delayMs) {
+                                if (token == generation && player === owned) {
+                                    diagnostic.mark("preview.drained", "positionMs" to safePosition(owned))
+                                    stop(3)
+                                }
+                            }
+                        }
                     }
                 },
                 error = { what, extra -> fail(token, what, extra) },
@@ -107,6 +137,9 @@ internal class PersonalVoicePreview(
     // 0 leave screen; 1 explicit stop; 2 switch voice; 3 completion; 4 error; 5 remove voice.
     fun stop(reason: Int = 0) {
         generation++
+        cancelDrain?.invoke()
+        cancelDrain = null
+        draining = false
         val owned = player
         player = null
         if (owned != null) {

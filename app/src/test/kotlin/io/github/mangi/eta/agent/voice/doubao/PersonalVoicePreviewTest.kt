@@ -23,7 +23,8 @@ class PersonalVoicePreviewTest {
     }
     private fun controller(players: MutableList<Player>, logs: MutableList<String> = mutableListOf()) =
         PersonalVoicePreview(factory = { Player().also { players.add(it) } },
-            traceFactory = { VoiceDiagnostics("personal-preview", { logs.add(it) }, { 0L }) })
+            traceFactory = { VoiceDiagnostics("personal-preview", { logs.add(it) }, { 0L }) },
+            after = { _, action -> action(); {} })
 
     @Test fun loadingAndPlayingAreBothStoppableWithoutRestart() {
         val players = mutableListOf<Player>(); val owner = controller(players)
@@ -101,5 +102,57 @@ class PersonalVoicePreviewTest {
         assertTrue(player.released)
         assertFalse(owner.state.value.active)
         assertNotNull(owner.state.value.error)
+    }
+
+    @Test fun earlyCompletionKeepsPlayerAndStopButtonUntilTailGraceExpires() {
+        val players = mutableListOf<Player>()
+        var deferred: (() -> Unit)? = null
+        var delay = 0L
+        val owner = PersonalVoicePreview(
+            factory = { Player().also { players.add(it) } },
+            traceFactory = { VoiceDiagnostics("test", {}) },
+            after = { ms, action -> delay = ms; deferred = action; {} },
+        )
+        owner.toggle("a", "v", "https://example.test/demo")
+        players[0].ready(); players[0].position = 7324; players[0].completed()
+        assertEquals(826L, delay)
+        assertTrue(owner.state.value.active)
+        assertEquals(0, players[0].releases)
+        deferred!!()
+        assertFalse(owner.state.value.active)
+        assertEquals(1, players[0].releases)
+    }
+
+    @Test fun switchingOrStoppingDuringDrainInvalidatesDelayedRelease() {
+        val players = mutableListOf<Player>()
+        val callbacks = mutableListOf<() -> Unit>()
+        var cancelled = 0
+        val owner = PersonalVoicePreview(
+            factory = { Player().also { players.add(it) } },
+            traceFactory = { VoiceDiagnostics("test", {}) },
+            after = { _, action -> callbacks.add(action); { cancelled++ } },
+        )
+        owner.toggle("a", "one", "https://example.test/one")
+        players[0].ready(); players[0].completed(); players[0].completed()
+        assertEquals(1, callbacks.size)
+        owner.toggle("a", "two", "https://example.test/two")
+        assertEquals(1, cancelled)
+        callbacks[0]()
+        assertTrue(owner.state.value.matches("a", "two"))
+        assertEquals(0, players[1].releases)
+        players[1].ready(); players[1].completed()
+        owner.toggle("a", "two", "https://example.test/two")
+        assertFalse(owner.state.value.active)
+        assertEquals(1, players[1].releases)
+        callbacks[1]()
+        assertEquals(1, players[1].releases)
+    }
+
+    @Test fun drainGraceUsesObservedGapButIsBoundedForInvalidDurations() {
+        assertEquals(826L, PersonalVoicePreview.drainDelayMs(3407, 2731))
+        assertEquals(150L, PersonalVoicePreview.drainDelayMs(3407, 3407))
+        assertEquals(150L, PersonalVoicePreview.drainDelayMs(-1, -1))
+        assertEquals(150L, PersonalVoicePreview.drainDelayMs(1000, 2000))
+        assertEquals(2150L, PersonalVoicePreview.drainDelayMs(Int.MAX_VALUE, 0))
     }
 }

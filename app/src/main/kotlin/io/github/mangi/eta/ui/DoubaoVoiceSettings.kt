@@ -35,6 +35,7 @@ import io.github.mangi.eta.agent.voice.doubao.VoiceCatalogPreferences
 import io.github.mangi.eta.agent.voice.doubao.VoiceCatalogSecretStore
 import io.github.mangi.eta.agent.voice.doubao.VoiceProjectCatalog
 import io.github.mangi.eta.ui.components.EtaMaterialDropdownMenu
+import io.github.mangi.eta.ui.components.EtaMaterialDropdownMenuItem
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import kotlinx.coroutines.launch
 
@@ -136,8 +137,8 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                     if (home) Box {
                         IconButton(onClick = { TouchHaptics.click(view); settingsMenu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "声音设置") }
                         EtaMaterialDropdownMenu(expanded = settingsMenu, onDismissRequest = { settingsMenu = false }) {
-                            DropdownMenuItem(text = { Text("声音复刻账户") }, onClick = { TouchHaptics.click(view); settingsMenu = false; showAccount = true; notice = "" })
-                            DropdownMenuItem(text = { Text("同步音色名额") }, enabled = config.cloneKey.isNotBlank(), onClick = { TouchHaptics.click(view); settingsMenu = false; showSync = true; notice = "" })
+                            EtaMaterialDropdownMenuItem(text = "声音复刻账户", onClick = { TouchHaptics.click(view); settingsMenu = false; showAccount = true; notice = "" })
+                            EtaMaterialDropdownMenuItem(text = "同步音色名额", enabled = config.cloneKey.isNotBlank(), onClick = { TouchHaptics.click(view); settingsMenu = false; showSync = true; notice = "" })
                         }
                     }
                 },
@@ -149,8 +150,8 @@ internal fun DoubaoVoiceSettings(page: String, onBack: () -> Unit) {
                     Icon(Icons.Rounded.Add, contentDescription = "添加声音")
                 }
                 EtaMaterialDropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
-                    DropdownMenuItem(text = { Text("用录音制作声音") }, onClick = { TouchHaptics.click(view); beginMode("create") })
-                    DropdownMenuItem(text = { Text("导入已有声音") }, onClick = { TouchHaptics.click(view); beginMode("import") })
+                    EtaMaterialDropdownMenuItem(text = "用录音制作声音", onClick = { TouchHaptics.click(view); beginMode("create") })
+                    EtaMaterialDropdownMenuItem(text = "导入已有声音", onClick = { TouchHaptics.click(view); beginMode("import") })
                 }
             }
         },
@@ -495,9 +496,9 @@ private fun PersonalVoiceRow(
                     Box {
                         IconButton(onClick = { TouchHaptics.click(view); menu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "声音操作") }
                         EtaMaterialDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("查询状态") }, onClick = { TouchHaptics.click(view); menu = false; onRefresh() })
-                            if (voice.error.isNotBlank()) DropdownMenuItem(text = { Text("错误详情") }, onClick = { TouchHaptics.click(view); menu = false; showError = true })
-                            DropdownMenuItem(text = { Text("移除本机记录") }, enabled = enabled, onClick = { TouchHaptics.click(view); menu = false; onDelete() })
+                            EtaMaterialDropdownMenuItem(text = "查询状态", onClick = { TouchHaptics.click(view); menu = false; onRefresh() })
+                            if (voice.error.isNotBlank()) EtaMaterialDropdownMenuItem(text = "错误详情", onClick = { TouchHaptics.click(view); menu = false; showError = true })
+                            EtaMaterialDropdownMenuItem(text = "移除本机记录", enabled = enabled, onClick = { TouchHaptics.click(view); menu = false; onDelete() })
                         }
                     }
                 }

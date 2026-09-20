@@ -1,6 +1,7 @@
 package io.github.mangi.eta.ui.haptics
 
 import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
+import io.github.mangi.eta.ui.markdown.ChatSelectableText
 import android.app.Application
 import android.widget.Magnifier
 import androidx.compose.foundation.ComposeFoundationFlags
@@ -102,7 +103,7 @@ class HapticSelectionGestureTest {
                 override fun openUri(uri: String) { opened += uri }
             }, LocalTextToolbar provides toolbar) {
                 HapticSelectionContainer(selectionState = selection) {
-                    BasicText(buildAnnotatedString {
+                    ChatSelectableText(buildAnnotatedString {
                         append("before ")
                         withLink(LinkAnnotation.Url("https://example.com")) { append("linked") }
                         append(" after")
@@ -129,15 +130,14 @@ class HapticSelectionGestureTest {
         compose.setContent {
             CompositionLocalProvider(LocalTextToolbar provides toolbar) {
                 HapticSelectionContainer(selectionState = selection) {
-                    val settings = com.mikepenz.markdown.annotator.annotatorSettings()
-                    val text = buildAnnotatedString {
-                        buildMarkdownAnnotatedString(source, node, settings)
-                    }
-                    com.mikepenz.markdown.compose.elements.MarkdownText(
-                        content = text, node = node, sourceContent = source,
-                        style = TextStyle(fontSize = 20.sp), modifier = Modifier.testTag("text"),
-                        onTextLayout = { result, _ -> layout = result },
-                    )
+                    com.mikepenz.markdown.m3.Markdown(content = source, success = { _, _, _ ->
+                        val settings = com.mikepenz.markdown.annotator.annotatorSettings()
+                        val text = buildAnnotatedString { buildMarkdownAnnotatedString(source, node, settings) }
+                        ChatSelectableText(
+                            text = text, style = TextStyle(fontSize = 20.sp), modifier = Modifier.testTag("text"),
+                            onTextLayout = { layout = it },
+                        )
+                    })
                 }
             }
         }

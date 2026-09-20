@@ -1,5 +1,6 @@
 package io.github.mangi.eta.ui.components
 
+import io.github.mangi.eta.ui.markdown.ChatSelectableText
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.animation.AnimatedContent
@@ -1602,7 +1603,7 @@ private fun chatMarkdownComponents(
         }
     },
     paragraph = { model ->
-        if (revealCoordinator == null || model.node.containsMarkdownImage()) {
+        if (model.node.containsMarkdownImage()) {
             MarkdownParagraph(
                 content = model.content,
                 node = model.node,
@@ -1909,7 +1910,7 @@ private fun ChatRevealRawText(
 private fun ChatRevealMarkdownText(
     model: MarkdownComponentModel,
     style: TextStyle,
-    revealCoordinator: SmoothTextRevealCoordinator,
+    revealCoordinator: SmoothTextRevealCoordinator?,
     modifier: Modifier = Modifier,
     contentChildType: IElementType? = null,
 ) {
@@ -1927,6 +1928,10 @@ private fun ChatRevealMarkdownText(
             )
             pop()
         }
+    }
+    if (revealCoordinator == null) {
+        ChatSelectableText(text = text, style = style, modifier = modifier)
+        return
     }
     ChatRevealAnnotatedText(
         text = text,
@@ -1951,15 +1956,13 @@ private fun ChatRevealAnnotatedText(
         key = RevealBlockKey(node.startOffset),
         coordinator = revealCoordinator,
     )
-    MarkdownText(
-        content = text,
-        node = node,
+    ChatSelectableText(
+        text = text,
         modifier = modifier.smoothTextReveal(revealState),
         style = style.copy(textMotion = TextMotion.Animated),
-        onTextLayout = { layoutResult, _ ->
+        onTextLayout = { layoutResult ->
             revealState.onTextLayout(text.text, layoutResult)
         },
-        sourceContent = sourceContent,
     )
 }
 
@@ -1978,7 +1981,7 @@ private fun ChatHeadingBlock(
     } else {
         MarkdownTokenTypes.ATX_CONTENT
     }
-    if (revealCoordinator == null || model.node.containsMarkdownImage()) {
+    if (model.node.containsMarkdownImage()) {
         MarkdownHeader(
             content = model.content,
             node = model.node,

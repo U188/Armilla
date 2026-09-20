@@ -92,4 +92,25 @@ class SubAgentCoordinatorTest {
             assertFalse(result.toString().contains("do-not-leak"))
         }
     }
+    @Test fun roleSelectionUsesConfiguredModelAndRejectsWrongWorker() {
+        val other = model.copy(model = "review-model")
+        var used = ""
+        SubAgentCoordinator(listOf(model, other), roles = listOf("implementation", "review")) { cfg, _, _ ->
+            used = cfg.model
+            "summary"
+        }.use { c ->
+            val started = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "summarize").put("role", "summary"))).content)
+            assertEquals("completed", get(c, started.getString("task_id")).getString("status"))
+            assertEquals("review-model", used)
+            val denied = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "summarize").put("role", "summary").put("worker", 1))).content)
+            assertEquals("WORKER_ROLE_MISMATCH", denied.getString("code"))
+        }
+    }
+
+    @Test fun missingImplementationRoleNeverFallsBackToDifferentModel() {
+        SubAgentCoordinator(listOf(model), roles = listOf("review")) { _, _, _ -> "unused" }.use { c ->
+            val result = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "implement").put("role", "implementation").put("project", "/workspace/Test"))).content)
+            assertEquals("ROLE_NOT_CONFIGURED", result.getString("code"))
+        }
+    }
 }

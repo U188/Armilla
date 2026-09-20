@@ -207,14 +207,26 @@ internal class AgentRuntimeRunExecutor(
             toolExecutor = routingExecutor
             toolsBinding = runController.register { routingExecutor.close() }
             timing.preparationFinished(skillContext.installedSkills.size)
-            val childModels = if (SubAgentPreferences.enabled(request.effectiveModelSessionId)) runBlocking {
-                (0..1).mapNotNull { runCatching { SubAgentPreferences.selection(it).resolve() }.getOrNull() }
-                    .filter { it.apiKey.isNotBlank() && it.baseUrl.isNotBlank() }
-                    .filterNot { it.providerId == request.config.providerId && it.model == request.config.model }
-                    .distinctBy { it.providerId to it.model }
+            val configuredChildren = if (SubAgentPreferences.enabled(request.effectiveModelSessionId)) runBlocking {
+                (0..1).mapNotNull { slot ->
+                    runCatching { SubAgentPreferences.selection(slot).resolve() }.getOrNull()
+                        ?.takeIf { it.apiKey.isNotBlank() && it.baseUrl.isNotBlank() }
+                        ?.let { slot to it }
+                }
             } else emptyList()
+            val childModels = configuredChildren.map { it.second }
             if (childModels.isNotEmpty()) {
-                children = SubAgentCoordinator(childModels) { config, prompt, controller ->
+                val workspace = if (request.config.terminalTools && currentPermissions().terminalTools) SubAgentWorkspace(appContext, executor) else null
+                children = SubAgentCoordinator(childModels,
+                    roles = configuredChildren.map { if (it.first == 0) "implementation" else "review" },
+                    workspace = workspace,
+                    executeWorkspaceChild = { config, prompt, controller, project, id, writable ->
+                        val backend = requireNotNull(workspace)
+                        SubAgentRunner.run(config, prompt, SubAgentWorkspace.childTools(writable),
+                            backend.childExecutor(project, id, writable, controller), controller,
+                            workspaceMode = true, writable = writable)
+                    },
+                ) { config, prompt, controller ->
                     val readTools = SubAgentTools.filter(AgentToolCatalog.build(
                         terminalTools = request.config.terminalTools && currentPermissions().terminalTools,
                         browserTools = false,
@@ -226,9 +238,9 @@ internal class AgentRuntimeRunExecutor(
                     SubAgentRunner.run(config, prompt, readTools, executor, controller)
                 }
                 childBinding = runController.register { children?.close() }
-                SubAgentTools.appendTo(mcpTools, childModels.mapIndexed { i, model ->
-                    "${i + 1}: ${model.providerName} / ${model.modelDisplayName.ifBlank { model.model }}"
-                })
+                SubAgentTools.appendTo(mcpTools, configuredChildren.mapIndexed { i, (slot, model) ->
+                    "${i + 1}: ${if (slot == 0) "implementation" else "review/summary"} — ${model.providerName} / ${model.modelDisplayName.ifBlank { model.model }}"
+                }, workspaceEnabled = workspace != null)
             }
             val delegatedExecutor = AgentModelClient.ToolExecutor { call ->
                 val coordinator = children

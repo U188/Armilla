@@ -45,6 +45,7 @@ internal class AgentTraceFormatter(
             "open_system_panel" -> "打开系统面板"
             "read_image" -> "查看图片或视频"
             "delegate_task" -> "委派子代理任务"
+            "manage_agent_workspace" -> "管理任务工作区"
             "get_task_result" -> "查询子代理结果"
             "cancel_task" -> "取消子代理任务"
             "memory_get" -> summarizeMemoryGetArguments(toolCall.argumentsJson)

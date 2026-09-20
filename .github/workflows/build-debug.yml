@@ -63,6 +63,9 @@ jobs:
             | base64 --decode \
             > "$RUNNER_TEMP/eta-release.p12"
 
+      - name: 验证子代理工作区
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s app/src/test/python -v
+
       - name: 运行单元测试
         timeout-minutes: 12
         run: >-

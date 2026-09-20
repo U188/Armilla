@@ -7,6 +7,8 @@ internal object AgentSensitiveToolPolicy {
 
     private val sensitiveTools = setOf(
         "delegate_task",
+        "manage_agent_workspace",
+        "workspace_file",
         "get_task_result",
         "cancel_task",
         "get_setting",

@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.PersonOutline
+import androidx.compose.material.icons.rounded.RemoveRedEye
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.BugReport
@@ -326,7 +328,7 @@ internal fun SettingsScreen(
                     )
                     ArrowPreference(
                         title = stringResource(R.string.auxiliary_vision_title),
-                        startAction = { PreferenceIcon(icon = Icons.Rounded.Psychology) },
+                        startAction = { PreferenceIcon(icon = Icons.Rounded.RemoveRedEye) },
                         onClick = { onNavigate(AppRoute.AuxiliaryVision) },
                     )
                     ArrowPreference(title = "子代理",
@@ -348,7 +350,7 @@ internal fun SettingsScreen(
                         title = stringResource(R.string.settings_assistants),
                         startAction = {
                             PreferenceIcon(
-                                icon = Icons.Rounded.AutoAwesome,
+                                icon = Icons.Rounded.PersonOutline,
                             )
                         },
                         onClick = { onNavigate(AppRoute.Assistants()) },

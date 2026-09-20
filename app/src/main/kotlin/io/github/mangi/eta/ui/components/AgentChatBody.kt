@@ -162,6 +162,7 @@ internal fun AgentChatBody(
     livePromptTokens: Int? = null,
     autoCompressEnabled: Boolean = false,
     input: String,
+    draftField: androidx.compose.foundation.text.input.TextFieldState? = null,
     isStreaming: Boolean,
     isPaused: Boolean = false,
     canContinueDisconnected: Boolean = false,
@@ -315,6 +316,7 @@ internal fun AgentChatBody(
             hasMessages = visibleMessages.isNotEmpty(),
             scrollState = scrollState,
             input = input,
+            draftField = draftField,
             modelPickerState = modelPickerState,
             history = history,
             billedContextTokens = billedContextTokens,
@@ -391,6 +393,7 @@ private fun AgentChatScaffold(
     hasMessages: Boolean,
     scrollState: LazyListState,
     input: String,
+    draftField: androidx.compose.foundation.text.input.TextFieldState? = null,
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
     billedContextTokens: Int? = null,
@@ -474,6 +477,7 @@ private fun AgentChatScaffold(
             AgentChatBottomBar(
                 messageBackdrop = messageBackdrop.takeIf { frostEnabled },
                 input = input,
+                draftField = draftField,
                 modelPickerState = modelPickerState,
                 history = history,
                 billedContextTokens = billedContextTokens,
@@ -1165,6 +1169,7 @@ internal fun visibleTurnSpeechPreface(
 private fun AgentChatBottomBar(
     messageBackdrop: LayerBackdrop?,
     input: String,
+    draftField: androidx.compose.foundation.text.input.TextFieldState? = null,
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
     billedContextTokens: Int? = null,
@@ -1266,6 +1271,7 @@ private fun AgentChatBottomBar(
         ) {
             AgentChatInputBar(
                 input = input,
+                draftField = draftField,
                 modelPickerState = modelPickerState,
                 history = history,
                 billedContextTokens = billedContextTokens,

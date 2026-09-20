@@ -482,6 +482,7 @@ fun AgentAppRoot(
                         requestOverheadTokens = agentState.requestOverheadTokens,
                         billedOverheadTokens = agentState.billedOverheadTokens,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
+                        draftField = agentState.currentDraftField(),
                         onAction = { action ->
                             when (action) {
                                 is AgentHomeAction.ReasoningEffortChanged ->
@@ -548,6 +549,7 @@ fun AgentAppRoot(
                         requestOverheadTokens = agentState.requestOverheadTokens,
                         billedOverheadTokens = agentState.billedOverheadTokens,
                         conversationKey = agentState.conversationPaneState.selectedConversationId,
+                        draftField = agentState.currentDraftField(),
                         onAction = { action ->
                             when (action) {
                                 AgentChatAction.NavigateBack -> popRoute()

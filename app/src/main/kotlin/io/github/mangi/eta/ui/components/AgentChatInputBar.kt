@@ -53,7 +53,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
@@ -153,6 +152,7 @@ private val InputContainerShape = RoundedCornerShape(20.dp)
 @Composable
 internal fun AgentChatInputBar(
     input: String,
+    draftField: androidx.compose.foundation.text.input.TextFieldState? = null,
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
     billedContextTokens: Int? = null,
@@ -196,7 +196,7 @@ internal fun AgentChatInputBar(
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
-    val textFieldState = rememberTextFieldState(initialText = input)
+    val textFieldState = draftField ?: rememberTextFieldState(initialText = input)
     var wasEditingMessage by remember { mutableStateOf(isEditingMessage) }
     val draftText = textFieldState.text.toString()
     val historyTokenCount = remember(history) {
@@ -248,22 +248,15 @@ internal fun AgentChatInputBar(
     val view = LocalView.current
     val drawerBlocksIme = LocalConversationDrawerBlocksIme.current
     LaunchedEffect(isEditingMessage) {
-        // 编辑态由外部业务状态驱动；普通输入只保留在本地，避免每个字符把聊天舞台
-        // 的消息流、滚动和 Markdown 一起带入重组。
-        if (isEditingMessage || wasEditingMessage) {
+        // 编辑模式切换由业务状态驱动；日常输入使用会话拥有的 TextFieldState，
+        // 不让每个字符触发消息列表和 Markdown 重组。
+        if (draftField == null && (isEditingMessage || wasEditingMessage)) {
             textFieldState.setTextAndPlaceCursorAtEnd(input)
         }
         if (isEditingMessage && !wasEditingMessage && !drawerBlocksIme) {
             showChatInputIme(focusRequester, keyboard, view)
         }
         wasEditingMessage = isEditingMessage
-    }
-
-    LaunchedEffect(isStreaming) {
-        if (isStreaming) {
-            // 发送按钮、建议词和外部恢复都可能启动流式任务，统一清掉本地草稿。
-            textFieldState.clearText()
-        }
     }
 
     CompositionLocalProvider(LocalChatInputFocusRequester provides focusRequester) {
@@ -515,7 +508,6 @@ internal fun AgentChatInputBar(
                                             "continue" -> onContinue()
                                             "send" -> {
                                                 val submittedText = textFieldState.text.toString()
-                                                textFieldState.clearText()
                                                 onSubmit(submittedText)
                                             }
                                         }

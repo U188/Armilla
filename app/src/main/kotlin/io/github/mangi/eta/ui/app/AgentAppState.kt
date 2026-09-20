@@ -156,6 +156,12 @@ internal class AgentAppState(
     skillZipImportGateway: SkillZipImportGateway? = null,
 ) {
     private val appContext = context.applicationContext
+    private val conversationDrafts = ConversationDrafts(
+        appContext.getSharedPreferences("conversation_input_drafts", Context.MODE_PRIVATE), scope,
+    )
+
+    fun currentDraftField() = conversationDrafts.field(selectedConversationId)
+
     private val skillZipImportGateway = skillZipImportGateway ?: CoreSkillZipImportGateway(appContext)
     private val runConversationIds = mutableMapOf<String, String>()
     private val runGeneratedAtMillis = mutableMapOf<String, Long>()
@@ -171,6 +177,7 @@ internal class AgentAppState(
     private data class PendingSteerDraft(
         val conversationId: String?, val imageIds: Set<String>, val fileIds: Set<String>,
         val mentionIds: Set<String> = emptySet(),
+        val submittedText: String = "",
     )
     private val pendingSteerDrafts = mutableMapOf<String, PendingSteerDraft>()
     private var compressionJob: Job? = null
@@ -1188,6 +1195,7 @@ internal class AgentAppState(
         conversationsById.forEach { (id, state) ->
             retainDeletedConversation(state.messages, conversationUpdatedAt[id])
         }
+        conversationDrafts.clear()
         conversationsById = emptyMap()
         conversationTitles = emptyMap()
         conversationUpdatedAt = emptyMap()
@@ -1219,6 +1227,7 @@ internal class AgentAppState(
         conversationsById[conversationId]?.let { state ->
             retainDeletedConversation(state.messages, conversationUpdatedAt[conversationId])
         }
+        conversationDrafts.remove(conversationId)
         conversationsById = conversationsById - conversationId
         conversationTitles = conversationTitles - conversationId
         conversationUpdatedAt = conversationUpdatedAt - conversationId
@@ -1271,7 +1280,7 @@ internal class AgentAppState(
             return
         }
         if (rejectConversationArchiveMutation()) {
-            // Composer clears locally before invoking this callback. Preserve an early send.
+            // Preserve an early send while an archive operation is active.
             if (submittedText != null) updateCurrentConversation(homeState.copy(input = submittedText))
             return
         }
@@ -1279,7 +1288,7 @@ internal class AgentAppState(
             Toast.makeText(appContext, "正在恢复备份，请等待完成。", Toast.LENGTH_SHORT).show()
             return
         }
-        val prompt = (submittedText ?: homeState.input).trim()
+        val prompt = (submittedText ?: currentDraftField().text.toString()).trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
         val pendingMentions = homeState.pendingConversationMentions
@@ -1290,7 +1299,7 @@ internal class AgentAppState(
                 pendingImages.isNotEmpty() ||
                 pendingFileReferences.isNotEmpty() || pendingMentions.isNotEmpty()
             ) {
-                steerCurrentRun(prompt)
+                steerCurrentRun(submittedText ?: currentDraftField().text.toString())
             }
             return
         }
@@ -1357,7 +1366,9 @@ internal class AgentAppState(
             return
         }
         val conversationId = selectedConversationId ?: newConversationId().also { id ->
+            conversationDrafts.promote(id)
             selectedConversationId = id
+            conversationPaneState = conversationPaneState.copy(selectedConversationId = id)
             assignPendingFolder(id)
         }
         if (conversationId !in conversationsById) {
@@ -1368,6 +1379,7 @@ internal class AgentAppState(
         val supportsVideo = modelPickerState.selectedModel?.supportsVideo ?: false
         if (pendingImages.isNotEmpty()) {
             val ownerState = homeState
+            val ownerDraft = currentDraftField().text.toString()
             val ownerGeneration = modelBindingGeneration
             val ownerAssistant = AssistantRepository.active().id
             scope.launch(Dispatchers.IO) {
@@ -1378,7 +1390,8 @@ internal class AgentAppState(
                         return@withContext
                     }
                     if (selectedConversationId != conversationId || modelBindingGeneration != ownerGeneration ||
-                        homeState != ownerState || AssistantRepository.active().id != ownerAssistant) {
+                        homeState != ownerState || currentDraftField().text.toString() != ownerDraft ||
+                        AssistantRepository.active().id != ownerAssistant) {
                         Toast.makeText(appContext, "发送准备期间会话或配置发生变化，未发送；请返回原草稿重试。", Toast.LENGTH_LONG).show()
                         return@withContext
                     }
@@ -1495,6 +1508,7 @@ internal class AgentAppState(
                 messageEdit = null,
             ),
             reasoningEffort = homeState.reasoningEffort,
+            consumeDraft = true,
         )
     }
 
@@ -1558,7 +1572,7 @@ internal class AgentAppState(
                 },
                 messageEdit = MessageEditUiState(
                     targetMessageId = boundary.userMessage.id,
-                    previousInput = homeState.input,
+                    previousInput = currentDraftField().text.toString(),
                     previousImages = homeState.pendingImages,
                     previousFileReferences = homeState.pendingFileReferences,
                     previousConversationMentions = homeState.pendingConversationMentions,
@@ -1566,12 +1580,14 @@ internal class AgentAppState(
                 ),
             )
         )
+        conversationDrafts.replace(selectedConversationId, parsedPrompt.request)
         if (boundary.contextWasCompacted) showCompactedRevisionNotice()
     }
 
     fun cancelMessageEdit() {
         if (rejectConversationArchiveMutation()) return
         val edit = homeState.messageEdit ?: return
+        conversationDrafts.replace(selectedConversationId, edit.previousInput)
         updateCurrentConversation(
             homeState.copy(
                 input = edit.previousInput,
@@ -1968,6 +1984,7 @@ internal class AgentAppState(
         reasoningEffort: ReasoningEffort,
         skipAutoCompress: Boolean = false,
         logicalTurnId: String = runId,
+        consumeDraft: Boolean = false,
     ) {
         val runProvider = selectionProviders.firstOrNull { it.id == state.providerId && it.isEnabled }
         val runModel = runProvider?.models?.firstOrNull { it.id == state.modelId && it.isEnabled }
@@ -1979,6 +1996,7 @@ internal class AgentAppState(
             Toast.makeText(appContext, "语音合成模型请在朗读设置中使用，不能执行对话任务", Toast.LENGTH_LONG).show()
             return
         }
+        if (consumeDraft) conversationDrafts.replace(conversationId, "")
         val runAssistant = AssistantRepository.active()
         val runConfig = RuntimeConfigRepository.buildRuntimeConfig(runProvider, runModel, runAssistant)
         val runModelOption = AgentModelPickerProjector.project(listOf(runProvider), runProvider.id, runModel.id).selectedModel
@@ -3074,7 +3092,7 @@ internal class AgentAppState(
         val requestId = UUID.randomUUID().toString()
         pendingSteerDrafts[requestId] = PendingSteerDraft(conversationId,
             pendingImages.map { it.id }.toSet(), pendingFileReferences.map { it.id }.toSet(),
-            pendingMentions.map { it.id }.toSet())
+            pendingMentions.map { it.id }.toSet(), submittedText = text)
         scope.launch(Dispatchers.IO) {
           try {
             // Preserve position and reject partial staging, rather than silently shifting sources.
@@ -3662,6 +3680,9 @@ internal class AgentAppState(
                 }
                 pendingSteerDrafts.remove(event.requestId)?.let { draft ->
                     val id = draft.conversationId
+                    if (conversationDrafts.field(id).text.toString() == draft.submittedText) {
+                        conversationDrafts.replace(id, "")
+                    }
                     val state = id?.let(conversationsById::get)
                     if (id != null && state != null) {
                         updateConversation(id, state.copy(
@@ -4223,7 +4244,8 @@ internal class AgentAppState(
     }
 
     private fun moveCurrentDraftToNewConversation() {
-        val draft = homeState
+        val draft = homeState.copy(input = currentDraftField().text.toString())
+        conversationDrafts.replace(null, draft.input)
         selectedConversationId = null
         homeState = emptyChatState(defaultThinkingEnabled).copy(
             input = draft.input,

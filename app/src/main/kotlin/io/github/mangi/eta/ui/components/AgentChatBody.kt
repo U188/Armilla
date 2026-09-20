@@ -1018,8 +1018,8 @@ internal fun AgentConversationMessages(
                 try {
                     // Let the follow/boundary-haptic observers yield before moving the list.
                     withFrameNanos { }
-                    // Position once: long/variable-height turns must not pause on a supplement.
-                    scrollState.jumpToConversationTurn(target)
+                    // Keep one continuous motion past supplements, slowing only at the real target.
+                    scrollState.animateToConversationTurn(target)
                     if (target == bottomItemIndex) snapListToBottom(scrollState, currentBottomItemIndex)
                     onBottomAnchorChanged(
                         direction == ConversationNavigationDirection.Down && scrollState.isConversationAtBottom(),

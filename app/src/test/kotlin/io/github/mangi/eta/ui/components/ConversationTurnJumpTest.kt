@@ -30,18 +30,18 @@ import org.robolectric.annotation.GraphicsMode
 class ConversationTurnJumpTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun upwardJumpDoesNotVisitSupplementOrIntermediateReply() = assertDirectJump(12, 0)
-    @Test fun downwardJumpDoesNotVisitSupplementOrIntermediateReply() = assertDirectJump(0, 12)
+    @Test fun upwardTransitionPassesSupplementsWithoutStoppingOrReversing() = assertContinuousJump(12, 0)
+    @Test fun downwardTransitionPassesSupplementsWithoutStoppingOrReversing() = assertContinuousJump(0, 12)
 
-    private fun assertDirectJump(start: Int, target: Int) {
+    private fun assertContinuousJump(start: Int, target: Int) {
         val state = LazyListState(firstVisibleItemIndex = start)
-        val observed = mutableListOf<Int>()
+        val observed = mutableListOf<Pair<Int, Int>>()
         lateinit var scope: CoroutineScope
         compose.setContent {
             val rememberedScope = rememberCoroutineScope()
             SideEffect { scope = rememberedScope }
             LaunchedEffect(state) {
-                snapshotFlow { state.firstVisibleItemIndex }.collect { observed += it }
+                snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }.collect { observed += it }
             }
             LazyColumn(state = state, modifier = Modifier.size(300.dp, 400.dp)) {
                 items(18) { index ->
@@ -53,14 +53,19 @@ class ConversationTurnJumpTest {
         compose.runOnIdle {
             assertEquals(start, state.firstVisibleItemIndex)
             observed.clear()
-            scope.launch { state.jumpToConversationTurn(target) }
+            scope.launch { state.animateToConversationTurn(target) }
         }
         compose.waitForIdle()
         compose.runOnIdle {
             assertEquals(target, state.firstVisibleItemIndex)
             assertEquals(0, state.firstVisibleItemScrollOffset)
-            assertTrue("Unexpected intermediate messages: $observed", observed.isNotEmpty())
-            assertTrue("Unexpected intermediate messages: $observed", observed.all { it == target })
+            assertTrue("Expected a real animated transition: $observed", observed.size > 3)
+            assertTrue("Should pass intermediate messages, not teleport", observed.any { it.first != target && it.first != start })
+            val compare = compareBy<Pair<Int, Int>> { it.first }.thenBy { it.second }
+            assertTrue("Transition reversed: $observed", observed.zipWithNext().all { (a, b) ->
+                if (target < start) compare.compare(a, b) >= 0 else compare.compare(a, b) <= 0
+            })
+            assertEquals(target to 0, observed.last())
         }
     }
 }

@@ -1336,7 +1336,8 @@ internal class AgentAppState(
             AgentConversationRevisionReducer.boundary(homeState, it.targetMessageId)
         }
         if (edit != null && editBoundary == null) {
-            cancelMessageEdit()
+            if (submittedText != null) updateCurrentConversation(homeState.copy(input = submittedText))
+            showRevisionHistoryUnavailableNotice()
             return
         }
 
@@ -1521,7 +1522,10 @@ internal class AgentAppState(
         if (homeState.messageEdit != null) return
         if (rejectSendIfCompressing()) return
         abortActiveRunForRevision()
-        val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
+        val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: run {
+            showRevisionHistoryUnavailableNotice()
+            return
+        }
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
             val video = boundary.userMessage.isVideoAt(index)
             PendingImageUi(
@@ -1586,7 +1590,10 @@ internal class AgentAppState(
         if (homeState.messageEdit != null) return
         abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
-        val revised = AgentConversationRevisionReducer.deleteFromTurn(homeState, messageId) ?: return
+        val revised = AgentConversationRevisionReducer.deleteFromTurn(homeState, messageId) ?: run {
+            showRevisionHistoryUnavailableNotice()
+            return
+        }
         if (revised.messages.isEmpty()) {
             retainDeletedConversation(homeState.messages, conversationUpdatedAt[conversationId])
             conversationsById = conversationsById - conversationId
@@ -1613,7 +1620,10 @@ internal class AgentAppState(
         if (homeState.messageEdit != null) cancelMessageEdit()
         val sourceId = selectedConversationId ?: return
         val snapshot = conversationsById[sourceId] ?: homeState
-        val prefix = AgentConversationRevisionReducer.branchPrefix(snapshot, messageId) ?: return
+        val prefix = AgentConversationRevisionReducer.branchPrefix(snapshot, messageId) ?: run {
+            showRevisionHistoryUnavailableNotice()
+            return
+        }
         if (prefix.messages.isEmpty()) return
         val newId = newConversationId()
         val rewrite = { value: String -> chatImageCache.rewriteCachedPath(value, sourceId, newId) }
@@ -1671,7 +1681,10 @@ internal class AgentAppState(
         if (rejectSendIfModelUnavailable()) return
         abortActiveRunForRevision()
         val conversationId = selectedConversationId ?: return
-        val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: return
+        val boundary = AgentConversationRevisionReducer.boundary(homeState, messageId) ?: run {
+            showRevisionHistoryUnavailableNotice()
+            return
+        }
         val images = boundary.userMessage.images.mapIndexed { index, dataUrl ->
             val video = boundary.userMessage.isVideoAt(index)
             PendingImageUi(
@@ -2494,6 +2507,10 @@ internal class AgentAppState(
             appContext.resources.getQuantityString(R.plurals.context_compacted_messages, count, count),
             Toast.LENGTH_SHORT,
         ).show()
+    }
+
+    private fun showRevisionHistoryUnavailableNotice() {
+        Toast.makeText(appContext, R.string.revision_history_unavailable, Toast.LENGTH_LONG).show()
     }
 
     private fun showCompactedRevisionNotice() {

@@ -1432,4 +1432,5 @@
   <string name="title_feature_description">为新会话自动生成简短标题。未开启自定义时使用当前会话模型；失败时保留本地标题，不覆盖手动修改的标题。</string>
   <string name="title_feature_default">当前会话模型</string>
   <string name="vision_feature_off">未开启：非视觉模型无法看图</string>
+  <string name="revision_history_unavailable">无法定位这条消息对应的原始上下文，已取消操作并保留现有历史；这不代表会话已压缩。</string>
 </resources>

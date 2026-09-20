@@ -1458,4 +1458,5 @@
   <string name="title_feature_description">Generate a short title for new conversations. When custom selection is off, use the current conversation model. On failure, keep the local title. Manually renamed titles are never overwritten.</string>
   <string name="title_feature_default">Current conversation model</string>
   <string name="vision_feature_off">Disabled: text-only models cannot read images</string>
+  <string name="revision_history_unavailable">Cannot locate the original context for this message. Operation cancelled; existing history is preserved. This does not mean the conversation was compressed.</string>
 </resources>

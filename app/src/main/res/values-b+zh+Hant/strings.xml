@@ -1442,5 +1442,4 @@
   <string name="tool_delegate_task">委派子代理</string>
   <string name="tool_get_task_result">查詢子代理結果</string>
   <string name="tool_cancel_task">取消子代理</string>
-    <string name="stats_model_accounting_note">統計本應用模型請求實際回傳的用量；快取包含在輸入中，不額外相加。未回傳的用量及舊版已遺失的記錄無法補算，不等同於平台帳單。</string>
 </resources>

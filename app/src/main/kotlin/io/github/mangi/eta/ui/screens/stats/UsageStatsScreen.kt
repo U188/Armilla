@@ -272,11 +272,6 @@ private fun ModelUsagePane(
                     label = stringResource(R.string.stats_model_cache_hit_rate),
                     value = formatCacheHitRate(filtered.totalCachedTokens, filtered.totalInputTokens),
                 )
-                Text(
-                    text = stringResource(R.string.stats_model_accounting_note),
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
             }
         }
         if (filtered.providers.isEmpty()) {

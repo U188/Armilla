@@ -22,6 +22,12 @@ internal data class SubAgentContextStats(
     val beforeCompactionTokens: Int? = null,
     val afterCompactionTokens: Int? = null,
     val status: String = "running",
+    val slot: Int? = null,
+    val providerId: String = "",
+    val modelId: String = "",
+    val agentId: String = "",
+    val agentName: String = "",
+    val manualCompactionState: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject().put("task_id", taskId).put("worker", worker)
         .put("role", role).put("model", model).put("model_name", modelName).put("provider_name", providerName)
@@ -32,6 +38,7 @@ internal data class SubAgentContextStats(
         .put("is_compacting", isCompacting).put("compaction_count", compactionCount)
         .put("before_compaction_tokens", beforeCompactionTokens ?: JSONObject.NULL)
         .put("after_compaction_tokens", afterCompactionTokens ?: JSONObject.NULL).put("status", status)
+        .put("slot", slot ?: JSONObject.NULL).put("provider_id", providerId).put("model_id", modelId).put("agent_id", agentId).put("agent_name", agentName).put("manual_compaction_state", manualCompactionState)
 
     companion object {
         fun fromJson(j: JSONObject) = SubAgentContextStats(
@@ -39,7 +46,8 @@ internal data class SubAgentContextStats(
             j.getString("model_name"), j.getString("provider_name"), j.intOrNull("context_window"),
             j.intOrNull("context_tokens"), j.optBoolean("projected", true), j.optLong("input_tokens"),
             j.optLong("output_tokens"), j.optBoolean("is_compacting"), j.optInt("compaction_count"),
-            j.intOrNull("before_compaction_tokens"), j.intOrNull("after_compaction_tokens"), j.optString("status", "running"))
+            j.intOrNull("before_compaction_tokens"), j.intOrNull("after_compaction_tokens"), j.optString("status", "running"),
+            j.intOrNull("slot"), j.optString("provider_id"), j.optString("model_id"), j.optString("agent_id"), j.optString("agent_name"), j.optString("manual_compaction_state"))
         private fun JSONObject.intOrNull(key: String): Int? = if (isNull(key) || !has(key)) null else getInt(key)
     }
 }
@@ -49,6 +57,16 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
         private set
     private val billedRounds = mutableMapOf<Int, AgentTokenUsage>()
     private var awaitingCompactedUsage = false
+
+    @Synchronized fun start(): SubAgentContextStats {
+        value = value.copy(status = "running")
+        return value
+    }
+
+    @Synchronized fun manualRequest(state: String): SubAgentContextStats {
+        value = value.copy(manualCompactionState = state)
+        return value
+    }
 
     @Synchronized fun accept(event: AgentEvent): SubAgentContextStats? {
         if (value.status != "running") return null
@@ -63,11 +81,15 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
                     .also { if (tokens != null) awaitingCompactedUsage = false }
             }
             is AgentEvent.ContextCompactionStarted -> value.copy(isCompacting = true,
+                manualCompactionState = if (value.manualCompactionState == "pending") "compressing" else value.manualCompactionState,
                 beforeCompactionTokens = if (value.isCompacting) value.beforeCompactionTokens else value.contextTokens,
                 afterCompactionTokens = null)
             is AgentEvent.ContextCompacted -> {
                 awaitingCompactedUsage = event.applied
-                value.copy(isCompacting = false, compactionCount = value.compactionCount + if (event.applied) 1 else 0,
+                value.copy(isCompacting = false,
+                    manualCompactionState = if (value.manualCompactionState in setOf("pending", "compressing"))
+                        (if (event.applied) "completed" else "skipped") else value.manualCompactionState,
+                    compactionCount = value.compactionCount + if (event.applied) 1 else 0,
                     contextTokens = if (event.applied) null else value.contextTokens)
             }
             else -> return null
@@ -76,7 +98,8 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
     }
 
     @Synchronized fun finish(status: String): SubAgentContextStats {
-        value = value.copy(status = status, isCompacting = false)
+        value = value.copy(status = status, isCompacting = false,
+            manualCompactionState = if (value.manualCompactionState in setOf("pending", "compressing")) "ended" else value.manualCompactionState)
         return value
     }
 }

@@ -4,6 +4,7 @@ import io.github.mangi.eta.agent.media.MAX_AGENT_IMAGE_BYTES
 import io.github.mangi.eta.agent.media.hasSupportedImageMagic
 import io.github.mangi.eta.agent.media.sniffAgentImageMimeType
 import io.github.mangi.eta.data.model.ProviderTypes
+import io.github.mangi.eta.agent.runtime.AgentRunController
 import java.util.concurrent.TimeUnit
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
@@ -16,6 +17,7 @@ import org.json.JSONObject
 
 internal class AgentImageGenerationClient(
     private val httpClient: OkHttpClient = AgentHttpClient.modelClient,
+    private val runController: AgentRunController? = null,
 ) {
     data class InputImage(
         val bytes: ByteArray,
@@ -37,6 +39,7 @@ internal class AgentImageGenerationClient(
         prompt: String,
         images: List<InputImage> = emptyList(),
     ): Result {
+        runController?.throwIfCancelled()
         require(config.baseUrl.isNotBlank()) { "请先配置 API 地址" }
         require(prompt.isNotBlank()) { "请输入图片描述" }
         require(config.providerType != ProviderTypes.ANTHROPIC) {
@@ -53,8 +56,10 @@ internal class AgentImageGenerationClient(
         }
         var lastError: String? = null
         attempts.forEach { attempt ->
+            runController?.throwIfCancelled()
             val response = runCatching { execute(config, prompt, inputImages, headers, attempt) }
                 .getOrElse { throwable ->
+                    runController?.throwIfCancelled()
                     lastError = throwable.message ?: throwable.javaClass.simpleName
                     return@forEach
                 }
@@ -115,8 +120,8 @@ internal class AgentImageGenerationClient(
                     .build()
             }
         }
-        return httpClient.newCall(request).execute().use { response ->
-            val body = response.body.string()
+        return executeGenerationRequest(httpClient, request, runController) { response ->
+            val body = response.body.byteStream().readGenerationBytes(MAX_AGENT_IMAGE_BYTES / 3 * 4 + 1024 * 1024).toString(Charsets.UTF_8)
             val retryable = response.code in RETRYABLE_HTTP_CODES ||
                 (response.code == 400 && looksLikeWrongEndpoint(body))
             RawResponse(
@@ -252,11 +257,11 @@ internal class AgentImageGenerationClient(
 
     private fun download(url: String): ByteArray? {
         val request = Request.Builder().url(url).get().build()
-        return downloadClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@use null
+        return executeGenerationRequest(downloadClient, request, runController) { response ->
+            if (!response.isSuccessful) return@executeGenerationRequest null
             val declared = response.body.contentLength()
-            if (declared > MAX_AGENT_IMAGE_BYTES) return@use null
-            val bytes = response.body.bytes()
+            if (declared > MAX_AGENT_IMAGE_BYTES) return@executeGenerationRequest null
+            val bytes = response.body.byteStream().readGenerationBytes(MAX_AGENT_IMAGE_BYTES)
             bytes.takeIf { it.isNotEmpty() && it.size <= MAX_AGENT_IMAGE_BYTES }
         }
     }

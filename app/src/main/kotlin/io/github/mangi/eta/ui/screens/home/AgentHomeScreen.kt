@@ -49,6 +49,8 @@ internal fun AgentHomeScreen(
             billedOverheadTokens = billedOverheadTokens,
             livePromptTokens = state.livePromptTokens,
             childContexts = state.childContexts,
+            selectedContextTaskId = state.selectedContextTaskId,
+            onContextTaskSelected = { onAction(AgentHomeAction.ContextTaskSelected(it)) },
             compactingModelName = state.compactingModelName,
             input = state.input,
             draftField = draftField,

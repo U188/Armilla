@@ -587,11 +587,15 @@ internal object AgentRuntimeWire {
         runId: String,
         keepRecent: Int? = null,
         compressModelConfig: AgentModelClient.ModelConfig? = null,
+        childTaskId: String? = null,
     ): Bundle = Bundle().apply {
         putString(KEY_RUN_ID, runId)
+        childTaskId?.let { putString("compact_child_task_id", it) }
         keepRecent?.let { putInt("compact_keep_recent", it) }
         compressModelConfig?.let { putString("compact_model_config", json.encodeToString(it)) }
     }
+
+    fun compactChildTaskFromBundle(bundle: Bundle): String? = bundle.getString("compact_child_task_id")
 
     fun compactModelConfigFromBundle(bundle: Bundle): AgentModelClient.ModelConfig? =
         bundle.getString("compact_model_config")?.let { json.decodeFromString<AgentModelClient.ModelConfig>(it) }

@@ -1,63 +1,77 @@
 package io.github.mangi.eta.ui
 
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.delegation.SubAgentPreferences
-import io.github.mangi.eta.agent.model.ModelFeatureSelection
+import io.github.mangi.eta.agent.delegation.SubAgentProfile
 import io.github.mangi.eta.data.repository.ProviderRepository
-import io.github.mangi.eta.ui.components.MiuixScaffoldPage
-import io.github.mangi.eta.ui.model.AgentModelPickerProjector
+import io.github.mangi.eta.ui.components.*
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.basic.Switch
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
-    var selections by remember { mutableStateOf((0 until SubAgentPreferences.SLOT_COUNT).map(SubAgentPreferences::selection)) }
-    var editing by remember { mutableStateOf<Int?>(null) }
+    val profiles by remember { SubAgentPreferences.profilesFlow() }.collectAsState(initial = SubAgentPreferences.profiles())
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
+    var rename by remember { mutableStateOf<SubAgentProfile?>(null) }
+    var delete by remember { mutableStateOf<SubAgentProfile?>(null) }
+    var name by remember { mutableStateOf("") }
     MiuixScaffoldPage(title = "子代理", onBack = onBack) {
-        item {
-            Text("当前聊天模型担任主代理，自动委派适合并行的任务，并审核子代理的结果。最多同时运行两个子代理。实现代理仅能读写分配的工作树，审查／总结代理只读；子代理不能继续委派。长按聊天中的模型选择器，可切换本会话协作开关。",
-                Modifier.padding(24.dp))
-            Card(Modifier.padding(horizontal = 12.dp)) {
-                SubAgentPreferences.displayOrder.forEach { index ->
-                    val selected = selections[index]
-                    val model = AgentModelPickerProjector.project(providers, selected.providerId, selected.modelId).selectedModel
-                    ArrowPreference(title = SubAgentPreferences.label(index),
-                        summary = model?.let { "${it.providerName} / ${it.displayName}" } ?: "未配置",
-                        onClick = { editing = index })
-                    if (selected.modelId.isNotBlank()) {
-                        ArrowPreference(title = "清除${SubAgentPreferences.label(index)}", onClick = {
-                            val empty = ModelFeatureSelection(true, "", "")
-                            SubAgentPreferences.save(index, empty)
-                            selections = selections.toMutableList().also { it[index] = empty }
-                        })
+        profiles.forEach { profile ->
+            item(key = profile.id) {
+                Card(Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(profile.name, modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body1)
+                            Switch(checked = profile.enabled, onCheckedChange = { enabled ->
+                                SubAgentPreferences.update(profile.id) { it.copy(enabled = enabled) }
+                            })
+                            val menu = rememberEtaMenuState()
+                            Box {
+                                TextButton("⋯", onClick = menu::onAnchorClick)
+                                EtaDropdownMenu(menu.expanded, menu::dismiss) {
+                                    TextButton("重命名", modifier = Modifier.fillMaxWidth(), onClick = {
+                                        name = profile.name; rename = profile; menu.dismiss()
+                                    })
+                                    TextButton("删除", modifier = Modifier.fillMaxWidth(), onClick = { delete = profile; menu.dismiss() })
+                                }
+                            }
+                        }
+                        SubAgentProfileRow(profile, providers, settings = true)
                     }
                 }
             }
-            Text("只保存模型引用，使用提供商中已有的凭据。未配置的职责不可委派；允许不同槽位使用同一模型。工作区位于项目 .agent 内，需要启用终端并在所选 Linux 环境安装 Python 和 Git。构建测试由主代理执行。每项任务执行最多 3 分钟，压缩另有累计 3 分钟预算，每次主代理运行最多委派 16 项任务。",
-                Modifier.padding(24.dp))
+        }
+        item {
+            TextButton("添加子代理", modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                onClick = { SubAgentPreferences.add() })
+            Text("更改下次运行生效", modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
-    editing?.let { index ->
-        val selected = selections[index]
-        val all = AgentModelPickerProjector.project(providers, selected.providerId, selected.modelId)
-        val models = all.copy(providerGroups = all.providerGroups.map { group ->
-            group.copy(models = group.models.filter { !it.supportsImageGeneration && !it.supportsVideoGeneration })
-        }.filter { it.models.isNotEmpty() })
-        TtsModelPickerDialog(models, true, { editing = null }, { providerId, modelId ->
-            val selection = ModelFeatureSelection(true, providerId, modelId)
-            SubAgentPreferences.save(index, selection)
-            selections = selections.toMutableList().also { it[index] = selection }
-            editing = null
-        }, "选择${SubAgentPreferences.label(index)}模型", onClearSelection = {
-            val empty = ModelFeatureSelection(true, "", "")
-            SubAgentPreferences.save(index, empty)
-            selections = selections.toMutableList().also { it[index] = empty }
-            editing = null
-        })
+    rename?.let { profile ->
+        WindowDialog(show = true, title = "重命名", onDismissRequest = { rename = null }) {
+            Column {
+                TextField(value = name, onValueChange = { name = it.take(80) }, label = "名称", singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+                MiuixDialogActions(confirmText = "保存", confirmEnabled = name.isNotBlank(), onCancel = { rename = null },
+                    onConfirm = { SubAgentPreferences.update(profile.id) { it.copy(name = name.trim()) }; rename = null },
+                    modifier = Modifier.padding(top = 16.dp))
+            }
+        }
+    }
+    delete?.let { profile ->
+        WindowDialog(show = true, title = "删除“${profile.name}”？", onDismissRequest = { delete = null }) {
+            MiuixDialogActions(confirmText = "删除", onCancel = { delete = null },
+                onConfirm = { SubAgentPreferences.remove(profile.id); delete = null })
+        }
     }
 }

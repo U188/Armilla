@@ -46,4 +46,18 @@ class SubAgentContextStatsTest {
         assertTrue(stats.toJson().isNull("context_tokens"))
         assertEquals(stats, SubAgentContextStats.fromJson(stats.toJson()))
     }
+    @Test fun finishingDuringManualCompressionClearsSpinnerAndRejectsLateCompletion() {
+        val tracker = tracker()
+        tracker.manualRequest("pending")
+        tracker.accept(AgentEvent.ContextCompactionStarted(2))
+        assertEquals("compressing", tracker.value.manualCompactionState)
+        assertTrue(tracker.value.isCompacting)
+        val terminal = tracker.finish("completed")
+        assertEquals("ended", terminal.manualCompactionState)
+        assertFalse(terminal.isCompacting)
+        assertNull(tracker.accept(AgentEvent.ContextCompacted(2, true, 20, 5)))
+        assertEquals(terminal, tracker.value)
+        assertEquals(terminal, SubAgentContextStats.fromJson(terminal.toJson()))
+    }
+
 }

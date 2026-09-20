@@ -113,7 +113,6 @@ def locked(root, args):
         require(shutil.disk_usage(root).free >= 512 * 1024 * 1024, 'WORKSPACE_DISK_SPACE_LOW')
         tasks = internal(root, '.agent/worktrees')
         tasks.mkdir(parents=True, exist_ok=True)
-        require(len(list(tasks.iterdir())) < 8, 'WORKSPACE_RETENTION_LIMIT')
         task = uuid.uuid4().hex
         base = git(root, 'rev-parse', 'HEAD')
         record = {'id': task, 'base': base, 'state': 'editing', 'reviewed': False, 'lease_until': time.time() + 420}

@@ -273,10 +273,14 @@ internal fun AgentContextUsageButton(
     val menuState = rememberEtaMenuState()
     val selectorState = rememberEtaMenuState()
     val telemetry = LocalAgentContextTelemetry.current
-    var selectedTaskId by remember { mutableStateOf<String?>(null) }
+    var localSelectedTaskId by remember { mutableStateOf<String?>(null) }
+    val selectedTaskId = if (telemetry.onTaskSelected != null) telemetry.selectedTaskId else localSelectedTaskId
+    fun selectTask(id: String?) {
+        if (telemetry.onTaskSelected != null) telemetry.onTaskSelected.invoke(id) else localSelectedTaskId = id
+    }
     val child = telemetry.children.firstOrNull { it.taskId == selectedTaskId }
     LaunchedEffect(telemetry.children) {
-        if (selectedTaskId != null && child == null) selectedTaskId = null
+        if (selectedTaskId != null && child == null) selectTask(null)
     }
     val displayedUsage = child?.let { AgentContextUsageUi(it.contextTokens, it.contextWindow) } ?: usage
     val selectedLabel = child?.contextLabel() ?: telemetry.mainModelName.ifBlank { "主代理" }
@@ -296,6 +300,9 @@ internal fun AgentContextUsageButton(
     )
     val detail = when {
         sendBlocked && child == null -> "$summary\n${stringResource(R.string.context_window_send_blocked)}"
+        child?.role == "video_generation" -> "${child.contextStatusLabel()}\n视频生成任务不提供对话上下文统计。"
+        child?.role == "image_generation" -> "${child.contextStatusLabel()}\n图片生成任务不提供对话上下文统计。"
+        child != null -> "$summary\n${child.contextStatusLabel()} · 独立任务上下文"
         else -> summary
     }
     val usageDescription = stringResource(
@@ -361,11 +368,11 @@ internal fun AgentContextUsageButton(
             Text("上下文统计", style = MiuixTheme.textStyles.footnote1,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
             ContextTargetRow("${telemetry.mainModelName.ifBlank { "主代理" }}（主代理）", child == null) {
-                selectedTaskId = null; selectorState.dismiss()
+                selectTask(null); selectorState.dismiss()
             }
             telemetry.children.forEach { target ->
-                ContextTargetRow(target.contextLabel(), selectedTaskId == target.taskId) {
-                    selectedTaskId = target.taskId; selectorState.dismiss()
+                ContextTargetRow("${target.contextLabel()} · ${target.contextStatusLabel()}", selectedTaskId == target.taskId) {
+                    selectTask(target.taskId); selectorState.dismiss()
                 }
             }
         }

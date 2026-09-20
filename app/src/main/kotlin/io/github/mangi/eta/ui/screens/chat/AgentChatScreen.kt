@@ -46,6 +46,8 @@ internal fun AgentChatScreen(
             billedOverheadTokens = billedOverheadTokens,
             livePromptTokens = state.livePromptTokens,
             childContexts = state.childContexts,
+            selectedContextTaskId = state.selectedContextTaskId,
+            onContextTaskSelected = { onAction(AgentChatAction.ContextTaskSelected(it)) },
             compactingModelName = state.compactingModelName,
             input = state.input,
             draftField = draftField,

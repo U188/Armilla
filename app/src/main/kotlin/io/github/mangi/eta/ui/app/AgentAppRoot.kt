@@ -393,8 +393,10 @@ fun AgentAppRoot(
             onOpenBrowser = { pushRoute(AppRoute.Browser) },
             onOpenWorkspace = { pushRoute(AppRoute.Workspace) },
             autoCompressEnabled = agentState.autoCompressEnabled,
-            isCompressingContext = agentState.homeState.isCompressingContext ||
-                agentState.homeState.isWaitingForCompression,
+            isCompressingContext = if (agentState.homeState.selectedContextTaskId == null)
+                agentState.homeState.isCompressingContext || agentState.homeState.isWaitingForCompression
+            else agentState.homeState.childContexts.any { it.taskId == agentState.homeState.selectedContextTaskId &&
+                (it.isCompacting || it.manualCompactionState == "pending") },
             onToggleAutoCompress = { agentState.updateAutoCompressEnabled(it) },
             onCompressConversation = { providerId, modelId, onFinished ->
                 agentState.compressCurrentConversation(
@@ -498,6 +500,7 @@ fun AgentAppRoot(
                             when (action) {
                                 is AgentHomeAction.ReasoningEffortChanged ->
                                     agentState.updateReasoningEffort(action.effort)
+                                is AgentHomeAction.ContextTaskSelected -> agentState.selectContextTask(action.taskId)
                                 is AgentHomeAction.ModelSelected -> agentState.selectModel(action.modelId, action.providerId)
                                 is AgentHomeAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
                                 AgentHomeAction.StopRun -> agentState.pauseCurrentRun()
@@ -566,6 +569,7 @@ fun AgentAppRoot(
                                 AgentChatAction.NavigateBack -> popRoute()
                                 is AgentChatAction.ReasoningEffortChanged ->
                                     agentState.updateReasoningEffort(action.effort)
+                                is AgentChatAction.ContextTaskSelected -> agentState.selectContextTask(action.taskId)
                                 is AgentChatAction.ModelSelected -> agentState.selectModel(action.modelId, action.providerId)
                                 is AgentChatAction.SubmitMessage -> { requestExecutionNotifications(); agentState.sendCurrentMessage(action.text) }
                                 AgentChatAction.StopRun -> agentState.pauseCurrentRun()

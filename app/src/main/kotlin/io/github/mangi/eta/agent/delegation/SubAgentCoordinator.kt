@@ -14,14 +14,21 @@ internal class SubAgentCoordinator(
     private val workers: List<AgentModelClient.ModelConfig>,
     private val timeoutMs: Long = 180_000,
     private val compressionTimeoutMs: Long = 180_000,
+    private val videoTimeoutMs: Long = 600_000,
     private val roles: List<String> = List(workers.size) { "research" },
     private val workspace: SubAgentWorkspace? = null,
     private val executeWorkspaceChild: ((AgentModelClient.ModelConfig, String, AgentRunController, String, String, Boolean) -> String)? = null,
     private val onContext: (SubAgentContextStats) -> Unit = {},
     private val executeObservedChild: ((AgentModelClient.ModelConfig, String, AgentRunController, String, String?, Boolean, (io.github.mangi.eta.agent.runtime.AgentEvent) -> Unit) -> String)? = null,
+    private val workerIds: List<String> = workers.indices.map { "worker-${it + 1}" },
+    private val workerNames: List<String> = workerIds,
+    private val workerModelIds: List<String> = List(workers.size) { "" },
+    private val prepareManualCompactor: (AgentModelClient.ModelConfig) -> AgentModelClient.ModelConfig = { it },
+    private val executeVideoChild: ((AgentModelClient.ModelConfig, String, AgentRunController) -> String)? = null,
+    private val executeImageChild: ((AgentModelClient.ModelConfig, String, AgentRunController) -> String)? = null,
     private val executeChild: (AgentModelClient.ModelConfig, String, AgentRunController) -> String,
 ) : AutoCloseable {
-    init { require(workers.isNotEmpty() && workers.size <= 4 && roles.size == workers.size) }
+    init { require(workers.isNotEmpty() && roles.size == workers.size && workerIds.size == workers.size && workerIds.distinct().size == workers.size && workerNames.size == workers.size && workerModelIds.size == workers.size) }
 
     private class Task(val id: String, val worker: Int, val role: String, val project: String, @Volatile var workspaceId: String? = null) {
         lateinit var context: SubAgentContextTracker
@@ -30,16 +37,34 @@ internal class SubAgentCoordinator(
         @Volatile var workspacePath = ""
         @Volatile var executing = false
 
+        val dispatchGate = java.util.concurrent.CountDownLatch(1)
         val controller = AgentRunController()
-        @Volatile var state = "running"
+        @Volatile var state = "queued"
         @Volatile var result = ""
         @Volatile var errorCode = ""
         @Volatile var future: Future<*>? = null
     }
-    private val pool = Executors.newFixedThreadPool(2)
+    // Lazy single-thread executors enforce one live task per configured identity, including cleanup.
+    private val pools = workers.map { Executors.newSingleThreadExecutor() }
     private val timer = Executors.newSingleThreadScheduledExecutor()
     private val tasks = linkedMapOf<String, Task>()
     private var closed = false
+
+    fun requestCompact(taskId: String, keepRecent: Int?, model: AgentModelClient.ModelConfig?): Boolean {
+        val task = synchronized(this) { if (closed) null else tasks[taskId] } ?: return false
+        return synchronized(task) {
+            if (task.state != "running" || task.role in setOf("image_generation", "video_generation")) {
+                publishContext(task.context.manualRequest("ended"))
+                false
+            } else if (task.context.value.isCompacting || task.context.value.manualCompactionState == "pending") {
+                true
+            } else {
+                val accepted = task.controller.requestCompact(keepRecent, model ?: prepareManualCompactor(workers[task.worker]))
+                publishContext(task.context.manualRequest(if (accepted) "pending" else "ended"))
+                accepted
+            }
+        }
+    }
 
     fun execute(call: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
         val json = try {
@@ -64,106 +89,136 @@ internal class SubAgentCoordinator(
         return AgentModelClient.ToolResult(json.toString(), sensitive = true)
     }
 
-    @Synchronized private fun start(args: JSONObject): JSONObject {
-        if (closed) return errorResult("RUN_CLOSED")
-        if (tasks.values.count { it.state == "running" || it.executing } >= 2) return errorResult("SUB_AGENT_LIMIT")
-        if (tasks.size >= 16) return errorResult("SUB_AGENT_TASK_BUDGET")
-        val instruction = args.getString("task")
-        val context = args.optString("context")
-        require(instruction.isNotBlank() && instruction.length <= 12000 && context.length <= 20000)
-        val role = args.optString("role", "research")
-        require(role in setOf("research", "implementation", "review", "summary"))
-        val worker = if (args.has("worker")) args.getInt("worker") - 1 else {
-            val desired = if (role == "summary") "review" else role
-            roles.indices.filter { roles[it] == desired }.minByOrNull { candidate -> tasks.values.count { it.worker == candidate && it.state == "running" } } ?: if (role == "research") tasks.size % workers.size else return errorResult("ROLE_NOT_CONFIGURED")
-        }
-        require(worker in workers.indices)
-        if (role != "research" && roles[worker] != (if (role == "summary") "review" else role)) return errorResult("WORKER_ROLE_MISMATCH")
-        val project = args.optString("project")
-        val workspaceId = args.optString("workspace_id").ifBlank { null }
-        if (role == "implementation" || workspaceId != null) {
-            require(workspace != null && executeWorkspaceChild != null && Regex("/workspace/[^/]+").matches(project))
-        }
-        if (workspaceId != null && tasks.values.any { it.project == project && it.workspaceId == workspaceId && (it.state == "running" || it.executing) }) return errorResult("WORKSPACE_IN_USE")
-        if (role == "implementation" && tasks.values.any { it.project == project && it.role == role && (it.state == "running" || it.executing) }) return errorResult("WORKSPACE_IN_USE")
-        require(role != "implementation" || workspaceId == null)
-        val task = Task(UUID.randomUUID().toString(), worker, role, project, workspaceId)
-        task.clock = SubAgentExecutionClock(timeoutMs, compressionTimeoutMs)
-        val model = workers[worker]
-        task.context = SubAgentContextTracker(SubAgentContextStats(task.id, worker + 1, role, model.model,
-            model.modelDisplayName.ifBlank { model.model }, model.providerName, model.contextWindow))
-        tasks[task.id] = task
-        publishContext(task.context.value)
-        task.future = pool.submit {
-            task.executing = true
-            var ownsWorkspaceLease = false
-            try {
-                task.controller.throwIfCancelled()
-                if (role == "implementation") {
-                    val prepared = workspace!!.requireOperation(project, "prepare")
-                    task.workspaceId = prepared.getString("id")
-                    ownsWorkspaceLease = true
-                    task.workspacePath = prepared.getString("path")
-                } else if (workspaceId != null) {
-                    val existing = workspace!!.requireOperation(project, "begin_review", workspaceId)
-                    check(existing.getString("state") == "reviewing")
-                    ownsWorkspaceLease = true
-                    task.workspacePath = existing.getString("path")
+    private fun start(args: JSONObject): JSONObject {
+        val task = synchronized(this) {
+            if (closed) return errorResult("RUN_CLOSED")
+            val instruction = args.getString("task")
+            val context = args.optString("context")
+            require(instruction.isNotBlank() && instruction.length <= 12000 && context.length <= 20000)
+            val role = args.optString("role", "research")
+            require(role in setOf("research", "implementation", "review", "summary", "image_generation", "video_generation"))
+            val workerById = args.optString("agent_id").takeIf { it.isNotBlank() }?.let { workerIds.indexOf(it) }
+            if (workerById != null && workerById < 0) return errorResult("AGENT_NOT_CONFIGURED")
+            if (workerById != null && args.has("worker") && workerById != args.getInt("worker") - 1) return errorResult("WORKER_ID_MISMATCH")
+            val worker = workerById ?: if (args.has("worker")) args.getInt("worker") - 1 else {
+                val desired = if (role == "summary") "review" else role
+                val candidates = if (role == "research") roles.indices.filter { roles[it] !in setOf("image_generation", "video_generation") } else roles.indices.filter { roles[it] == desired }
+                candidates.minByOrNull { candidate -> tasks.values.count { it.worker == candidate && (it.state in setOf("queued", "running") || it.executing) } }
+                    ?: return errorResult("ROLE_NOT_CONFIGURED")
+            }
+            require(worker in workers.indices)
+            if (role == "research" && roles[worker] in setOf("image_generation", "video_generation")) return errorResult("WORKER_ROLE_MISMATCH")
+            if (role != "research" && roles[worker] != (if (role == "summary") "review" else role)) return errorResult("WORKER_ROLE_MISMATCH")
+            val project = args.optString("project")
+            val workspaceId = args.optString("workspace_id").ifBlank { null }
+            if (role in setOf("image_generation", "video_generation")) {
+                require(project.isBlank() && workspaceId == null)
+                if (role == "image_generation" && executeImageChild == null) return errorResult("IMAGE_GENERATION_UNAVAILABLE")
+                if (role == "video_generation" && executeVideoChild == null) return errorResult("VIDEO_GENERATION_UNAVAILABLE")
+            }
+            if (role == "implementation" || workspaceId != null) {
+                require(workspace != null && executeWorkspaceChild != null && Regex("/workspace/[^/]+").matches(project))
+            }
+            if (workspaceId != null && tasks.values.any { it.project == project && it.workspaceId == workspaceId && (it.state in setOf("queued", "running") || it.executing) }) return errorResult("WORKSPACE_IN_USE")
+            require(role != "implementation" || workspaceId == null)
+            val task = Task(UUID.randomUUID().toString(), worker, role, project, workspaceId)
+            val model = workers[worker]
+            task.context = SubAgentContextTracker(SubAgentContextStats(task.id, worker + 1, role, model.model,
+                model.modelDisplayName.ifBlank { model.model }, model.providerName, model.contextWindow, status = "queued", agentId = workerIds[worker], agentName = workerNames[worker], providerId = model.providerId, modelId = workerModelIds[worker]))
+            tasks[task.id] = task
+            task.future = pools[worker].submit {
+                try { task.dispatchGate.await() } catch (_: InterruptedException) { return@submit }
+                synchronized(task) {
+                    if (task.state != "queued") return@submit
+                    task.executing = true
+                    task.state = "running"
+                    task.clock = SubAgentExecutionClock(if (role == "video_generation") videoTimeoutMs else timeoutMs, compressionTimeoutMs)
+                    publishContext(task.context.start())
                 }
-                task.controller.throwIfCancelled()
-                val prompt = "Role: $role\nTask:\n$instruction\n\nContext supplied by main agent:\n$context"
-                val answer = if (executeObservedChild != null) {
-                    executeObservedChild.invoke(workers[worker], prompt, task.controller, project, task.workspaceId, role == "implementation") { event ->
-                        synchronized(task) {
-                            if (task.state == "running") task.context.accept(event)?.let { stats ->
-                                task.clock.setCompacting(stats.isCompacting)
-                                publishContext(stats)
+                var ownsWorkspaceLease = false
+                try {
+                    task.watchdog = timer.scheduleAtFixedRate({
+                        val expired = synchronized(task) { if (task.state == "running") task.clock.expired() else null }
+                        if (expired != null) stop(task, "timed_out", expired)
+                        if (task.state != "running") task.watchdog?.cancel(false)
+                    }, minOf(timeoutMs, 100L).coerceAtLeast(1), 50, TimeUnit.MILLISECONDS)
+                    task.controller.throwIfCancelled()
+                    if (role == "implementation") {
+                        val prepared = workspace!!.requireOperation(project, "prepare")
+                        task.workspaceId = prepared.getString("id")
+                        ownsWorkspaceLease = true
+                        task.workspacePath = prepared.getString("path")
+                    } else if (workspaceId != null) {
+                        val existing = workspace!!.requireOperation(project, "begin_review", workspaceId)
+                        check(existing.getString("state") == "reviewing")
+                        ownsWorkspaceLease = true
+                        task.workspacePath = existing.getString("path")
+                    }
+                    task.controller.throwIfCancelled()
+                    val prompt = "Role: $role\nTask:\n$instruction\n\nContext supplied by main agent:\n$context"
+                    val answer = if (role in setOf("image_generation", "video_generation")) {
+                        val generate = if (role == "video_generation") executeVideoChild else executeImageChild
+                        generate!!.invoke(workers[worker], instruction +
+                            if (context.isBlank()) "" else "\n\n补充要求：\n$context", task.controller)
+                    } else if (executeObservedChild != null) {
+                        executeObservedChild.invoke(workers[worker], prompt, task.controller, project, task.workspaceId, role == "implementation") { event ->
+                            synchronized(task) {
+                                if (task.state == "running") task.context.accept(event)?.let { stats ->
+                                    task.clock.setCompacting(stats.isCompacting)
+                                    publishContext(stats)
+                                }
                             }
                         }
-                    }
-                } else task.workspaceId?.let { id ->
-                    executeWorkspaceChild!!.invoke(workers[worker], prompt, task.controller, project, id, role == "implementation")
-                } ?: executeChild(workers[worker], prompt, task.controller)
-                task.controller.throwIfCancelled()
-                if (role == "implementation") workspace!!.requireOperation(project, "seal", task.workspaceId)
-                else if (task.workspaceId != null) workspace!!.requireOperation(project, if (role == "review") "review" else "end_review", task.workspaceId)
-                task.controller.throwIfCancelled()
-                synchronized(task) {
-                    check(task.state == "running") { "Task stopped during workspace finalization" }
-                    if (task.state == "running") {
-                        task.result = answer.take(16000) + if (answer.length > 16000) "\n[结果已截断]" else ""
-                        task.state = "completed"
-                    }
-                }
-            } catch (error: Exception) {
-                // Future.cancel interrupts the worker. Clear only for bounded cleanup, then restore.
-                val interrupted = Thread.interrupted()
-                if (ownsWorkspaceLease && task.workspaceId != null) runCatching { workspace?.operation(project, if (role == "implementation") "fail" else "end_review", task.workspaceId) }
-                if (interrupted) Thread.currentThread().interrupt()
-                synchronized(task) {
-                    if (task.state == "running") {
-                        task.errorCode = when (error) {
-                            is SubAgentContextLimitException -> "SUB_AGENT_CONTEXT_LIMIT"
-                            is WorkspaceOperationException -> error.code
-                            else -> ""
+                    } else task.workspaceId?.let { id ->
+                        executeWorkspaceChild!!.invoke(workers[worker], prompt, task.controller, project, id, role == "implementation")
+                    } ?: executeChild(workers[worker], prompt, task.controller)
+                    task.controller.throwIfCancelled()
+                    if (role == "implementation") workspace!!.requireOperation(project, "seal", task.workspaceId)
+                    else if (task.workspaceId != null) workspace!!.requireOperation(project, if (role == "review") "review" else "end_review", task.workspaceId)
+                    task.controller.throwIfCancelled()
+                    synchronized(task) {
+                        check(task.state == "running") { "Task stopped during workspace finalization" }
+                        if (task.state == "running") {
+                            task.result = answer.take(16000) + if (answer.length > 16000) "\n[结果已截断]" else ""
+                            task.state = "completed"
+                            task.context.finish(task.state)
                         }
-                        task.result = if (error is SubAgentContextLimitException)
-                            "子代理上下文不足，自动压缩不可用或未能释放足够空间。请拆分任务或调整模型窗口后重新委派；已有工作树改动保留。"
-                        else "子代理未完成，请主代理接手或重新委派。"
-                        task.state = "failed"
                     }
+                } catch (error: Exception) {
+                    // Future.cancel interrupts the worker. Clear only for bounded cleanup, then restore.
+                    val interrupted = Thread.interrupted()
+                    if (ownsWorkspaceLease && task.workspaceId != null) runCatching { workspace?.operation(project, if (role == "implementation") "fail" else "end_review", task.workspaceId) }
+                    if (interrupted) Thread.currentThread().interrupt()
+                    synchronized(task) {
+                        if (task.state == "running") {
+                            task.errorCode = when (error) {
+                                is SubAgentContextLimitException -> "SUB_AGENT_CONTEXT_LIMIT"
+                                is WorkspaceOperationException -> error.code
+                                else -> when (role) {
+                                    "image_generation" -> "IMAGE_GENERATION_FAILED"
+                                    "video_generation" -> "VIDEO_GENERATION_FAILED"
+                                    else -> ""
+                                }
+                            }
+                            task.result = if (error is SubAgentContextLimitException)
+                                "子代理上下文不足，自动压缩不可用或未能释放足够空间。请拆分任务或调整模型窗口后重新委派；已有工作树改动保留。"
+                            else "子代理未完成，请主代理接手或重新委派。"
+                            task.state = "failed"
+                            task.context.finish(task.state)
+                        }
+                    }
+                } finally {
+                    task.watchdog?.cancel(false)
+                    synchronized(task) { publishContext(task.context.finish(task.state)) }
+                    task.executing = false
                 }
-            } finally {
-                task.watchdog?.cancel(false)
-                synchronized(task) { publishContext(task.context.finish(task.state)) }
-                task.executing = false
             }
+            task
         }
-        task.watchdog = timer.scheduleAtFixedRate({
-            val expired = synchronized(task) { if (task.state == "running") task.clock.expired() else null }
-            if (expired != null) stop(task, "timed_out", expired)
-            if (task.state != "running") task.watchdog?.cancel(false)
-        }, minOf(timeoutMs, 100L).coerceAtLeast(1), 50, TimeUnit.MILLISECONDS)
+        // Never call an external telemetry sink while holding the coordinator lock.
+        // The gate preserves queued -> running event order without charging queue time.
+        synchronized(task) { publishContext(task.context.value) }
+        task.dispatchGate.countDown()
         return snapshot(task)
     }
     // Telemetry failure must never prevent cancellation or change a task outcome.
@@ -172,7 +227,7 @@ internal class SubAgentCoordinator(
     private fun get(args: JSONObject): JSONObject {
         val task = find(args.getString("task_id"))
         val wait = args.optLong("wait_ms", 0).coerceIn(0, 10000)
-        if (wait > 0 && task.state == "running") {
+        if (wait > 0 && task.state in setOf("queued", "running")) {
             try { task.future?.get(wait, TimeUnit.MILLISECONDS) }
             catch (_: TimeoutException) { }
             catch (_: java.util.concurrent.CancellationException) { }
@@ -182,7 +237,7 @@ internal class SubAgentCoordinator(
     }
     private fun stop(task: Task, state: String, errorCode: String = "") {
         synchronized(task) {
-            if (task.state != "running") return
+            if (task.state !in setOf("queued", "running")) return
             task.state = state
             task.errorCode = errorCode
             task.watchdog?.cancel(false)
@@ -193,6 +248,7 @@ internal class SubAgentCoordinator(
     }
     private fun snapshot(task: Task): JSONObject = synchronized(task) {
         JSONObject().put("ok", true).put("task_id", task.id).put("worker", task.worker + 1)
+            .put("agent_id", workerIds[task.worker]).put("agent_name", workerNames[task.worker])
             .put("status", task.state).put("result", task.result)
             .put("context_usage", task.context.value.copy(status = task.state,
                 isCompacting = task.state == "running" && task.context.value.isCompacting).toJson())
@@ -207,14 +263,17 @@ internal class SubAgentCoordinator(
         require(action in setOf("list", "inspect", "merge", "discard"))
         val project = args.getString("project")
         val id = args.optString("workspace_id").ifBlank { null }
-        if (tasks.values.any { it.project == project && (id == null || it.workspaceId == id) && (it.state == "running" || it.executing) }) return errorResult("WORKSPACE_IN_USE")
+        if (tasks.values.any { it.project == project && (id == null || it.workspaceId == id) && (it.state in setOf("queued", "running") || it.executing) }) return errorResult("WORKSPACE_IN_USE")
         return backend.operation(project, action, id)
     }
     private fun errorResult(code: String) = JSONObject().put("ok", false).put("code", code)
-    @Synchronized override fun close() {
-        closed = true
-        tasks.values.forEach { stop(it, "cancelled") }
-        pool.shutdownNow()
+    override fun close() {
+        val owned = synchronized(this) {
+            closed = true
+            tasks.values.toList()
+        }
+        owned.forEach { stop(it, "cancelled") }
+        pools.forEach { it.shutdownNow() }
         timer.shutdownNow()
     }
 }

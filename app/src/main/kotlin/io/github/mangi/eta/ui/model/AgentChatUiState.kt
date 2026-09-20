@@ -30,6 +30,7 @@ internal data class AgentChatUiState(
     val livePromptTokens: Int? = null,
     val childContexts: List<io.github.mangi.eta.agent.delegation.SubAgentContextStats> = emptyList(),
     val childContextRunId: String = "",
+    val selectedContextTaskId: String? = null,
 )
 
 @Immutable

@@ -106,4 +106,82 @@ class SubAgentPreferencesTest {
         } finally { SubAgentPreferences.saveReasoning(3, saved) }
     }
 
+    @Test fun legacyProfilesMigrateOnceAndDeletingAllDoesNotResurrectThem() {
+        Prefs.initLocal(RuntimeEnvironment.getApplication())
+        val saved = Prefs.getString(SubAgentPreferences.PROFILES_KEY)
+        val provider = Prefs.getString("agent_child_2_provider")
+        val model = Prefs.getString("agent_child_2_model")
+        try {
+            Prefs.putString(SubAgentPreferences.PROFILES_KEY, "")
+            Prefs.putString("agent_child_2_provider", "legacy-provider")
+            Prefs.putString("agent_child_2_model", "legacy-model")
+            val migrated = SubAgentPreferences.profiles()
+            assertEquals(listOf("legacy-0", "legacy-2", "legacy-3", "legacy-1"), migrated.map { it.id })
+            assertEquals("legacy-model", migrated.single { it.id == "legacy-2" }.modelId)
+            Prefs.putString("agent_child_2_model", "do-not-remigrate")
+            assertEquals(migrated, SubAgentPreferences.profiles())
+            migrated.forEach { SubAgentPreferences.remove(it.id) }
+            assertTrue(SubAgentPreferences.profiles().isEmpty())
+        } finally {
+            Prefs.putString(SubAgentPreferences.PROFILES_KEY, saved)
+            Prefs.putString("agent_child_2_provider", provider)
+            Prefs.putString("agent_child_2_model", model)
+        }
+    }
+
+    @Test fun dynamicProfilesKeepIdentityAndIndependentSettingsBeyondFour() {
+        Prefs.initLocal(RuntimeEnvironment.getApplication())
+        val saved = Prefs.getString(SubAgentPreferences.PROFILES_KEY)
+        try {
+            val added = List(8) { SubAgentPreferences.add() }
+            assertEquals(8, added.map { it.id }.distinct().size)
+            val first = added.first()
+            val second = added[1]
+            added.forEach { SubAgentPreferences.saveModel(it.id, ModelFeatureSelection(true, "p", "same-model")) }
+            SubAgentPreferences.update(first.id) { it.copy(name = "审查重点", role = "review", tier = SubAgentTaskTier.COMPLEX,
+                reasoning = ReasoningEffort.HIGH, enabled = false) }
+            val updated = SubAgentPreferences.profiles().single { it.id == first.id }
+            assertEquals("review", updated.role)
+            assertEquals(SubAgentTaskTier.COMPLEX, updated.tier)
+            assertFalse(updated.enabled)
+            assertNull(SubAgentPreferences.profiles().single { it.id == second.id }.reasoning)
+            SubAgentPreferences.remove(first.id)
+            SubAgentPreferences.update(first.id) { it.copy(name = "stale callback") }
+            assertFalse(SubAgentPreferences.profiles().any { it.id == first.id })
+            assertTrue(SubAgentPreferences.profiles().any { it.id == second.id })
+            assertEquals(SubAgentTaskTier.COMPLEX, updated.tier) // immutable running snapshot
+        } finally { Prefs.putString(SubAgentPreferences.PROFILES_KEY, saved) }
+    }
+
+    @Test fun workerDescriptionContainsStableIdentityTierAndEffectiveReasoning() {
+        val profile = SubAgentProfile("stable", "复杂实现", tier = SubAgentTaskTier.COMPLEX)
+        val config = AgentModelClient.ModelConfig(baseUrl = "", apiKey = "never-advertise", model = "m", systemPrompt = "",
+            reasoningEffort = ReasoningEffort.HIGH)
+        val description = SubAgentPreferences.workerDescription(profile, 2, config)
+        assertTrue(description.contains("2: agent_id=stable"))
+        assertTrue(description.contains("complex"))
+        assertTrue(description.contains("reasoning=high"))
+        assertFalse(description.contains("never-advertise"))
+    }
+
+    @Test fun mediaRolesFilterModelsAndClearIncompatibleReferencesWhenRoleChanges() {
+        val original = SubAgentProfile("id", "执行", providerId = "p", modelId = "m", reasoning = ReasoningEffort.HIGH)
+        val review = original.withRole("review")
+        assertEquals("m", review.modelId)
+        assertEquals(ReasoningEffort.HIGH, review.reasoning)
+        val image = original.withRole("image_generation")
+        assertEquals("图片生成", image.roleLabel)
+        assertTrue(image.isMedia)
+        assertTrue(image.modelId.isBlank())
+        assertNull(image.reasoning)
+        assertTrue(image.acceptsModel(image = true, video = false))
+        assertFalse(image.acceptsModel(image = false, video = true))
+        val video = image.copy(providerId = "p", modelId = "image").withRole("video_generation")
+        assertEquals("视频生成", video.roleLabel)
+        assertTrue(video.modelId.isBlank())
+        assertTrue(video.acceptsModel(image = false, video = true))
+        assertFalse(video.acceptsModel(image = false, video = false))
+        assertEquals(video, SubAgentProfile.fromJson(video.toJson()))
+    }
+
 }

@@ -161,6 +161,8 @@ internal fun AgentChatBody(
     livePromptTokens: Int? = null,
     childContexts: List<io.github.mangi.eta.agent.delegation.SubAgentContextStats> = emptyList(),
     compactingModelName: String = "",
+    selectedContextTaskId: String? = null,
+    onContextTaskSelected: ((String?) -> Unit)? = null,
     autoCompressEnabled: Boolean = false,
     input: String,
     draftField: androidx.compose.foundation.text.input.TextFieldState? = null,
@@ -313,7 +315,7 @@ internal fun AgentChatBody(
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(
-        LocalAgentContextTelemetry provides AgentContextTelemetry(childContexts, modelPickerState.selectedModel?.displayName.orEmpty(), compactingModelName)
+        LocalAgentContextTelemetry provides AgentContextTelemetry(childContexts, modelPickerState.selectedModel?.displayName.orEmpty(), compactingModelName, selectedContextTaskId, onContextTaskSelected)
     ) {
         ChatImagePreviewHost(gallery = previewGallery) {
             AgentChatScaffold(

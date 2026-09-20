@@ -3665,10 +3665,15 @@ internal class AgentAppState(
 
             is AgentEvent.ChildContextUpdated -> {
                 conversationIdForRun(runId)?.let { id ->
-                    conversationsById[id]?.let { current ->
+                    conversationsById[id]?.let conversation@ { current ->
+                        if (current.childContextRunId.isNotBlank() && current.childContextRunId != runId) return@conversation
                         val existing = if (current.childContextRunId == runId) current.childContexts else emptyList()
                         val updated = existing.toMutableList()
                         val index = updated.indexOfFirst { it.taskId == event.stats.taskId }
+                        val previousManual = existing.getOrNull(index)?.manualCompactionState
+                        if (event.stats.manualCompactionState == "ended" && previousManual != "ended") {
+                            Toast.makeText(appContext, "子任务已结束，压缩请求已收束；结果保留，不会重启任务或压缩主代理。", Toast.LENGTH_LONG).show()
+                        }
                         if (index < 0) updated += event.stats else updated[index] = event.stats
                         updateConversation(id, current.copy(childContextRunId = runId, childContexts = updated), updateTimestamp = false)
                     }
@@ -3794,7 +3799,7 @@ internal class AgentAppState(
             is AgentEvent.RunStarted -> {
                 conversationIdForRun(runId)?.let { id -> conversationsById[id]?.let { current ->
                     if (current.childContextRunId != runId) updateConversation(id,
-                        current.copy(childContexts = emptyList(), childContextRunId = runId), updateTimestamp = false)
+                        current.copy(childContexts = emptyList(), childContextRunId = runId, selectedContextTaskId = null), updateTimestamp = false)
                 } }
             }
             is AgentEvent.ProviderResponseStarted,
@@ -4293,7 +4298,8 @@ internal class AgentAppState(
             state.copy(
                 isStreaming = isStreaming,
                 childContexts = if (isStreaming) state.childContexts else state.childContexts.map {
-                    if (it.status == "running") it.copy(status = "cancelled", isCompacting = false) else it.copy(isCompacting = false)
+                    it.copy(status = if (it.status in setOf("queued", "running")) "cancelled" else it.status,
+                        isCompacting = false, manualCompactionState = if (it.manualCompactionState in setOf("pending", "compressing")) "ended" else it.manualCompactionState)
                 },
                 isWaitingForCompression = isStreaming && state.isWaitingForCompression,
                 isPaused = if (isStreaming) state.isPaused else false,
@@ -4586,6 +4592,14 @@ internal class AgentAppState(
         Prefs.putBoolean(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED, enabled)
     }
 
+    fun selectContextTask(taskId: String?) {
+        if (taskId != null && homeState.childContexts.none { it.taskId == taskId }) return
+        val id = selectedConversationId
+        if (id == null) homeState = homeState.copy(selectedContextTaskId = taskId)
+        else conversationsById[id]?.let { updateConversation(id, it.copy(selectedContextTaskId = taskId), updateTimestamp = false) }
+    }
+
+    /** Capture the selected task at click time; later selection changes cannot retarget this request. */
     fun compressCurrentConversation(
         providerId: String?,
         modelId: String?,
@@ -4593,6 +4607,28 @@ internal class AgentAppState(
     ) {
         if (rejectConversationArchiveMutation()) {
             onFinished(false)
+            return
+        }
+        val targetId = homeState.selectedContextTaskId
+        if (targetId != null) {
+            val child = homeState.childContexts.firstOrNull { it.taskId == targetId }
+            val runId = homeState.childContextRunId
+            if (child == null || child.status != "running" || child.role in setOf("image_generation", "video_generation") || runId.isBlank()) {
+                Toast.makeText(appContext, "该子任务已结束、尚未执行或不支持对话压缩；不会改为压缩主代理。", Toast.LENGTH_LONG).show()
+                onFinished(false)
+                return
+            }
+            onFinished(true)
+            scope.launch(Dispatchers.IO) {
+                val sent = runCatching {
+                    val config = if (providerId.isNullOrBlank() || modelId.isNullOrBlank()) null else
+                        resolveCompressModelConfig(null, providerId, modelId, manual = true)
+                    AgentRuntimeClient(appContext, AndroidAgentLogger).compactRun(runId, keepRecentFor(), config, targetId)
+                }.getOrDefault(false)
+                if (!sent) withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "未确认子任务接受压缩请求，它可能已结束；不会改为压缩其它代理。", Toast.LENGTH_LONG).show()
+                }
+            }
             return
         }
         persistCompressPreferences(providerId, modelId)

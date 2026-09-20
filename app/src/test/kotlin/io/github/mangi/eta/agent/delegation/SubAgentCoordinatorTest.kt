@@ -13,19 +13,189 @@ class SubAgentCoordinatorTest {
     private fun start(c: SubAgentCoordinator) = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "check evidence"))).content)
     private fun get(c: SubAgentCoordinator, id: String, wait: Int = 1000) = JSONObject(c.execute(call("get_task_result", JSONObject().put("task_id", id).put("wait_ms", wait))).content)
 
-    @Test fun parallelLimitAndRunOwnership() {
-        val started = CountDownLatch(2)
+    @Test fun dynamicWorkersRunInParallelAndBusyWorkerQueues() {
+        val started = CountDownLatch(6)
         val release = CountDownLatch(1)
-        SubAgentCoordinator(listOf(model)) { _, _, _ -> started.countDown(); release.await(); "done" }.use { c ->
-            val first = start(c).getString("task_id")
-            start(c)
+        SubAgentCoordinator(List(6) { model }) { _, _, _ -> started.countDown(); release.await(); "done" }.use { c ->
+            val ids = List(6) { start(c).getString("task_id") }
             assertTrue(started.await(2, TimeUnit.SECONDS))
-            assertEquals("SUB_AGENT_LIMIT", start(c).getString("code"))
+            val queued = start(c)
+            assertEquals("queued", queued.getString("status"))
             SubAgentCoordinator(listOf(model)) { _, _, _ -> "other" }.use { other ->
-                assertFalse(get(other, first, 0).getBoolean("ok"))
+                assertFalse(get(other, ids.first(), 0).getBoolean("ok"))
             }
             release.countDown()
-            assertEquals("completed", get(c, first).getString("status"))
+            (ids + queued.getString("task_id")).forEach { assertEquals("completed", get(c, it).getString("status")) }
+        }
+    }
+
+    @Test fun queuedCancellationAndCancelledRunningCleanupKeepWorkerExclusive() {
+        val started = CountDownLatch(1)
+        val cleaning = CountDownLatch(1)
+        val finishCleanup = CountDownLatch(1)
+        val called = java.util.Collections.synchronizedList(mutableListOf<String>())
+        SubAgentCoordinator(listOf(model)) { _, prompt, _ ->
+            called += prompt
+            if (prompt.contains("first")) {
+                started.countDown()
+                try { CountDownLatch(1).await() } catch (_: InterruptedException) { cleaning.countDown() }
+                finishCleanup.await()
+            }
+            "done"
+        }.use { c ->
+            fun submit(text: String) = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", text))).content).getString("task_id")
+            val first = submit("first")
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            val skip = submit("skip")
+            val next = submit("next")
+            c.execute(call("cancel_task", JSONObject().put("task_id", skip)))
+            c.execute(call("cancel_task", JSONObject().put("task_id", first)))
+            assertTrue(cleaning.await(2, TimeUnit.SECONDS))
+            assertEquals("queued", get(c, next, 0).getString("status"))
+            assertEquals(1, called.size)
+            finishCleanup.countDown()
+            assertEquals("completed", get(c, next).getString("status"))
+            assertEquals("cancelled", get(c, skip, 0).getString("status"))
+            assertEquals(2, called.size)
+            assertTrue(called.none { it.contains("skip") })
+        }
+    }
+
+    @Test fun queuedTimeDoesNotConsumeExecutionBudgetAndIdentityIsStable() {
+        val firstStarted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        SubAgentCoordinator(listOf(model), timeoutMs = 150, workerIds = listOf("stable-id"), workerNames = listOf("执行A"),
+            executeChild = { _, prompt, _ ->
+                if (prompt.contains("first")) {
+                    firstStarted.countDown()
+                    try { release.await() } catch (_: InterruptedException) { release.await() }
+                }
+                "done"
+            }).use { c ->
+            val first = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "first").put("agent_id", "stable-id"))).content)
+            assertTrue(firstStarted.await(2, TimeUnit.SECONDS))
+            val queued = start(c).getString("task_id")
+            Thread.sleep(250)
+            assertEquals("timed_out", get(c, first.getString("task_id"), 0).getString("status"))
+            assertEquals("queued", get(c, queued, 0).getString("status"))
+            release.countDown()
+            val done = get(c, queued)
+            assertEquals("completed", done.getString("status"))
+            assertEquals("stable-id", done.getJSONObject("context_usage").getString("agent_id"))
+            assertEquals("AGENT_NOT_CONFIGURED", JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "x").put("agent_id", "deleted"))).content).getString("code"))
+        }
+    }
+
+    @Test fun telemetryCanQueryTaskWithoutCoordinatorTaskLockInversion() {
+        lateinit var c: SubAgentCoordinator
+        val observed = CountDownLatch(2)
+        c = SubAgentCoordinator(listOf(model), onContext = { stats ->
+            val result = get(c, stats.taskId, 0)
+            if (result.getBoolean("ok")) observed.countDown()
+        }, executeChild = { _, _, _ -> "done" })
+        c.use {
+            val id = start(c).getString("task_id")
+            assertEquals("completed", get(c, id).getString("status"))
+            assertTrue(observed.await(2, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun imageAndVideoRolesUseDedicatedGeneratorsAndNeverReceiveResearchOrWorkspaceTasks() {
+        val invoked = mutableListOf<String>()
+        SubAgentCoordinator(listOf(model, model, model), roles = listOf("image_generation", "video_generation", "implementation"),
+            executeImageChild = { _, prompt, _ -> invoked += "image:$prompt"; "![generated](/cache/image.png)" },
+            executeVideoChild = { _, prompt, _ -> invoked += "video:$prompt"; "![generated-video](/cache/video.mp4)" },
+            executeChild = { _, _, _ -> invoked += "research"; "analysis" }).use { c ->
+            fun submit(role: String, extras: JSONObject = JSONObject()): JSONObject = JSONObject(c.execute(call("delegate_task",
+                extras.put("task", "draw a lake").put("role", role))).content)
+            val image = submit("image_generation")
+            assertTrue(get(c, image.getString("task_id")).getString("result").contains("image.png"))
+            val video = submit("video_generation")
+            assertTrue(get(c, video.getString("task_id")).getString("result").contains("video.mp4"))
+            val research = submit("research")
+            assertEquals(3, research.getInt("worker"))
+            assertEquals("completed", get(c, research.getString("task_id")).getString("status"))
+            assertEquals(listOf("image:draw a lake", "video:draw a lake", "research"), invoked)
+            assertEquals("WORKER_ROLE_MISMATCH", submit("research", JSONObject().put("worker", 1)).getString("code"))
+            assertEquals("INVALID_TASK_ARGUMENTS", submit("image_generation", JSONObject().put("project", "/workspace/p")).getString("code"))
+        }
+    }
+
+    @Test fun unconfiguredMediaRunnerDoesNotFallBackToTextOrResearch() {
+        SubAgentCoordinator(listOf(model), roles = listOf("video_generation")) { _, _, _ -> error("must not run") }.use { c ->
+            val response = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "video").put("role", "video_generation"))).content)
+            assertEquals("VIDEO_GENERATION_UNAVAILABLE", response.getString("code"))
+            assertEquals("ROLE_NOT_CONFIGURED", start(c).getString("code"))
+        }
+    }
+
+    @Test fun manualParentCompactionDoesNotCompressPauseOrCancelChildren() {
+        val parent = io.github.mangi.eta.agent.runtime.AgentRunController()
+        val started = CountDownLatch(2)
+        val release = CountDownLatch(1)
+        val children = java.util.Collections.synchronizedList(mutableListOf<io.github.mangi.eta.agent.runtime.AgentRunController>())
+        SubAgentCoordinator(listOf(model, model)) { _, _, child ->
+            children += child
+            started.countDown()
+            release.await()
+            "done"
+        }.use { c ->
+            val parentBinding = parent.register { c.close() }
+            try {
+                val first = start(c).getString("task_id")
+                val second = start(c).getString("task_id")
+                assertTrue(started.await(2, TimeUnit.SECONDS))
+                assertTrue(parent.requestCompact())
+                assertTrue(parent.hasPendingCompact)
+                children.forEach { child ->
+                    assertFalse(child.hasPendingCompact)
+                    assertFalse(child.isPaused)
+                    assertFalse(child.isCancelled)
+                }
+                assertFalse(get(c, first, 0).getJSONObject("context_usage").getBoolean("is_compacting"))
+                assertFalse(get(c, second, 0).getJSONObject("context_usage").getBoolean("is_compacting"))
+                release.countDown()
+                assertEquals("completed", get(c, first).getString("status"))
+                assertEquals("completed", get(c, second).getString("status"))
+            } finally {
+                release.countDown()
+                parentBinding.close()
+            }
+        }
+    }
+
+    @Test fun selectedChildCompactionNeverTargetsPeersAndCompletionClearsPendingWithoutLosingResult() {
+        val parent = io.github.mangi.eta.agent.runtime.AgentRunController()
+        val firstReady = CountDownLatch(1)
+        val secondReady = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val controls = java.util.Collections.synchronizedList(mutableListOf<io.github.mangi.eta.agent.runtime.AgentRunController>())
+        SubAgentCoordinator(listOf(model, model)) { _, _, control ->
+            controls += control
+            if (controls.size == 1) firstReady.countDown() else secondReady.countDown()
+            release.await()
+            "preserved output"
+        }.use { c ->
+            try {
+                val first = start(c).getString("task_id")
+                assertTrue(firstReady.await(2, TimeUnit.SECONDS))
+                val second = start(c).getString("task_id")
+                assertTrue(secondReady.await(2, TimeUnit.SECONDS))
+                assertTrue(c.requestCompact(first, 2, null))
+                assertTrue(controls[0].hasPendingCompact)
+                assertFalse(controls[1].hasPendingCompact)
+                assertFalse(parent.hasPendingCompact)
+                assertEquals("pending", get(c, first, 0).getJSONObject("context_usage").getString("manual_compaction_state"))
+                release.countDown()
+                val finished = get(c, first)
+                assertEquals("completed", finished.getString("status"))
+                assertEquals("preserved output", finished.getString("result"))
+                assertEquals("ended", finished.getJSONObject("context_usage").getString("manual_compaction_state"))
+                assertFalse(c.requestCompact(first, 2, null))
+                assertEquals("preserved output", get(c, first).getString("result"))
+                assertEquals("completed", get(c, second).getString("status"))
+                assertFalse(parent.hasPendingCompact)
+            } finally { release.countDown() }
         }
     }
 
@@ -141,7 +311,7 @@ class SubAgentCoordinatorTest {
         val compressing = CountDownLatch(1)
         val release = CountDownLatch(1)
         val events = java.util.Collections.synchronizedList(mutableListOf<SubAgentContextStats>())
-        SubAgentCoordinator(listOf(model), onContext = { events += it },
+        SubAgentCoordinator(listOf(model, model), onContext = { events += it },
             executeObservedChild = { _, prompt, _, _, _, _, emit ->
                 if (prompt.contains("compress me")) {
                     emit(io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted(1))

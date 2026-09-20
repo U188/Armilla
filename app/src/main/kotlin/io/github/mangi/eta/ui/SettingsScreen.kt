@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Psychology
+import io.github.mangi.eta.ui.icons.SubAgents
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
@@ -332,7 +333,7 @@ internal fun SettingsScreen(
                         onClick = { onNavigate(AppRoute.AuxiliaryVision) },
                     )
                     ArrowPreference(title = "子代理",
-                        startAction = { PreferenceIcon(icon = Icons.Rounded.Psychology) },
+                        startAction = { PreferenceIcon(icon = SubAgents) },
                         onClick = { onNavigate(AppRoute.SubAgents) })
                     ArrowPreference(
                         title = stringResource(R.string.title_model_title),

@@ -26,6 +26,15 @@ class WorkspaceTest(unittest.TestCase):
         args = {'action':action, **kwargs}
         if record: args['workspace_id'] = record['id']
         return w.locked(self.root, args)
+    def test_dynamic_agents_can_prepare_more_than_eight_isolated_workspaces(self):
+        records = [self.op('prepare') for _ in range(9)]
+        self.assertEqual(9, len({record['id'] for record in records}))
+        self.op('write', records[-1], path='main.txt', content='ninth workspace')
+        self.assertEqual('original', self.op('read', records[0], path='main.txt')['content'])
+        for record in records:
+            self.op('fail', record)
+            self.op('discard', record)
+        self.assertEqual(1, len(w.git(self.root, 'worktree', 'list').splitlines()))
     def test_isolation_seal_review_merge_and_cleanup(self):
         record = self.op('prepare')
         self.op('write', record, path='main.txt', content='new')

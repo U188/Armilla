@@ -39,7 +39,9 @@ class SubAgentToolsTest {
         val tools = JSONArray().also { SubAgentTools.appendTo(it, listOf("a", "b")) }
         val validator = AgentToolCallValidator(tools)
         assertNull(validator.validate(AgentModelClient.ToolCall("id", "delegate_task", "{\"task\":\"review\",\"worker\":2}")))
-        assertNotNull(validator.validate(AgentModelClient.ToolCall("id", "delegate_task", "{}")))
+        listOf("{}", "{\"context\":\"only context\"}", "{\"task\":null}", "{\"task\":\"   \"}").forEach { args ->
+            assertNotNull(validator.validate(AgentModelClient.ToolCall("id", "delegate_task", args)))
+        }
         assertNotNull(validator.validate(AgentModelClient.ToolCall("id", "delegate_task", "{\"task\":\"review\",\"worker\":3}")))
     }
 }

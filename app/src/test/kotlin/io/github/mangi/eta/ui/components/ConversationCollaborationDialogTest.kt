@@ -52,13 +52,13 @@ class ConversationCollaborationDialogTest {
                     ConversationCollaborationDialog(true, true, {}, {})
                 }
             }
-            compose.onNodeWithText("执行代理 1").performTouchInput { longClick() }
+            compose.onNodeWithContentDescription("执行代理 1模型").performTouchInput { longClick() }
             compose.onNodeWithText("选择执行代理 1模型").assertDoesNotExist()
-            compose.onNodeWithText("执行代理 1").performTouchInput { click() }
+            compose.onNodeWithContentDescription("执行代理 1模型").performTouchInput { click() }
             compose.onNodeWithText("选择执行代理 1模型").assertExists()
             compose.onNodeWithText("无").performClick()
             compose.onNodeWithText("本会话协作").assertExists()
-            compose.onNodeWithText("执行代理 1").performTouchInput { longClick() }
+            compose.onNodeWithContentDescription("执行代理 1模型").performTouchInput { longClick() }
             compose.onNodeWithText("调整思考深度").assertDoesNotExist()
             compose.onNodeWithText("选择执行代理 1模型").assertDoesNotExist()
             compose.runOnIdle {
@@ -79,13 +79,13 @@ class ConversationCollaborationDialogTest {
                 ConversationCollaborationDialog(true, true, { changes++ }, { dismissals++ }, taskRunning = running.value)
             }
         }
-        compose.onNodeWithText("执行代理 1").performClick()
+        compose.onNodeWithContentDescription("执行代理 1模型").performClick()
         compose.onNodeWithText("选择执行代理 1模型").assertExists()
         compose.runOnIdle { running.value = true }
         compose.onNodeWithText("选择执行代理 1模型").assertDoesNotExist()
         compose.onNodeWithText("完成").assertIsDisplayed().assertIsNotEnabled()
         compose.onNodeWithText("执行代理 1").assertIsNotEnabled()
-        compose.onNodeWithText("执行代理 1").performTouchInput { click(); longClick() }
+        compose.onNodeWithContentDescription("执行代理 1模型").performTouchInput { click(); longClick() }
         compose.runOnIdle { org.junit.Assert.assertEquals("disabled model row must not dismiss", 0, dismissals) }
         compose.onNodeWithText("自动委派").performTouchInput { click() }
         compose.runOnIdle { org.junit.Assert.assertEquals("disabled toggle must not dismiss", 0, dismissals) }
@@ -112,6 +112,21 @@ class ConversationCollaborationDialogTest {
         compose.onNodeWithText("完成").assertIsDisplayed().assertIsNotEnabled()
             .performTouchInput { click() }
         compose.runOnIdle { org.junit.Assert.assertEquals(0, dismissals) }
+    }
+
+    @Test fun taskTierMenuHasThreeChoicesAndClosesWhenTaskStarts() {
+        val running = mutableStateOf(false)
+        compose.setContent {
+            MiuixTheme(colors = lightColorScheme()) {
+                ConversationCollaborationDialog(true, true, {}, {}, taskRunning = running.value)
+            }
+        }
+        compose.onNodeWithText("执行代理 1").performClick()
+        listOf("简单任务", "常规任务", "复杂任务").forEach { compose.onNodeWithText(it).assertExists() }
+        compose.onNodeWithText("选择执行代理 1模型").assertDoesNotExist()
+        compose.runOnIdle { running.value = true }
+        compose.onNodeWithText("复杂任务").assertDoesNotExist()
+        compose.onNodeWithText("执行代理 1").assertIsNotEnabled()
     }
 
 }

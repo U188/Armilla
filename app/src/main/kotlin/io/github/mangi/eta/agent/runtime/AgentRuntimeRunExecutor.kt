@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.runtime
 
 import android.content.Context
+import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.agent.delegation.*
 import io.github.mangi.eta.agent.model.AgentToolCatalog
 import io.github.mangi.eta.agent.accessibility.AgentAccessibilityKeeper
@@ -204,19 +205,36 @@ internal class AgentRuntimeRunExecutor(
             toolExecutor = routingExecutor
             toolsBinding = runController.register { routingExecutor.close() }
             timing.preparationFinished(skillContext.installedSkills.size)
+            val childProfiles = SubAgentPreferences.profiles().filter { it.enabled }
             val configuredChildren = if (SubAgentPreferences.enabled(request.effectiveModelSessionId)) runBlocking {
-                (0 until SubAgentPreferences.SLOT_COUNT).mapNotNull { slot ->
-                    runCatching { SubAgentPreferences.selection(slot).resolve()?.let { SubAgentPreferences.applyReasoning(slot, it) } }.getOrNull()
+                childProfiles.mapNotNull { profile ->
+                    runCatching { profile.selection.resolve(generationRole = profile.role.takeIf { profile.isMedia })?.let { SubAgentPreferences.applyReasoning(profile, it) } }.getOrNull()
                         ?.takeIf { it.apiKey.isNotBlank() && it.baseUrl.isNotBlank() }
-                        ?.let { slot to it }
+                        ?.let { profile to it }
                 }
             } else emptyList()
             val childModels = configuredChildren.map { it.second }
             if (childModels.isNotEmpty()) {
                 val workspace = if (request.config.terminalTools && currentPermissions().terminalTools) SubAgentWorkspace(appContext, executor) else null
                 children = SubAgentCoordinator(childModels,
-                    roles = configuredChildren.map { SubAgentPreferences.role(it.first) },
+                    roles = configuredChildren.map { it.first.role },
+                    workerIds = configuredChildren.map { it.first.id },
+                    workerNames = configuredChildren.map { it.first.name },
+                    workerModelIds = configuredChildren.map { it.first.modelId },
                     workspace = workspace,
+                    prepareManualCompactor = { config ->
+                        io.github.mangi.eta.agent.model.AgentCompressionEndpoint.apply(
+                            AgentRuntimePolicy.forCompression(config),
+                            Prefs.localAgentPreferences()?.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, null))
+                    },
+                    executeImageChild = { config, prompt, controller ->
+                        io.github.mangi.eta.agent.delegation.SubAgentMediaRunner.run(
+                            appContext, request.effectiveModelSessionId, config, prompt, controller, video = false)
+                    },
+                    executeVideoChild = { config, prompt, controller ->
+                        io.github.mangi.eta.agent.delegation.SubAgentMediaRunner.run(
+                            appContext, request.effectiveModelSessionId, config, prompt, controller, video = true)
+                    },
                     onContext = { stats -> acceptEvent(session, AgentEvent.ChildContextUpdated(stats), archivedEvents, entrySurfaceGuard, checkpointRecorder) },
                     executeObservedChild = { config, prompt, controller, project, id, writable, progress ->
                         if (id != null) {
@@ -252,9 +270,10 @@ internal class AgentRuntimeRunExecutor(
                     ))
                     SubAgentRunner.run(config, prompt, readTools, executor, controller, sessionId = request.effectiveModelSessionId)
                 }
+                session.childCompactor = { taskId, keep, model -> children?.requestCompact(taskId, keep, model) ?: false }
                 childBinding = runController.register { children?.close() }
                 SubAgentTools.appendTo(mcpTools, configuredChildren.mapIndexed { i, (slot, model) ->
-                    "${i + 1}: ${if (SubAgentPreferences.role(slot) == "implementation") "implementation" else "review/summary"} — ${model.providerName} / ${model.modelDisplayName.ifBlank { model.model }}"
+                    SubAgentPreferences.workerDescription(slot, i + 1, model)
                 }, workspaceEnabled = workspace != null)
             }
             val delegatedExecutor = AgentModelClient.ToolExecutor { call ->
@@ -370,6 +389,7 @@ internal class AgentRuntimeRunExecutor(
                     ?: (throwable as? AgentRunCancelledException)?.transcript.orEmpty(),
             )
         } finally {
+            session.childCompactor = null
             runCatching { childBinding?.close() }
             runCatching { children?.close() }
             runCatching { toolsBinding?.close() }

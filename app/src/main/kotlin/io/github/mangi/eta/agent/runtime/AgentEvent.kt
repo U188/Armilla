@@ -110,6 +110,10 @@ internal sealed interface AgentEvent {
                 "tools=${toolNames.take(MAX_LOGGED_TOOL_NAMES).map { it.toSafeLogToken() }}"
     }
 
+    data class ChildContextUpdated(val stats: io.github.mangi.eta.agent.delegation.SubAgentContextStats) : AgentEvent {
+        override fun toLogLine() = "child_context worker=${stats.worker}, status=${stats.status}, tokens=${stats.contextTokens}"
+    }
+
     data class UsageReceived(
         val round: Int,
         val usage: AgentTokenUsage,
@@ -188,6 +192,7 @@ internal sealed interface AgentEvent {
 
     data class ContextCompactionStarted(
         val round: Int,
+        val modelName: String = "",
     ) : AgentEvent {
         override fun toLogLine(): String = "context_compaction_started round=$round"
     }

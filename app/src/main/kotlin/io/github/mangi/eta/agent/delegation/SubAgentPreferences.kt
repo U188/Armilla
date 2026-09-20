@@ -2,16 +2,48 @@ package io.github.mangi.eta.agent.delegation
 
 import io.github.mangi.eta.agent.model.ModelFeatureSelection
 import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.data.model.ReasoningEffort
 
-/** Only model references and conversation switches; never duplicate provider credentials. */
+/** Slot-local model references and reasoning overrides; never mutate shared model settings. */
 internal object SubAgentPreferences {
+    const val SLOT_COUNT = 4
+    val displayOrder = listOf(0, 2, 3, 1)
+    fun role(slot: Int): String = if (slot == 1) "review" else "implementation"
+    fun label(slot: Int): String = when (slot) {
+        0 -> "执行代理 1"
+        1 -> "审查／总结代理"
+        2 -> "执行代理 2"
+        3 -> "执行代理 3"
+        else -> error("Invalid slot")
+    }
     fun selection(slot: Int) = ModelFeatureSelection(true,
         Prefs.getString("agent_child_${slot}_provider"), Prefs.getString("agent_child_${slot}_model"))
 
     fun save(slot: Int, selection: ModelFeatureSelection) {
-        require(slot in 0..1)
+        require(slot in 0 until SLOT_COUNT)
+        val previous = selection(slot)
+        if (previous.providerId != selection.providerId || previous.modelId != selection.modelId) {
+            saveReasoning(slot, null)
+        }
         Prefs.putString("agent_child_${slot}_provider", selection.providerId)
         Prefs.putString("agent_child_${slot}_model", selection.modelId)
+    }
+
+    fun reasoning(slot: Int): ReasoningEffort? {
+        require(slot in 0 until SLOT_COUNT)
+        return ReasoningEffort.fromWireValue(Prefs.getString("agent_child_${slot}_reasoning"))
+    }
+
+    fun saveReasoning(slot: Int, effort: ReasoningEffort?) {
+        require(slot in 0 until SLOT_COUNT)
+        Prefs.putString("agent_child_${slot}_reasoning", effort?.wireValue.orEmpty())
+    }
+
+    fun applyReasoning(slot: Int, config: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
+        val requested = reasoning(slot) ?: return config
+        val effort = config.reasoningCapabilities?.normalize(requested) ?: ReasoningEffort.OFF
+        return config.copy(reasoningEffort = effort, thinkingEnabled = effort.enablesReasoning)
     }
 
     private fun key(conversation: String?) = "agent_collaboration_${conversation ?: "draft"}"

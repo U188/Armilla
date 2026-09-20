@@ -15,6 +15,7 @@ internal object SubAgentRunner {
             workspaceMode: Boolean = false, writable: Boolean = false,
             sessionId: String = java.util.UUID.randomUUID().toString(),
             compactPolicy: AgentLoop.CompactPolicy? = null,
+            onProgress: (AgentEvent) -> Unit = {},
             compactHistory: ((List<AgentModelClient.ConversationMessage>, AgentLoop.CompactPolicy) -> List<AgentModelClient.ConversationMessage>)? = null): String {
         val child = config.copy(systemPrompt = "", hostedWebSearchEnabled = false,
             terminalTools = false, browserTools = false, deviceSensitiveActionTools = false)
@@ -32,6 +33,7 @@ internal object SubAgentRunner {
             traceFormatter = AgentTraceFormatter(), systemCount = 1,
             compactPolicy = compression, compactHistory = compactHistory,
             onEvent = { event ->
+                onProgress(event)
                 if (event is AgentEvent.ContextCompacted && event.blocked) {
                     throw SubAgentContextLimitException()
                 }

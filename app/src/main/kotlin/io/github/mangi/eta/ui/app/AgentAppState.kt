@@ -3406,7 +3406,7 @@ internal class AgentAppState(
             StreamPerformanceDiagnostics.record("ui.delta.received", value = event.delta.length.toLong())
         }
         if (stoppingRuns.containsKey(runId) && event !is AgentEvent.ContextCompacted &&
-            event !is AgentEvent.UserSupplementReceived && event !is AgentEvent.UsageReceived) return
+            event !is AgentEvent.UserSupplementReceived && event !is AgentEvent.UsageReceived && event !is AgentEvent.ChildContextUpdated) return
         if (runMessageProjector.isSealed(runId) && !event.allowedAfterSeal()) {
             runEventFlushJobs.remove(runId)?.cancel()
             runEventCoalescer.flush(runId)
@@ -3426,7 +3426,7 @@ internal class AgentAppState(
     }
 
     private fun AgentEvent.allowedAfterSeal(): Boolean =
-        this is AgentEvent.UsageReceived
+        this is AgentEvent.UsageReceived || this is AgentEvent.ChildContextUpdated
 
     private fun scheduleRunDeltaFlush(runId: String) {
         if (runEventFlushJobs[runId]?.isActive == true) return
@@ -3663,7 +3663,20 @@ internal class AgentAppState(
                 }
             }
 
+            is AgentEvent.ChildContextUpdated -> {
+                conversationIdForRun(runId)?.let { id ->
+                    conversationsById[id]?.let { current ->
+                        val existing = if (current.childContextRunId == runId) current.childContexts else emptyList()
+                        val updated = existing.toMutableList()
+                        val index = updated.indexOfFirst { it.taskId == event.stats.taskId }
+                        if (index < 0) updated += event.stats else updated[index] = event.stats
+                        updateConversation(id, current.copy(childContextRunId = runId, childContexts = updated), updateTimestamp = false)
+                    }
+                }
+            }
+
             is AgentEvent.UsageReceived -> {
+                if (event.projected && !isStaleUsageAfterCompact(runId, event.round)) updateLivePromptTokens(runId, event.usage.occupancyTokens())
                 if (!event.projected && !isStaleUsageAfterCompact(runId, event.round)) {
                     val occupancy = event.usage.occupancyTokens()
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
@@ -3764,7 +3777,7 @@ internal class AgentAppState(
             }
 
             is AgentEvent.ContextCompactionStarted -> {
-                conversationIdForRun(runId)?.let { setConversationCompressing(it, true) }
+                conversationIdForRun(runId)?.let { setConversationCompressing(it, true, event.modelName) }
             }
 
             is AgentEvent.ContextCompacted -> {
@@ -3778,7 +3791,12 @@ internal class AgentAppState(
                 }
             }
 
-            is AgentEvent.RunStarted,
+            is AgentEvent.RunStarted -> {
+                conversationIdForRun(runId)?.let { id -> conversationsById[id]?.let { current ->
+                    if (current.childContextRunId != runId) updateConversation(id,
+                        current.copy(childContexts = emptyList(), childContextRunId = runId), updateTimestamp = false)
+                } }
+            }
             is AgentEvent.ProviderResponseStarted,
             is AgentEvent.ToolImagesAttached,
             is AgentEvent.RoundStarted,
@@ -4258,13 +4276,13 @@ internal class AgentAppState(
         updateConversation(conversationId, current.copy(isWaitingForCompression = waiting))
     }
 
-    private fun setConversationCompressing(conversationId: String?, compressing: Boolean) {
+    private fun setConversationCompressing(conversationId: String?, compressing: Boolean, modelName: String = "") {
         if (conversationId == null) {
-            homeState = homeState.copy(isCompressingContext = compressing, isWaitingForCompression = false)
+            homeState = homeState.copy(isCompressingContext = compressing, isWaitingForCompression = false, compactingModelName = if (compressing) modelName else "")
             return
         }
         val current = conversationsById[conversationId] ?: return
-        updateConversation(conversationId, current.copy(isCompressingContext = compressing, isWaitingForCompression = false))
+        updateConversation(conversationId, current.copy(isCompressingContext = compressing, isWaitingForCompression = false, compactingModelName = if (compressing) modelName else ""))
     }
 
     private fun setConversationStreaming(runId: String, isStreaming: Boolean) {
@@ -4274,6 +4292,9 @@ internal class AgentAppState(
             conversationId,
             state.copy(
                 isStreaming = isStreaming,
+                childContexts = if (isStreaming) state.childContexts else state.childContexts.map {
+                    if (it.status == "running") it.copy(status = "cancelled", isCompacting = false) else it.copy(isCompacting = false)
+                },
                 isWaitingForCompression = isStreaming && state.isWaitingForCompression,
                 isPaused = if (isStreaming) state.isPaused else false,
                 isCompressingContext = when {

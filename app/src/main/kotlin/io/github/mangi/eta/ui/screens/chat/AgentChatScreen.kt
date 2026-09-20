@@ -45,6 +45,8 @@ internal fun AgentChatScreen(
             requestOverheadTokens = requestOverheadTokens,
             billedOverheadTokens = billedOverheadTokens,
             livePromptTokens = state.livePromptTokens,
+            childContexts = state.childContexts,
+            compactingModelName = state.compactingModelName,
             input = state.input,
             draftField = draftField,
             isStreaming = state.isStreaming,

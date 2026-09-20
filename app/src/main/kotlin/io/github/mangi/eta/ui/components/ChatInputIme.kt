@@ -76,6 +76,7 @@ internal fun ChatInputNonFocusableIconButton(
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
     onLongClick: (() -> Unit)? = null,
+    longClickLabel: String = "协作设置",
     content: @Composable () -> Unit,
 ) {
     val view = LocalView.current
@@ -89,7 +90,7 @@ internal fun ChatInputNonFocusableIconButton(
                     this.contentDescription = contentDescription
                 }
                 if (onLongClick != null) {
-                    this.onLongClick(label = "协作设置") { TouchHaptics.longPress(view); onLongClick(); true }
+                    this.onLongClick(label = longClickLabel) { TouchHaptics.longPress(view); onLongClick(); true }
                 }
                 onClick {
                     TouchHaptics.click(view)

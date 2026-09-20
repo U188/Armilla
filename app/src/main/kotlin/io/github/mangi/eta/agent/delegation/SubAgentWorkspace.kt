@@ -23,13 +23,15 @@ internal class SubAgentWorkspace(
         if (args.toString().toByteArray(Charsets.UTF_8).size > 100_000) {
             return JSONObject().put("ok", false).put("code", "WORKSPACE_ARGUMENTS_TOO_LARGE")
         }
-        val command = "python3 -I -c ${quote(script)} ${quote(args.toString())}"
+        val command = "command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1 || " +
+            "{ printf '%s' '{\"ok\":false,\"code\":\"WORKSPACE_LINUX_PYTHON_GIT_REQUIRED\"}'; exit 0; }; " +
+            "python3 -I -c ${quote(script)} ${quote(args.toString())}"
         val raw = executor.execute(AgentModelClient.ToolCall("workspace-runtime", "terminal", JSONObject()
             .put("action", "open_and_exec").put("environment", "linux").put("cwd", project)
             .put("command", command).put("timeout_ms", 60000).toString()))
         val envelope = JSONObject(raw.content)
         if (!envelope.optBoolean("ok") || envelope.optInt("exit_code", -1) != 0) {
-            return JSONObject().put("ok", false).put("code", envelope.optString("code").ifBlank { "WORKSPACE_LINUX_PYTHON_GIT_REQUIRED" })
+            return JSONObject().put("ok", false).put("code", envelope.optString("code").ifBlank { "WORKSPACE_EXECUTION_FAILED" })
         }
         if (envelope.optBoolean("stdout_truncated")) return JSONObject().put("ok", false).put("code", "WORKSPACE_OUTPUT_TOO_LARGE")
         return runCatching { JSONObject(envelope.getString("stdout")) }

@@ -116,7 +116,7 @@ def locked(root, args):
         require(len(list(tasks.iterdir())) < 8, 'WORKSPACE_RETENTION_LIMIT')
         task = uuid.uuid4().hex
         base = git(root, 'rev-parse', 'HEAD')
-        record = {'id': task, 'base': base, 'state': 'editing', 'reviewed': False, 'lease_until': time.time() + 240}
+        record = {'id': task, 'base': base, 'state': 'editing', 'reviewed': False, 'lease_until': time.time() + 420}
         tree = tree_path(root, record)
         git(root, 'worktree', 'add', '--detach', str(tree), base)
         save(root, record)
@@ -174,10 +174,11 @@ def locked(root, args):
     elif action == 'begin_review':
         require(record['state'] == 'ready' and clean(tree), 'WORKSPACE_NOT_READY')
         require(git(tree, 'rev-parse', 'HEAD') == record['commit'], 'WORKSPACE_CHANGED')
-        record.update(state='reviewing', reviewed=False, lease_until=time.time() + 240)
+        record.update(state='reviewing', reviewed=False, lease_until=time.time() + 420)
         save(root, record)
     elif action == 'end_review':
-        require(record['state'] == 'reviewing', 'WORKSPACE_NOT_REVIEWING')
+        # Cancellation may arrive just after review marked the workspace ready.
+        require(record['state'] in ('reviewing', 'ready'), 'WORKSPACE_NOT_REVIEWING')
         record.update(state='ready', reviewed=False)
         save(root, record)
     elif action == 'review':

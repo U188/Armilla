@@ -159,6 +159,8 @@ internal fun AgentChatBody(
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
     livePromptTokens: Int? = null,
+    childContexts: List<io.github.mangi.eta.agent.delegation.SubAgentContextStats> = emptyList(),
+    compactingModelName: String = "",
     autoCompressEnabled: Boolean = false,
     input: String,
     draftField: androidx.compose.foundation.text.input.TextFieldState? = null,
@@ -250,8 +252,8 @@ internal fun AgentChatBody(
             io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop()
         }
     }
-    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression) {
-        visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression) 1 else 0
+    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression, childContexts) {
+        visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression || childContexts.any { it.isCompacting }) 1 else 0
     }
     val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = initialBottomItemIndex)
     val currentBrowserMessageId = remember(
@@ -310,80 +312,84 @@ internal fun AgentChatBody(
             }
         }
     }
-    ChatImagePreviewHost(gallery = previewGallery) {
-        AgentChatScaffold(
-            collaborationConversationId = collaborationConversationId,
-            visibleMessages = visibleMessages,
-            hasMessages = visibleMessages.isNotEmpty(),
-            scrollState = scrollState,
-            input = input,
-            draftField = draftField,
-            modelPickerState = modelPickerState,
-            history = history,
-            billedContextTokens = billedContextTokens,
-            requestOverheadTokens = requestOverheadTokens,
-            billedOverheadTokens = billedOverheadTokens,
-            uncommittedLiveTokens = uncommittedLiveTokens,
-            autoCompressEnabled = autoCompressEnabled,
-            isStreaming = isStreaming,
-            isPaused = isPaused,
-            isCompressingContext = isCompressingContext,
-            isWaitingForCompression = isWaitingForCompression,
-            reasoningEffort = reasoningEffort,
-            availableReasoningEfforts = availableReasoningEfforts,
-            pendingImages = pendingImages,
-            pendingFileReferences = pendingFileReferences,
-            conversationMentions = conversationMentions,
-            messageEdit = messageEdit,
-            assistantId = assistantId,
-            voiceState = voiceState,
-            onStartVoiceMode = voiceController::start,
-            onStopVoiceMode = voiceController::stop,
-            showEmptySuggestions = !isKeyboardVisible,
-            keepBottomAnchored = keepBottomAnchored,
-            onBottomAnchorChanged = { keepBottomAnchored = it },
-            onSubmit = { text ->
-                sentFromKeyboard = true
-                // 发送即重新锚定底部：用户从历史上方直接发送时，同帧内 isStreaming 与
-                // 新消息一起到位，立即回到底部并恢复后续的流式平滑跟底。
-                keepBottomAnchored = true
-                onSubmit(text)
-                submitScrollScope.launch {
-                    // Cancel an old fling, then anchor the edited/replaced list after layout.
-                    scrollState.scroll(androidx.compose.foundation.MutatePriority.PreventUserInput) { }
-                    withFrameNanos { }
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalAgentContextTelemetry provides AgentContextTelemetry(childContexts, modelPickerState.selectedModel?.displayName.orEmpty(), compactingModelName)
+    ) {
+        ChatImagePreviewHost(gallery = previewGallery) {
+            AgentChatScaffold(
+                collaborationConversationId = collaborationConversationId,
+                visibleMessages = visibleMessages,
+                hasMessages = visibleMessages.isNotEmpty(),
+                scrollState = scrollState,
+                input = input,
+                draftField = draftField,
+                modelPickerState = modelPickerState,
+                history = history,
+                billedContextTokens = billedContextTokens,
+                requestOverheadTokens = requestOverheadTokens,
+                billedOverheadTokens = billedOverheadTokens,
+                uncommittedLiveTokens = uncommittedLiveTokens,
+                autoCompressEnabled = autoCompressEnabled,
+                isStreaming = isStreaming,
+                isPaused = isPaused,
+                isCompressingContext = isCompressingContext,
+                isWaitingForCompression = isWaitingForCompression,
+                reasoningEffort = reasoningEffort,
+                availableReasoningEfforts = availableReasoningEfforts,
+                pendingImages = pendingImages,
+                pendingFileReferences = pendingFileReferences,
+                conversationMentions = conversationMentions,
+                messageEdit = messageEdit,
+                assistantId = assistantId,
+                voiceState = voiceState,
+                onStartVoiceMode = voiceController::start,
+                onStopVoiceMode = voiceController::stop,
+                showEmptySuggestions = !isKeyboardVisible,
+                keepBottomAnchored = keepBottomAnchored,
+                onBottomAnchorChanged = { keepBottomAnchored = it },
+                onSubmit = { text ->
+                    sentFromKeyboard = true
+                    // 发送即重新锚定底部：用户从历史上方直接发送时，同帧内 isStreaming 与
+                    // 新消息一起到位，立即回到底部并恢复后续的流式平滑跟底。
                     keepBottomAnchored = true
-                    val last = scrollState.layoutInfo.totalItemsCount - 1
-                    if (last >= 0) scrollState.requestScrollToItem(last)
-                }
-            },
-            onReasoningEffortChange = onReasoningEffortChange,
-            onModelSelected = onModelSelected,
-            onStop = onStop,
-            onContinue = onContinue,
-            onAbortPausedRun = onAbortPausedRun,
-            onAttachImage = onAttachImage,
-            onAttachVideo = onAttachVideo,
-            onRemoveImage = onRemoveImage,
-            onAttachFiles = onAttachFiles,
-            onAttachFolder = onAttachFolder,
-            onAttachFilePath = onAttachFilePath,
-            onRemoveFileReference = onRemoveFileReference,
-            onEditMessage = onEditMessage,
-            onCancelMessageEdit = onCancelMessageEdit,
-            onDeleteMessage = onDeleteMessage,
-            onRegenerateMessage = onRegenerateMessage,
-            onBranchMessage = onBranchMessage,
-            onSuggestionClick = onSuggestionClick,
-            onRunTraceClick = onRunTraceClick,
-            onOpenBrowser = onOpenBrowser,
-            onEditAssistant = onEditAssistant,
-            onAssistantSelected = onAssistantSelected,
-            currentBrowserMessageId = currentBrowserMessageId,
-            scrollToMessageId = scrollToMessageId,
-            onScrollToMessageConsumed = onScrollToMessageConsumed,
-            modifier = modifier,
-        )
+                    onSubmit(text)
+                    submitScrollScope.launch {
+                        // Cancel an old fling, then anchor the edited/replaced list after layout.
+                        scrollState.scroll(androidx.compose.foundation.MutatePriority.PreventUserInput) { }
+                        withFrameNanos { }
+                        keepBottomAnchored = true
+                        val last = scrollState.layoutInfo.totalItemsCount - 1
+                        if (last >= 0) scrollState.requestScrollToItem(last)
+                    }
+                },
+                onReasoningEffortChange = onReasoningEffortChange,
+                onModelSelected = onModelSelected,
+                onStop = onStop,
+                onContinue = onContinue,
+                onAbortPausedRun = onAbortPausedRun,
+                onAttachImage = onAttachImage,
+                onAttachVideo = onAttachVideo,
+                onRemoveImage = onRemoveImage,
+                onAttachFiles = onAttachFiles,
+                onAttachFolder = onAttachFolder,
+                onAttachFilePath = onAttachFilePath,
+                onRemoveFileReference = onRemoveFileReference,
+                onEditMessage = onEditMessage,
+                onCancelMessageEdit = onCancelMessageEdit,
+                onDeleteMessage = onDeleteMessage,
+                onRegenerateMessage = onRegenerateMessage,
+                onBranchMessage = onBranchMessage,
+                onSuggestionClick = onSuggestionClick,
+                onRunTraceClick = onRunTraceClick,
+                onOpenBrowser = onOpenBrowser,
+                onEditAssistant = onEditAssistant,
+                onAssistantSelected = onAssistantSelected,
+                currentBrowserMessageId = currentBrowserMessageId,
+                scrollToMessageId = scrollToMessageId,
+                onScrollToMessageConsumed = onScrollToMessageConsumed,
+                modifier = modifier,
+            )
+        }
     }
 }
 
@@ -630,7 +636,9 @@ internal fun AgentConversationMessages(
         val activeIds = visibleMessages.mapTo(mutableSetOf()) { it.id }
         streamingMarkdownStates.keys.retainAll(activeIds)
     }
-    val compressingItemCount = if (isCompressingContext || isWaitingForCompression) 1 else 0
+    val telemetry = LocalAgentContextTelemetry.current
+    val compressingChildren = telemetry.children.filter { it.isCompacting }
+    val compressingItemCount = if (isCompressingContext || isWaitingForCompression || compressingChildren.isNotEmpty()) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val turnStarts = remember(timelineEntries) { timelineEntries.turnStartIndices() }
     val directionThreshold = with(LocalDensity.current) { 12.dp.toPx() }
@@ -993,16 +1001,24 @@ internal fun AgentConversationMessages(
                     }
                 }
             }
-            if (isCompressingContext || isWaitingForCompression) {
+            if (compressingItemCount > 0) {
                 item(key = ChatContextCompressingKey) {
-                    ContextCompressingIndicator(
-                        waiting = isWaitingForCompression && !isCompressingContext,
-                        modifier = Modifier.animateItem(
-                            fadeInSpec = tween(durationMillis = 180),
-                            placementSpec = null,
-                            fadeOutSpec = null,
-                        ),
-                    )
+                    Column {
+                        if (isCompressingContext || isWaitingForCompression) ContextCompressingIndicator(
+                            modelName = "${telemetry.compactingModelName.ifBlank { telemetry.mainModelName }}（主代理）",
+                            waiting = isWaitingForCompression && !isCompressingContext,
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = tween(durationMillis = 180),
+                                placementSpec = null,
+                                fadeOutSpec = null,
+                            ),
+                        )
+                        compressingChildren.forEach { child ->
+                            androidx.compose.runtime.key(child.taskId) {
+                                ContextCompressingIndicator(modelName = child.contextLabel())
+                            }
+                        }
+                    }
                 }
             }
             item(key = ChatBottomSentinelKey) {
@@ -1420,7 +1436,7 @@ private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
 private const val ChatContextCompressingKey = "agent-chat-context-compressing"
 
 @Composable
-private fun ContextCompressingIndicator(waiting: Boolean = false, modifier: Modifier = Modifier) {
+private fun ContextCompressingIndicator(waiting: Boolean = false, modelName: String = "", modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1430,7 +1446,8 @@ private fun ContextCompressingIndicator(waiting: Boolean = false, modifier: Modi
     ) {
         CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
         Text(
-            text = stringResource(if (waiting) R.string.compress_conversation_waiting else R.string.compress_conversation_in_progress),
+            text = if (waiting) stringResource(R.string.compress_conversation_waiting) else
+                "${modelName.ifBlank { "主代理" }} • 正在压缩上下文",
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(start = 8.dp),

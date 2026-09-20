@@ -439,7 +439,7 @@ internal class AgentLoop(
                 reason = "当前保留范围内没有可压缩的完整历史单元。"))
             return
         }
-        if (forced) onEvent(AgentEvent.ContextCompactionStarted(round))
+        if (forced) onEvent(AgentEvent.ContextCompactionStarted(round, config.modelDisplayName.ifBlank { config.model }))
         val pruned = pruneOversizedToolResults(round, systemCount + cut)
         if (pruned) {
             // Both the DTO and same-model JSON replay must come from this new snapshot.
@@ -524,6 +524,7 @@ internal class AgentLoop(
         onEvent(AgentEvent.ContextCompacted(round, true, messages.length(), messages.length(),
             history = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds),
             compressorLabel = "工具输出预算修剪（原文可回读）"))
+        emitProjectedPrompt(round)
         checkpoints.forEach { runCatching { archive.record(it, "committed") } }
         return true
     }
@@ -538,7 +539,7 @@ internal class AgentLoop(
         val original = messages.toString()
         val originalCount = messages.length()
         if (lastFailedCompaction == (original to cut)) return false
-        onEvent(AgentEvent.ContextCompactionStarted(round))
+        onEvent(AgentEvent.ContextCompactionStarted(round, config.modelDisplayName.ifBlank { config.model }))
         var savedCheckpoint: String? = null
         var compactionStage = "archive"
         runCatching { io.github.mangi.eta.core.AndroidAgentLogger.info(
@@ -610,6 +611,7 @@ internal class AgentLoop(
         onEvent(AgentEvent.ContextCompacted(round, true, originalCount, messages.length(),
             history = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds),
             compressorLabel = compressorLabel(compressConfig)))
+        emitProjectedPrompt(round)
         savedCheckpoint?.let { runCatching { compactionArchive?.record(it, "committed") } }
         runCatching { io.github.mangi.eta.core.AndroidAgentLogger.info(
             "运行中压缩已提交：checkpoint=$savedCheckpoint，round=$round，消息=$originalCount->${messages.length()}") }
@@ -764,7 +766,8 @@ internal class AgentLoop(
     }
 
     private fun emitProjectedPrompt(round: Int) {
-        val projected = projectedPromptTokens() ?: return
+        val projected = projectedPromptTokens() ?: (AgentContextBudget.estimate(messages) +
+            AgentContextBudget.countTokens(currentRoundTools.toString()))
         if (projected <= 0) return
         onEvent(
             AgentEvent.UsageReceived(

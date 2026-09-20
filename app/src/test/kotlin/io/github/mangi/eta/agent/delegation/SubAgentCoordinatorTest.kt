@@ -122,4 +122,65 @@ class SubAgentCoordinatorTest {
             assertTrue(result.getString("result").contains("拆分任务"))
         }
     }
+    @Test fun fourSlotsRouteAdditionalImplementationWorkers() {
+        val models = (1..4).map { model.copy(model = "model-$it") }
+        var chosen = ""
+        SubAgentCoordinator(models, roles = listOf("implementation", "review", "implementation", "implementation")) { config, _, _ ->
+            chosen = config.model; "done"
+        }.use { c ->
+            val result = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "check").put("worker", 4))).content)
+            val done = get(c, result.getString("task_id"))
+            assertEquals("completed", done.getString("status"))
+            assertEquals("model-4", chosen)
+            assertEquals(4, done.getJSONObject("context_usage").getInt("worker"))
+            assertEquals("completed", done.getJSONObject("context_usage").getString("status"))
+        }
+    }
+
+    @Test fun compressingChildDoesNotBlockOtherWorkerAndLateTelemetryCannotReviveIt() {
+        val compressing = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val events = java.util.Collections.synchronizedList(mutableListOf<SubAgentContextStats>())
+        SubAgentCoordinator(listOf(model), onContext = { events += it },
+            executeObservedChild = { _, prompt, _, _, _, _, emit ->
+                if (prompt.contains("compress me")) {
+                    emit(io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted(1))
+                    compressing.countDown()
+                    try { release.await() } catch (_: InterruptedException) { }
+                    emit(io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted(2))
+                }
+                "done"
+            }, executeChild = { _, _, _ -> error("Observed runner expected") }).use { c ->
+            val first = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "compress me"))).content).getString("task_id")
+            assertTrue(compressing.await(2, TimeUnit.SECONDS))
+            assertTrue(get(c, first, 0).getJSONObject("context_usage").getBoolean("is_compacting"))
+            val second = start(c).getString("task_id")
+            assertEquals("completed", get(c, second).getString("status"))
+            c.execute(call("cancel_task", JSONObject().put("task_id", first)))
+            release.countDown()
+            assertEquals("cancelled", get(c, first, 0).getString("status"))
+            assertFalse(get(c, first, 0).getJSONObject("context_usage").getBoolean("is_compacting"))
+            assertFalse(events.last { it.taskId == first }.isCompacting)
+        }
+    }
+
+    @Test fun telemetryFailureDoesNotPreventCompletionOrCancellation() {
+        SubAgentCoordinator(listOf(model), onContext = { error("UI gone") }) { _, _, _ -> "done" }.use { c ->
+            assertEquals("completed", get(c, start(c).getString("task_id")).getString("status"))
+        }
+        val started = CountDownLatch(1)
+        val cancelled = CountDownLatch(1)
+        SubAgentCoordinator(listOf(model), onContext = { error("UI gone") }) { _, _, controller ->
+            controller.register { cancelled.countDown() }
+            started.countDown()
+            CountDownLatch(1).await()
+            "unused"
+        }.use { c ->
+            val id = start(c).getString("task_id")
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            c.execute(call("cancel_task", JSONObject().put("task_id", id)))
+            assertTrue(cancelled.await(2, TimeUnit.SECONDS))
+        }
+    }
+
 }

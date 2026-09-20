@@ -43,6 +43,15 @@ class WorkspaceTest(unittest.TestCase):
         self.assertEqual('new', (self.root/'main.txt').read_text())
         self.assertFalse(Path(record['path']).exists())
         self.assertEqual(1, len(w.git(self.root, 'worktree', 'list').splitlines()))
+    def test_cancel_after_review_completion_invalidates_review_marker(self):
+        record = self.op('prepare')
+        self.op('seal', record)
+        self.op('begin_review', record)
+        self.op('review', record)
+        self.op('end_review', record)
+        self.assertFalse(w.load(self.root, record['id'])['reviewed'])
+        with self.assertRaisesRegex(ValueError, 'REVIEW_REQUIRED'):
+            self.op('merge', record)
     def test_path_symlink_hardlink_and_metadata_escape(self):
         record = self.op('prepare'); tree=Path(record['path'])
         for path in ['../outside', '/tmp/outside', '.git', '.git/config', '.agent/other', '.gitattributes']:

@@ -620,6 +620,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
                 status = EtaVoiceStatus.Reasoning
             }
             is AgentEvent.ProviderRequestStarted -> status = EtaVoiceStatus.Reasoning
+            is AgentEvent.ChildContextUpdated,
             is AgentEvent.RunStarted,
             is AgentEvent.ProviderResponseStarted,
             is AgentEvent.ToolImagesAttached,

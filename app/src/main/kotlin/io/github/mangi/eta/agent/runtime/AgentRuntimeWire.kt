@@ -701,6 +701,11 @@ internal object AgentRuntimeWire {
                 putStringArrayList("tool_names", ArrayList(event.toolNames))
             }
 
+            is AgentEvent.ChildContextUpdated -> {
+                putString(KEY_TYPE, "child_context_updated")
+                putString("child_context_json", event.stats.toJson().toString())
+            }
+
             is AgentEvent.UsageReceived -> {
                 putString(KEY_TYPE, "usage_received")
                 putInt("round", event.round)
@@ -761,6 +766,7 @@ internal object AgentRuntimeWire {
 
             is AgentEvent.ContextCompactionStarted -> {
                 putString(KEY_TYPE, "context_compaction_started")
+                putString("model_name", event.modelName)
                 putInt("round", event.round)
             }
 
@@ -862,6 +868,8 @@ internal object AgentRuntimeWire {
             toolNames = bundle.getStringArrayList("tool_names").orEmpty(),
         )
 
+        "child_context_updated" -> AgentEvent.ChildContextUpdated(
+            io.github.mangi.eta.agent.delegation.SubAgentContextStats.fromJson(org.json.JSONObject(bundle.getString("child_context_json").orEmpty())))
         "usage_received" -> AgentEvent.UsageReceived(
             round = bundle.getInt("round"),
             usage = bundle.getTokenUsage(),
@@ -915,6 +923,7 @@ internal object AgentRuntimeWire {
 
         "context_compaction_started" -> AgentEvent.ContextCompactionStarted(
             round = bundle.getInt("round"),
+            modelName = bundle.getString("model_name").orEmpty(),
         )
 
         "context_compacted" -> AgentEvent.ContextCompacted(

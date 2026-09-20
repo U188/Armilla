@@ -53,4 +53,24 @@ class SubAgentWorkspaceTest {
             backend.childExecutor("/workspace/Project", "id", true, controller).execute(call("list_files"))
         }
     }
+    @Test fun transportFailureIsNotReportedAsMissingPythonOrGit() {
+        val backend = SubAgentWorkspace("unused") {
+            AgentModelClient.ToolResult(JSONObject().put("ok", false).put("exit_code", 2)
+                .put("stderr", "cannot open staged script").toString())
+        }
+        assertEquals("WORKSPACE_EXECUTION_FAILED", backend.operation("/workspace/Test", "list").getString("code"))
+    }
+
+    @Test fun dependencyProbeAndTerminalErrorsRemainDistinct() {
+        var command = ""
+        val backend = SubAgentWorkspace("unused") {
+            command = JSONObject(it.argumentsJson).getString("command")
+            AgentModelClient.ToolResult(JSONObject().put("ok", false).put("code", "LINUX_ENVIRONMENT_NOT_READY").toString())
+        }
+        assertEquals("LINUX_ENVIRONMENT_NOT_READY", backend.operation("/workspace/Test", "list").getString("code"))
+        assertTrue(command.contains("command -v python3"))
+        assertTrue(command.contains("command -v git"))
+        assertTrue(command.contains("WORKSPACE_LINUX_PYTHON_GIT_REQUIRED"))
+    }
+
 }

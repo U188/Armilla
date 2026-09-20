@@ -205,8 +205,8 @@ internal class AgentRuntimeRunExecutor(
             toolsBinding = runController.register { routingExecutor.close() }
             timing.preparationFinished(skillContext.installedSkills.size)
             val configuredChildren = if (SubAgentPreferences.enabled(request.effectiveModelSessionId)) runBlocking {
-                (0..1).mapNotNull { slot ->
-                    runCatching { SubAgentPreferences.selection(slot).resolve() }.getOrNull()
+                (0 until SubAgentPreferences.SLOT_COUNT).mapNotNull { slot ->
+                    runCatching { SubAgentPreferences.selection(slot).resolve()?.let { SubAgentPreferences.applyReasoning(slot, it) } }.getOrNull()
                         ?.takeIf { it.apiKey.isNotBlank() && it.baseUrl.isNotBlank() }
                         ?.let { slot to it }
                 }
@@ -215,8 +215,26 @@ internal class AgentRuntimeRunExecutor(
             if (childModels.isNotEmpty()) {
                 val workspace = if (request.config.terminalTools && currentPermissions().terminalTools) SubAgentWorkspace(appContext, executor) else null
                 children = SubAgentCoordinator(childModels,
-                    roles = configuredChildren.map { if (it.first == 0) "implementation" else "review" },
+                    roles = configuredChildren.map { SubAgentPreferences.role(it.first) },
                     workspace = workspace,
+                    onContext = { stats -> acceptEvent(session, AgentEvent.ChildContextUpdated(stats), archivedEvents, entrySurfaceGuard, checkpointRecorder) },
+                    executeObservedChild = { config, prompt, controller, project, id, writable, progress ->
+                        if (id != null) {
+                            val backend = requireNotNull(workspace)
+                            SubAgentRunner.run(config, prompt, SubAgentWorkspace.childTools(writable),
+                                backend.childExecutor(project, id, writable, controller), controller,
+                                workspaceMode = true, writable = writable, sessionId = request.effectiveModelSessionId, onProgress = progress)
+                        } else {
+                            val readTools = SubAgentTools.filter(AgentToolCatalog.build(
+                                terminalTools = request.config.terminalTools && currentPermissions().terminalTools,
+                                browserTools = false,
+                                deviceDirectTools = request.config.deviceDirectTools && currentPermissions().deviceDirectTools,
+                                deviceSensitiveReadTools = request.config.deviceSensitiveReadTools && currentPermissions().deviceSensitiveReadTools,
+                                memoryTools = memoryEnabled, capabilities = AgentToolCapabilities.capture(appContext)))
+                            SubAgentRunner.run(config, prompt, readTools, executor, controller,
+                                sessionId = request.effectiveModelSessionId, onProgress = progress)
+                        }
+                    },
                     executeWorkspaceChild = { config, prompt, controller, project, id, writable ->
                         val backend = requireNotNull(workspace)
                         SubAgentRunner.run(config, prompt, SubAgentWorkspace.childTools(writable),
@@ -236,7 +254,7 @@ internal class AgentRuntimeRunExecutor(
                 }
                 childBinding = runController.register { children?.close() }
                 SubAgentTools.appendTo(mcpTools, configuredChildren.mapIndexed { i, (slot, model) ->
-                    "${i + 1}: ${if (slot == 0) "implementation" else "review/summary"} — ${model.providerName} / ${model.modelDisplayName.ifBlank { model.model }}"
+                    "${i + 1}: ${if (SubAgentPreferences.role(slot) == "implementation") "implementation" else "review/summary"} — ${model.providerName} / ${model.modelDisplayName.ifBlank { model.model }}"
                 }, workspaceEnabled = workspace != null)
             }
             val delegatedExecutor = AgentModelClient.ToolExecutor { call ->
@@ -390,7 +408,7 @@ internal class AgentRuntimeRunExecutor(
         )
     }
 
-    private fun acceptEvent(
+    @Synchronized private fun acceptEvent(
         session: AgentRuntimeSession,
         event: AgentEvent,
         archivedEvents: MutableList<AgentEvent>,

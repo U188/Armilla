@@ -469,6 +469,7 @@ internal fun AgentChatInputBar(
                         // Keep context details accessible even for an empty draft or an unknown limit.
                         AgentContextUsageButton(
                             usage = liveUsage,
+                            popupMaxHeight = thinkingPopupMaxHeight,
                             sendBlocked = contextSendBlocked,
                         )
                         Spacer(modifier = Modifier.width(2.dp))
@@ -650,12 +651,13 @@ private fun ThinkingEffortChip(
 }
 
 @Composable
-private fun ThinkingEffortPickerDialog(
+internal fun ThinkingEffortPickerDialog(
     show: Boolean,
     effort: ReasoningEffort,
     options: List<ReasoningEffort>,
     onDismiss: () -> Unit,
     onEffortChange: (ReasoningEffort) -> Unit,
+    description: String? = null,
 ) {
     if (options.isEmpty()) return
     val view = LocalView.current
@@ -684,6 +686,14 @@ private fun ThinkingEffortPickerDialog(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
             Icon(
                 imageVector = ImageVector.vectorResource(R.drawable.ic_atom),
                 contentDescription = null,

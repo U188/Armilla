@@ -199,6 +199,15 @@ internal fun ModelProviderListScreen(
                             },
                             onClick = { onNavigate(AppRoute.ModelProviderNew(NewProviderType.DoubaoSpeech)) },
                         )
+
+                        ArrowPreference(
+                            title = stringResource(R.string.ui_new_compatible_speech),
+                            summary = stringResource(R.string.ui_new_compatible_speech_summary),
+                            startAction = {
+                                ProviderBrandIcon(ProviderSourceTypes.OPENAI)
+                            },
+                            onClick = { onNavigate(AppRoute.ModelProviderNew(NewProviderType.CompatibleSpeech)) },
+                        )
                     }
                 }
 

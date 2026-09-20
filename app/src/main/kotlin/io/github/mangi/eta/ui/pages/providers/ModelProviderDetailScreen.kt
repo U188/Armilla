@@ -141,6 +141,20 @@ internal fun ModelProviderDetailScreen(
                     ),
                 ),
             )
+            NewProviderType.CompatibleSpeech -> CustomProviderSetting(
+                id = "",
+                name = "语音合成",
+                baseUrl = "",
+                sourceType = ProviderSourceTypes.COMPATIBLE_SPEECH,
+                models = SpeechSynthesisModels.catalogModels(
+                    CustomProviderSetting(
+                        id = "draft",
+                        name = "语音合成",
+                        baseUrl = "",
+                        sourceType = ProviderSourceTypes.COMPATIBLE_SPEECH,
+                    ),
+                ),
+            )
             null -> null
         }
     }

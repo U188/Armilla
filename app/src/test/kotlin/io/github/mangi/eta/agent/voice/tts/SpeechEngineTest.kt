@@ -2,10 +2,13 @@ package io.github.mangi.eta.agent.voice.tts
 
 import io.github.mangi.eta.agent.model.AgentModelClient
 
+import io.github.mangi.eta.data.model.Model
 import io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting
+import io.github.mangi.eta.data.model.SpeechSynthesisModels
 import io.github.mangi.eta.data.model.ProviderSourceTypes
 import java.util.Base64
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,9 +38,18 @@ class SpeechEngineTest {
         assertTrue(SpeechProtocols.decodeMimoSse(sse).contentEquals(pcm))
     }
 
-    @Test fun cosyVoiceAndMossOnOpenAiCompatibleHostAreNotAlloy() {
-        val provider = OpenAiCompatibleProviderSetting(
+    @Test fun chatRelaysDoNotTreatCosyVoiceAsDedicatedSpeech() {
+        val chat = OpenAiCompatibleProviderSetting(
             id = "fish", name = "鱼", baseUrl = "https://api.example.com/v1", apiKey = "k",
+        )
+        assertEquals(SpeechEngine.OPENAI, SpeechEngineResolver.resolve(chat, "CosyVoice2"))
+        assertFalse(SpeechSynthesisModels.isReadAloudModel(Model("c", "CosyVoice2", "CosyVoice2"), chat))
+    }
+
+    @Test fun dedicatedSpeechProviderMapsCosyVoiceAndMoss() {
+        val provider = OpenAiCompatibleProviderSetting(
+            id = "speech", name = "语音合成", baseUrl = "https://api.example.com/v1", apiKey = "k",
+            sourceType = ProviderSourceTypes.COMPATIBLE_SPEECH,
         )
         assertEquals(SpeechEngine.COSYVOICE, SpeechEngineResolver.resolve(provider, "CosyVoice2"))
         assertEquals(SpeechEngine.MOSS, SpeechEngineResolver.resolve(provider, "MOSS-TTSD"))

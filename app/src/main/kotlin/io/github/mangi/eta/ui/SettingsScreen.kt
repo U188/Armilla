@@ -329,6 +329,9 @@ internal fun SettingsScreen(
                         startAction = { PreferenceIcon(icon = Icons.Rounded.Psychology) },
                         onClick = { onNavigate(AppRoute.AuxiliaryVision) },
                     )
+                    ArrowPreference(title = "子代理",
+                        startAction = { PreferenceIcon(icon = Icons.Rounded.Psychology) },
+                        onClick = { onNavigate(AppRoute.SubAgents) })
                     ArrowPreference(
                         title = stringResource(R.string.title_model_title),
                         startAction = { PreferenceIcon(icon = Icons.Rounded.AutoAwesome) },

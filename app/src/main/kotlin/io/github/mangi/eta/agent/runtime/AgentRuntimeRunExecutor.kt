@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.runtime
 
 import android.content.Context
+import io.github.mangi.eta.agent.delegation.*
+import io.github.mangi.eta.agent.model.AgentToolCatalog
 import io.github.mangi.eta.agent.accessibility.AgentAccessibilityKeeper
 import io.github.mangi.eta.agent.model.AgentContextCompactor
 import io.github.mangi.eta.agent.model.AgentCompressionEndpoint
@@ -72,6 +74,8 @@ internal class AgentRuntimeRunExecutor(
         var entrySurfaceGuard: EntrySurfaceGuard? = null
         var toolExecutor: AutoCloseable? = null
         var toolsBinding: AgentRunController.ResourceBinding? = null
+        var children: SubAgentCoordinator? = null
+        var childBinding: AgentRunController.ResourceBinding? = null
         var response: AgentModelClient.ModelResponse.Text? = null
         var cancelled = false
         var checkpointRecorder: AgentRunCheckpointRecorder? = null
@@ -203,13 +207,40 @@ internal class AgentRuntimeRunExecutor(
             toolExecutor = routingExecutor
             toolsBinding = runController.register { routingExecutor.close() }
             timing.preparationFinished(skillContext.installedSkills.size)
+            val childModels = if (SubAgentPreferences.enabled(request.effectiveModelSessionId)) runBlocking {
+                (0..1).mapNotNull { SubAgentPreferences.selection(it).resolve() }
+                    .filterNot { it.providerId == request.config.providerId && it.model == request.config.model }
+                    .distinctBy { it.providerId to it.model }
+            } else emptyList()
+            if (childModels.isNotEmpty()) {
+                children = SubAgentCoordinator(childModels) { config, prompt, controller ->
+                    val readTools = SubAgentTools.filter(AgentToolCatalog.build(
+                        terminalTools = request.config.terminalTools && currentPermissions().terminalTools,
+                        browserTools = false,
+                        deviceDirectTools = request.config.deviceDirectTools && currentPermissions().deviceDirectTools,
+                        deviceSensitiveReadTools = request.config.deviceSensitiveReadTools && currentPermissions().deviceSensitiveReadTools,
+                        memoryTools = memoryEnabled,
+                        capabilities = AgentToolCapabilities.capture(appContext),
+                    ))
+                    SubAgentRunner.run(config, prompt, readTools, executor, controller)
+                }
+                childBinding = runController.register { children?.close() }
+                SubAgentTools.appendTo(mcpTools, childModels.mapIndexed { i, model ->
+                    "${i + 1}: ${model.providerName} / ${model.modelDisplayName.ifBlank { model.model }}"
+                })
+            }
+            val delegatedExecutor = AgentModelClient.ToolExecutor { call ->
+                val coordinator = children
+                if (coordinator != null && call.name in SubAgentTools.names) coordinator.execute(call)
+                else routingExecutor.execute(call)
+            }
             val compactPolicy = runBlocking { compactPolicyFor(request.config) }
             val completedResponse = AgentModelClient.complete(
                 config = request.config,
                 sessionId = request.effectiveModelSessionId,
                 capabilitiesProvider = { AgentToolCapabilities.capture(appContext) },
                 prompt = request.prompt,
-                toolExecutor = routingExecutor,
+                toolExecutor = delegatedExecutor,
                 images = request.images,
                 history = request.history,
                 // Runtime owns all request-budget decisions; never silently trim protected history here.
@@ -311,6 +342,8 @@ internal class AgentRuntimeRunExecutor(
                     ?: (throwable as? AgentRunCancelledException)?.transcript.orEmpty(),
             )
         } finally {
+            runCatching { childBinding?.close() }
+            runCatching { children?.close() }
             runCatching { toolsBinding?.close() }
             runCatching { toolExecutor?.close() }
             unownedSkillRoot?.let { root -> runCatching { SkillRuntime.releaseRunSkills(appContext, root) } }

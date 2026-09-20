@@ -39,6 +39,7 @@ internal fun AgentHomeScreen(
     }
     key(chatConversationCompositionKey(conversationKey)) {
         AgentChatBody(
+            collaborationConversationId = conversationKey,
             voiceController = voiceController,
             messages = state.messages,
             history = AgentConversationRevisionReducer.outboundHistory(state),

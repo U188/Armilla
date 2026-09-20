@@ -58,6 +58,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun AgentModelPickerButton(
+    conversationId: String? = null,
     state: AgentModelPickerUiState,
     isStreaming: Boolean,
     isPaused: Boolean = false,
@@ -66,6 +67,27 @@ internal fun AgentModelPickerButton(
     onModelSelected: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var showCollaboration by remember { mutableStateOf(false) }
+    var collaboration by remember(conversationId) {
+        mutableStateOf(io.github.mangi.eta.agent.delegation.SubAgentPreferences.enabled(conversationId))
+    }
+    if (showCollaboration) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showCollaboration = false },
+            title = { Text("本会话协作") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    Text("主代理自动委派，最多两个只读子代理；结果由主代理审核。更改从下一次运行生效。模型在设置 → 模型功能 → 子代理中配置。")
+                    top.yukonga.miuix.kmp.preference.SwitchPreference(
+                        title = "自动委派", checked = collaboration,
+                        onCheckedChange = { collaboration = it
+                            io.github.mangi.eta.agent.delegation.SubAgentPreferences.setEnabled(conversationId, it)
+                        })
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { showCollaboration = false }) { Text("完成") } },
+        )
+    }
     val menuState = rememberEtaMenuState()
     var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
     val selected = state.selectedModel
@@ -83,6 +105,7 @@ internal fun AgentModelPickerButton(
                 menuState.onAnchorClick()
             },
             contentDescription = switchModelDescription,
+            onLongClick = { menuState.dismiss(); showCollaboration = true },
         ) {
             ModelBrandMark(
                 modelId = selected?.modelId,

@@ -170,6 +170,7 @@ internal fun AgentChatInputBar(
     pendingFileReferences: List<PendingFileReferenceUi>,
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     isEditingMessage: Boolean,
+    collaborationConversationId: String? = null,
     assistantId: String = "",
     voiceState: VoiceModeState = VoiceModeState(),
     onStartVoiceMode: (VoiceEntryMode) -> Unit = {},
@@ -473,6 +474,7 @@ internal fun AgentChatInputBar(
                         Spacer(modifier = Modifier.width(2.dp))
 
                         AgentModelPickerButton(
+                            conversationId = collaborationConversationId,
                             state = modelPickerState,
                             isStreaming = isStreaming,
                             isPaused = isPaused,

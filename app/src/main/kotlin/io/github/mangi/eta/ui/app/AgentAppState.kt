@@ -1367,6 +1367,7 @@ internal class AgentAppState(
         }
         val conversationId = selectedConversationId ?: newConversationId().also { id ->
             conversationDrafts.promote(id)
+            io.github.mangi.eta.agent.delegation.SubAgentPreferences.promote(id)
             selectedConversationId = id
             conversationPaneState = conversationPaneState.copy(selectedConversationId = id)
             assignPendingFolder(id)

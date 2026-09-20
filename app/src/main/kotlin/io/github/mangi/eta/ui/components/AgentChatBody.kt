@@ -173,6 +173,7 @@ internal fun AgentChatBody(
     pendingFileReferences: List<PendingFileReferenceUi>,
     conversationMentions: ConversationMentionInputUi = ConversationMentionInputUi(),
     messageEdit: MessageEditUiState?,
+    collaborationConversationId: String? = null,
     assistantId: String = "",
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     onModelSelected: (String, String) -> Unit,
@@ -1327,6 +1328,7 @@ private fun AgentChatBottomBar(
                 .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
         ) {
             AgentChatInputBar(
+                collaborationConversationId = collaborationConversationId,
                 input = input,
                 draftField = draftField,
                 modelPickerState = modelPickerState,

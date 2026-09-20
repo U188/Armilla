@@ -45,7 +45,7 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
         val selected = selections[index]
         val all = AgentModelPickerProjector.project(providers, selected.providerId, selected.modelId)
         val models = all.copy(providerGroups = all.providerGroups.map { group ->
-            group.copy(models = group.models.filter { !it.supportsSpeechSynthesis && !it.supportsImageGeneration && !it.supportsVideoGeneration })
+            group.copy(models = group.models.filter { !it.supportsImageGeneration && !it.supportsVideoGeneration })
         }.filter { it.models.isNotEmpty() })
         TtsModelPickerDialog(models, true, { editing = null }, { providerId, modelId ->
             val selection = ModelFeatureSelection(true, providerId, modelId)

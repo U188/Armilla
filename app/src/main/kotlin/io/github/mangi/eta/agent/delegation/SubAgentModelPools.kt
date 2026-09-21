@@ -32,6 +32,10 @@ internal object SubAgentModelPools {
         entries[key]?.let { resize(it, limit) }
     }
     @Synchronized fun currentLimit(lease: Lease): Int = entries[lease.key]?.limit ?: lease.limit
+    @Synchronized fun diagnostics(lease: Lease): Map<String,Number> {
+        val entry=entries[lease.key] ?: return emptyMap()
+        return mapOf("active" to entry.executor.activeCount,"queued" to entry.executor.queue.size,"limit" to entry.limit)
+    }
     private fun resize(entry: Entry, limit: Int) {
         if (entry.limit == limit) return
         val cap = if (limit == 0) Int.MAX_VALUE else limit

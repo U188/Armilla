@@ -23,6 +23,7 @@ internal class SubAgentExecutionClock(
     }
     /** Renew only execution time. Waiting is not charged; cumulative compression budget survives. */
     @Synchronized fun renewExecution() { tick(); execution = 0; executionPaused = false }
+    @Synchronized fun diagnostics(): Map<String, Number> { tick(); return mapOf("execution_ms" to execution, "compression_ms" to compression) }
     private fun tick() {
         val current = now()
         val elapsed = (current - last).coerceAtLeast(0)

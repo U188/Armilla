@@ -30,6 +30,7 @@ internal class SubAgentCoordinator(
     private val executeImageChild: ((AgentModelClient.ModelConfig, String, AgentRunController, AgentImageGenerationOptions) -> String)? = null,
     private val modelParallelLimits: List<Int> = List(workers.size) { 1 },
     private val allowTimeoutContinuation: Boolean = false,
+    private val diagnostics: SubAgentDiagnostics = SubAgentDiagnostics(),
     private val executeChild: (AgentModelClient.ModelConfig, String, AgentRunController) -> String,
 ) : AutoCloseable {
     init { require(workers.isNotEmpty() && roles.size == workers.size && workerIds.size == workers.size && workerIds.distinct().size == workers.size && workerNames.size == workers.size && workerModelIds.size == workers.size && modelParallelLimits.size == workers.size && modelParallelLimits.all { it >= 0 }) }
@@ -42,6 +43,12 @@ internal class SubAgentCoordinator(
         @Volatile var executing = false
         @Volatile var continuationCount = 0
         @Volatile var finalizing = false
+        val queuedAt = System.nanoTime() / 1_000_000
+        @Volatile var startedAt: Long? = null
+        @Volatile var lastHeartbeat = queuedAt
+        @Volatile var decisionAt: Long? = null
+        @Volatile var decisionWaitMs = 0L
+        @Volatile var phase = "queued"
         @Volatile var leaseRenewal: java.util.concurrent.ScheduledFuture<*>? = null
 
         val dispatchGate = java.util.concurrent.CountDownLatch(1)
@@ -101,6 +108,7 @@ internal class SubAgentCoordinator(
         } catch (_: org.json.JSONException) {
             JSONObject().put("ok", false).put("code", "INVALID_TASK_ARGUMENTS")
         }
+        if (!json.optBoolean("ok", true)) diagnostics.mark("dispatch_rejected", errorCode = json.optString("code"))
         // Child evidence may contain sensitive tool output. Do not persist raw returned text.
         return AgentModelClient.ToolResult(json.toString(), sensitive = true)
     }
@@ -152,9 +160,11 @@ internal class SubAgentCoordinator(
                 synchronized(task) {
                     if (task.state != "queued") return@submit
                     task.executing = true
+                    task.startedAt = System.nanoTime() / 1_000_000
                     task.state = "running"
                     task.clock = SubAgentExecutionClock(if (role == "video_generation") videoTimeoutMs else timeoutMs, compressionTimeoutMs)
                     publishContext(task.context.start())
+                    diagnostic(task,"started")
                 }
                 var ownsWorkspaceLease = false
                 try {
@@ -167,21 +177,30 @@ internal class SubAgentCoordinator(
                                         task.controller.pauseAtCheckpoint()
                                         task.clock.pauseExecution()
                                         task.state = "awaiting_decision"
+                                        task.decisionAt = System.nanoTime() / 1_000_000
                                         task.errorCode = expired
                                         publishContext(task.context.awaitDecision())
+                                        diagnostic(task,"execution_budget_wait")
                                     }
                                 }
                             } else stop(task, "timed_out", expired)
                         }
                         if (task.state !in setOf("running", "awaiting_decision")) task.watchdog?.cancel(false)
+                        val now = System.nanoTime() / 1_000_000
+                        if (now - task.lastHeartbeat >= 30_000) {
+                            task.lastHeartbeat = now
+                            diagnostic(task,"heartbeat." + task.phase)
+                        }
                     }, minOf(timeoutMs, 100L).coerceAtLeast(1), 50, TimeUnit.MILLISECONDS)
                     task.controller.throwIfCancelled()
                     if (role == "implementation") {
+                        diagnostic(task,"workspace_prepare")
                         val prepared = workspace!!.requireOperation(project, "prepare")
                         task.workspaceId = prepared.getString("id")
                         ownsWorkspaceLease = true
                         task.workspacePath = prepared.getString("path")
                     } else if (workspaceId != null) {
+                        diagnostic(task,"workspace_begin_review")
                         val existing = workspace!!.requireOperation(project, "begin_review", workspaceId)
                         check(existing.getString("state") == "reviewing")
                         ownsWorkspaceLease = true
@@ -191,18 +210,20 @@ internal class SubAgentCoordinator(
                         task.leaseRenewal = timer.scheduleWithFixedDelay({
                             if (task.state in setOf("running", "awaiting_decision") && !task.finalizing) {
                                 val renewed = runCatching { workspace!!.requireOperation(project, "renew", task.workspaceId) }
-                                if (renewed.isFailure) stop(task, "failed", "WORKSPACE_LEASE_LOST")
+                                if (renewed.isFailure) { diagnostic(task,"lease_failed",renewed.exceptionOrNull()); stop(task, "failed", "WORKSPACE_LEASE_LOST") }
                             }
                         }, 60, 60, TimeUnit.SECONDS)
                     }
                     task.controller.throwIfCancelled()
                     val prompt = "Role: $role\nTask:\n$instruction\n\nContext supplied by main agent:\n$context"
+                    diagnostic(task, if (role in setOf("image_generation", "video_generation")) "media_request" else "model_loop")
                     val answer = if (role in setOf("image_generation", "video_generation")) {
                         val mediaPrompt = instruction + if (context.isBlank()) "" else "\n\n补充要求：\n$context"
                         if (role == "video_generation") executeVideoChild!!.invoke(workers[worker], mediaPrompt, task.controller)
                         else executeImageChild!!.invoke(workers[worker], mediaPrompt, task.controller, imageOptions)
                     } else if (executeObservedChild != null) {
                         executeObservedChild.invoke(workers[worker], prompt, task.controller, project, task.workspaceId, role == "implementation") { event ->
+                            diagnosticEvent(task,event)
                             synchronized(task) {
                                 if (task.state in setOf("running", "awaiting_decision")) task.context.accept(event)?.let { stats ->
                                     task.clock.setCompacting(stats.isCompacting)
@@ -221,7 +242,7 @@ internal class SubAgentCoordinator(
                         }
                         if (canFinalize) break
                     }
-                    if (role == "implementation") workspace!!.requireOperation(project, "seal", task.workspaceId)
+                    if (role == "implementation") { diagnostic(task,"workspace_seal"); workspace!!.requireOperation(project, "seal", task.workspaceId) }
                     else if (task.workspaceId != null) workspace!!.requireOperation(project, if (role == "review") "review" else "end_review", task.workspaceId)
                     task.controller.throwIfCancelled()
                     while (true) {
@@ -230,6 +251,7 @@ internal class SubAgentCoordinator(
                             if (task.state == "running") {
                                 task.result = answer.take(16000) + if (answer.length > 16000) "\n[结果已截断]" else ""
                                 task.state = "completed"
+                                diagnostic(task,"completed")
                                 task.context.finish(task.state)
                                 true
                             } else false
@@ -267,15 +289,44 @@ internal class SubAgentCoordinator(
                     task.leaseRenewal?.cancel(false)
                     synchronized(task) { publishContext(task.context.finish(task.state)) }
                     task.executing = false
+                    diagnostic(task,"worker_released")
                 }
             }
             task
         }
         // Never call an external telemetry sink while holding the coordinator lock.
         // The gate preserves queued -> running event order without charging queue time.
-        synchronized(task) { publishContext(task.context.value) }
+        synchronized(task) { publishContext(task.context.value); diagnostic(task,"queued") }
         task.dispatchGate.countDown()
         return snapshot(task)
+    }
+    private fun diagnostic(task: Task, stage: String, failure: Throwable? = null, more: Map<String,Number> = emptyMap(), tool: String = "") {
+        runCatching {
+            val now=System.nanoTime()/1_000_000
+            if (!stage.startsWith("heartbeat.")) task.phase=stage
+            val fields=linkedMapOf<String,Number>("elapsed_ms" to (now-task.queuedAt),
+                "queue_ms" to ((task.startedAt ?: now)-task.queuedAt),
+                "decision_wait_ms" to (task.decisionWaitMs + (task.decisionAt?.let { now-it } ?: 0)),
+                "continuations" to task.continuationCount, "limit" to SubAgentModelPools.currentLimit(poolLeases[task.worker]),
+                "workspace_present" to if(task.workspaceId==null) 0 else 1)
+            if(task.startedAt != null) fields.putAll(task.clock.diagnostics())
+            fields.putAll(SubAgentModelPools.diagnostics(poolLeases[task.worker]))
+            fields.putAll(more)
+            diagnostics.mark(stage,task.id,workerIds[task.worker],workers[task.worker].providerId,workers[task.worker].model,
+                task.role,task.state,task.errorCode,failure,fields,tool)
+        }
+    }
+    private fun diagnosticEvent(task: Task, event: io.github.mangi.eta.agent.runtime.AgentEvent) {
+        when(event) {
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ProviderRequestStarted -> diagnostic(task,"provider_request",more=mapOf("round" to event.round))
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ProviderResponseStarted -> diagnostic(task,"provider_response",more=mapOf("round" to event.round,"http_status" to event.httpCode))
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ModelRetryScheduled -> diagnostic(task,"provider_retry",more=mapOf("attempt" to event.attempt,"delay_ms" to event.delayMs))
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ToolStarted -> diagnostic(task,"tool_started",more=mapOf("round" to event.round),tool=event.name)
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ToolFinished -> diagnostic(task,"tool_finished",more=mapOf("round" to event.round,"tool_ok" to if(event.success==true) 1 else if(event.success==false) 0 else -1),tool=event.name)
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted -> diagnostic(task,"compaction_started",more=mapOf("round" to event.round))
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompacted -> diagnostic(task,"compaction_finished",more=mapOf("round" to event.round))
+            else -> Unit
+        }
     }
     // Telemetry failure must never prevent cancellation or change a task outcome.
     private fun publishContext(stats: SubAgentContextStats) { runCatching { onContext(stats) } }
@@ -306,11 +357,14 @@ internal class SubAgentCoordinator(
         val task = find(args.getString("task_id"))
         synchronized(task) {
             if (task.state != "awaiting_decision") return errorResult("TASK_NOT_AWAITING_DECISION")
+            task.decisionAt?.let { task.decisionWaitMs += System.nanoTime() / 1_000_000 - it }
+            task.decisionAt = null
             task.clock.renewExecution()
             task.errorCode = ""
             task.continuationCount++
             task.state = "running"
             publishContext(task.context.start())
+            diagnostic(task,"continued")
             task.controller.resume()
             return snapshot(task)
         }
@@ -322,6 +376,7 @@ internal class SubAgentCoordinator(
             task.errorCode = errorCode
             task.watchdog?.cancel(false)
             publishContext(task.context.finish(state))
+            diagnostic(task,state)
         }
         task.controller.cancel()
         task.future?.cancel(true)
@@ -331,7 +386,7 @@ internal class SubAgentCoordinator(
             .put("agent_id", workerIds[task.worker]).put("agent_name", workerNames[task.worker])
             .put("status", task.state).put("result", task.result)
             .put("context_usage", task.context.value.copy(status = task.state,
-                isCompacting = task.state == "running" && task.context.value.isCompacting).toJson())
+                isCompacting = task.state in setOf("running", "awaiting_decision") && task.context.value.isCompacting).toJson())
             .put("role", task.role).put("project", task.project).put("error_code", task.errorCode)
             .put("workspace_id", task.workspaceId ?: JSONObject.NULL).put("workspace_path", task.workspacePath)
             .put("review_required", true)

@@ -162,8 +162,11 @@ class AgentImageGenerationParametersTest {
         assertEquals("2k", actual.getString("resolution"))
         assertEquals("portrait", actual.getString("prompt"))
         assertFalse(actual.has("eta_image_config"))
-        assertTrue(output.text.contains("发送参数"))
+        assertTrue(output.text.contains("分辨率:100x100"))
+        assertTrue(output.text.contains("比例:9:16"))
         assertTrue(output.text.contains("IMAGE_DIMENSIONS_MISMATCH"))
+        assertFalse(output.text.contains("发送参数"))
+        assertFalse(output.text.contains("端点协议"))
         assertEquals(1, requests.size)
     }
 

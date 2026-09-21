@@ -2,15 +2,15 @@ package io.github.mangi.eta.agent.model
 
 import org.json.JSONObject
 
-/** Shared explicit JSON directives and standalone shape clauses; arbitrary prose is not mined. */
+/** Shared explicit directives and guarded natural-language output settings. */
 internal object ImagePromptOptions {
     data class Parsed(val prompt: String, val options: AgentImageGenerationOptions)
 
-    fun parse(prompt: String): Parsed {
+    fun parse(prompt: String, overrides: AgentImageGenerationOptions = AgentImageGenerationOptions()): Parsed {
         // One standalone JSON directive, not quoted examples/fences or loose numbers such as times.
         val lines = prompt.lines()
         val indexes = lines.indices.filter { lines[it].trimStart().startsWith("image_options:") }
-        if (indexes.isEmpty()) return parseShapeClauses(prompt)
+        if (indexes.isEmpty()) return parseShapeClauses(prompt, overrides)
         if (indexes.size != 1 || prompt.contains("```"))
             AgentImageGenerationOptions.invalid("请只在独立一行填写一次 image_options: {...}，不要放在代码块或示例中。")
         val index = indexes.single()
@@ -21,36 +21,8 @@ internal object ImagePromptOptions {
         val options = AgentImageGenerationOptions.fromJson(json).also { it.validateShape() }
         return Parsed(lines.filterIndexed { i, _ -> i != index }.joinToString("\n").trim(), options)
     }
-    private fun parseShapeClauses(prompt: String): Parsed {
-        val values = JSONObject()
-        // Only whole standalone clauses are interpreted. Never mine dimensions from narrative,
-        // dates/times, negations, quoted examples, code fences, or an arbitrary sentence.
-        val clauses = prompt.split(Regex("[,，;；\\n]"))
-        val patterns = listOf(
-            "aspect_ratio" to Regex("(?:比例|宽高比|aspect_ratio)\\s*[=:：]?\\s*([0-9]+(?:\\.[0-9]+)?[:：][0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE),
-            "resolution" to Regex("(?:分辨率|清晰度|resolution)\\s*[=:：]?\\s*([1-9][0-9]?(?:\\.5)?k)", RegexOption.IGNORE_CASE),
-            "size" to Regex("(?:尺寸|size)\\s*[=:：]?\\s*([1-9][0-9]*[x×][1-9][0-9]*)", RegexOption.IGNORE_CASE),
-            "aspect_ratio" to Regex("([0-9]+(?:\\.[0-9]+)?[:：][0-9]+(?:\\.[0-9]+)?)"),
-            "resolution" to Regex("([1-9][0-9]?(?:\\.5)?k)", RegexOption.IGNORE_CASE),
-            "size" to Regex("([1-9][0-9]*[x×][1-9][0-9]*)", RegexOption.IGNORE_CASE),
-        )
-        if (prompt.contains("```") || Regex("不要|不是|而非|例如|比如|示例|不需要|don't|not |example", RegexOption.IGNORE_CASE).containsMatchIn(prompt)) {
-            if (clauses.any { clause -> patterns.any { (_, pattern) -> pattern.matches(clause.trim().trimEnd('。', '.')) } })
-                AgentImageGenerationOptions.invalid("描述包含否定、示例或代码块，不能确定尺寸意图；请用独立一行 image_options JSON 明确指定。")
-            return Parsed(prompt, AgentImageGenerationOptions())
-        }
-        for (clause in clauses) {
-            for ((key, pattern) in patterns) {
-                val match = pattern.matchEntire(clause.trim().trimEnd('。', '.')) ?: continue
-                val value = match.groupValues[1].lowercase().replace('：', ':').replace('×', 'x')
-                if (values.has(key) && values.getString(key) != value)
-                    AgentImageGenerationOptions.invalid("出现多个冲突的生图$key 参数；请用一行 image_options JSON 明确指定。")
-                values.put(key, value)
-                break
-            }
-        }
-        return Parsed(prompt, AgentImageGenerationOptions.fromJson(values).also { it.validateShape() })
-    }
+    private fun parseShapeClauses(prompt: String, overrides: AgentImageGenerationOptions): Parsed =
+        Parsed(prompt, NaturalImagePromptOptions.parse(prompt, overrides))
 
 }
 
@@ -68,7 +40,7 @@ internal object ImageRequestParameters {
         val nativeParameters: JSONObject = JSONObject(),
     )
 
-    fun prepare(input: JSONObject, inline: AgentImageGenerationOptions, explicit: AgentImageGenerationOptions): Prepared {
+    fun prepare(input: JSONObject, inline: AgentImageGenerationOptions, explicit: AgentImageGenerationOptions, defaultCount: Int? = null): Prepared {
         // Planning must not mutate saved configuration or a caller's body, even on validation failure.
         val body = JSONObject(input.toString())
         val rawConfig = body.remove(CONFIG_KEY)
@@ -107,7 +79,7 @@ internal object ImageRequestParameters {
             val value = if (fields.has(key)) fields.opt(key) as? String
                 ?: AgentImageGenerationOptions.invalid("字段映射必须是字符串。") else key
             val parts = value.split('.')
-            if (parts.size > 6 || parts.any { !Regex("[A-Za-z_][A-Za-z0-9_]{0,63}").matches(it) } ||
+            if (parts.size > 6 || "concurrency" in parts || parts.any { !Regex("[A-Za-z_][A-Za-z0-9_]{0,63}").matches(it) } ||
                 parts.first() in setOf("model", "prompt", "input", "messages", "image", "images", "mask", "stream", "tools", "tool_choice", CONFIG_KEY))
                 AgentImageGenerationOptions.invalid("生图字段映射路径无效或覆盖保留字段。")
             parts
@@ -141,8 +113,10 @@ internal object ImageRequestParameters {
                 canonical.put(key, decoded)
             }
         }
+        body.remove("concurrency")?.let { canonical.put("concurrency", it) }
         inline.applyTo(canonical)
         explicit.applyTo(canonical)
+        if (!canonical.has("n") && defaultCount != null) canonical.put("n", defaultCount)
         var options = AgentImageGenerationOptions.fromJson(canonical).also { it.validateShape() }
         if (protocol != "passthrough" && (options.aspectRatio != null || options.resolution != null)) {
             if (options.size != null && options.resolution != null)
@@ -161,6 +135,7 @@ internal object ImageRequestParameters {
             canonical.remove("aspect_ratio"); canonical.remove("resolution")
             canonical.put("size", options.size)
         }
+        canonical.remove("concurrency") // local batch scheduling, never an upstream API field
         val activePaths = canonical.keys().asSequence().map { paths.getValue(it) }.toList()
         if (activePaths.distinct().size != activePaths.size)
             AgentImageGenerationOptions.invalid("本次生图参数映射到相同字段，不能覆盖或丢弃其中一个。")

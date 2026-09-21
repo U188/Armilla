@@ -377,11 +377,14 @@ class SubAgentCoordinatorTest {
                 received = options; called++; "file"
             }, executeChild = { _, _, _ -> error("text runner must not be used") }).use { c ->
             val args = JSONObject().put("task", "portrait").put("role", "image_generation")
-                .put("image_options", JSONObject().put("aspect_ratio", "9:16").put("resolution", "2k"))
+                .put("image_options", JSONObject().put("aspect_ratio", "9:16").put("resolution", "2k").put("n", 3).put("concurrency", 2))
             val id = JSONObject(c.execute(call("delegate_task", args)).content).getString("task_id")
             assertEquals("completed", get(c, id).getString("status"))
-            assertEquals("9:16", received!!.aspectRatio)
-            assertEquals("2k", received!!.resolution)
+            val receivedOptions = requireNotNull(received)
+            assertEquals("9:16", receivedOptions.aspectRatio)
+            assertEquals("2k", receivedOptions.resolution)
+            assertEquals(3, receivedOptions.count)
+            assertEquals(2, receivedOptions.concurrency)
             args.put("image_options", JSONObject().put("aspect_ratio", "9:16").put("size", "1024x1024"))
             val rejected = JSONObject(c.execute(call("delegate_task", args)).content)
             assertEquals("IMAGE_GENERATION_INVALID_OPTIONS", rejected.getString("code"))

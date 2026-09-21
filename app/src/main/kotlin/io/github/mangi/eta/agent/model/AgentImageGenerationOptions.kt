@@ -11,6 +11,7 @@ internal data class AgentImageGenerationOptions(
     val count: Int? = null,
     val quality: String? = null,
     val responseFormat: String? = null,
+    val concurrency: Int? = null,
 ) {
     val isEmpty get() = this == AgentImageGenerationOptions()
 
@@ -18,6 +19,7 @@ internal data class AgentImageGenerationOptions(
         aspectRatio?.let { json.put("aspect_ratio", it) }; resolution?.let { json.put("resolution", it) }
         size?.let { json.put("size", it) }; count?.let { json.put("n", it) }
         quality?.let { json.put("quality", it) }; responseFormat?.let { json.put("response_format", it) }
+        concurrency?.let { json.put("concurrency", it) }
     }
 
     /** Apply after configured defaults. Compatibility belongs to the endpoint, not model names. */
@@ -66,7 +68,7 @@ internal data class AgentImageGenerationOptions(
     companion object {
         val aspectRatios = listOf("auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "21:9", "5:2")
         fun fromJson(json: JSONObject): AgentImageGenerationOptions {
-            val keys = setOf("aspect_ratio", "resolution", "size", "n", "quality", "response_format")
+            val keys = setOf("aspect_ratio", "resolution", "size", "n", "quality", "response_format", "concurrency")
             if (json.keys().asSequence().any { it !in keys }) invalid("image_options 含不支持的字段。")
             fun text(key: String): String? {
                 if (!json.has(key)) return null
@@ -90,7 +92,13 @@ internal data class AgentImageGenerationOptions(
             if (quality != null && !Regex("[a-z0-9][a-z0-9_.-]{0,19}").matches(quality)) invalid("quality 格式无效。")
             val format = text("response_format")
             if (format != null && format !in setOf("url", "b64_json")) invalid("response_format 仅支持 url、b64_json。")
-            return AgentImageGenerationOptions(ratio, resolution, size, count, quality, format)
+            val concurrency = if (!json.has("concurrency")) null else {
+                val number = json.opt("concurrency") as? Number ?: invalid("concurrency 必须是整数。")
+                val n = number.toDouble()
+                if (n !in 1.0..8.0 || n % 1 != 0.0) invalid("concurrency 必须为 1 至 8 的整数。")
+                n.toInt()
+            }
+            return AgentImageGenerationOptions(ratio, resolution, size, count, quality, format, concurrency)
         }
         fun dimensions(size: String): Pair<Int, Int> {
             if (!Regex("[1-9][0-9]{0,4}x[1-9][0-9]{0,4}").matches(size)) invalid("size 必须是 WIDTHxHEIGHT，例如 864x1536。")

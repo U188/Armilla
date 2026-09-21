@@ -14,7 +14,7 @@ class ImageRequestParametersTest {
         assertFalse(r.body.has("aspect_ratio")); assertFalse(r.body.has("resolution"))
     }
     @Test fun proseTimesExamplesAndNegationsAreNotGuessed() {
-        for (text in listOf("9:16 开会", "不要2k方图", "例如1024x1024")) {
+        for (text in listOf("9:16 开会", "时钟显示9:16", "文字写着1024x1024")) {
             assertTrue(ImagePromptOptions.parse(text).options.isEmpty)
         }
     }
@@ -26,7 +26,8 @@ class ImageRequestParametersTest {
         }
     }
     @Test fun negatedOrExampleGeometryDoesNotSilentlyRevertToDefaults() {
-        assertThrows(ImageGenerationParameterException::class.java) { ImagePromptOptions.parse("不要方图，9:16，2k") }
+        assertEquals("9:16", ImagePromptOptions.parse("不要方图，9:16，2k").options.aspectRatio)
+        assertThrows(ImageGenerationParameterException::class.java) { ImagePromptOptions.parse("不要2k方图") }
         assertThrows(ImageGenerationParameterException::class.java) { ImagePromptOptions.parse("例如，9:16，2k") }
     }
     @Test fun conflictingShapeClausesFailRatherThanChoosingOne() {
@@ -125,4 +126,13 @@ class ImageRequestParametersTest {
                 AgentImageGenerationOptions(aspectRatio="9:16",resolution="2k"))
         }
     }
+    @Test fun localConcurrencyCannotBeReintroducedByFieldMapping() {
+        for(path in listOf("concurrency","params.concurrency")) {
+            val body=JSONObject().put("eta_image_config",JSONObject().put("fields",JSONObject().put("n",path)))
+            assertThrows(ImageGenerationParameterException::class.java) {
+                ImageRequestParameters.prepare(body,AgentImageGenerationOptions(count=3,concurrency=2),empty)
+            }
+        }
+    }
+
 }

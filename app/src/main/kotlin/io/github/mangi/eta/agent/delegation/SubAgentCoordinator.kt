@@ -260,6 +260,7 @@ internal class SubAgentCoordinator(
                         if (task.state != "awaiting_decision") task.controller.throwIfCancelled()
                     }
                 } catch (error: Exception) {
+                    diagnostic(task,"worker_exception",error)
                     // Future.cancel interrupts the worker. Clear only for bounded cleanup, then restore.
                     val interrupted = Thread.interrupted()
                     if (ownsWorkspaceLease && task.workspaceId != null) runCatching { workspace?.operation(project, if (role == "implementation") "fail" else "end_review", task.workspaceId) }
@@ -273,7 +274,7 @@ internal class SubAgentCoordinator(
                                 else -> when (role) {
                                     "image_generation" -> "IMAGE_GENERATION_FAILED"
                                     "video_generation" -> "VIDEO_GENERATION_FAILED"
-                                    else -> ""
+                                    else -> "SUB_AGENT_FAILED"
                                 }
                             }
                             task.result = if (error is ImageGenerationParameterException) error.message.orEmpty()

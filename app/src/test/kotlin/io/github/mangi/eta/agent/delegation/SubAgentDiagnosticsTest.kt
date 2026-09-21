@@ -42,4 +42,17 @@ class SubAgentDiagnosticsTest {
         }
     }
 
+    @Test fun workerFailureIncludesExceptionAndHttpButNeverProviderBody() {
+        val lines=java.util.Collections.synchronizedList(mutableListOf<String>())
+        val model=io.github.mangi.eta.agent.model.AgentModelClient.ModelConfig(baseUrl="https://example.invalid",apiKey="test",model="test",systemPrompt="")
+        SubAgentCoordinator(listOf(model),diagnostics=SubAgentDiagnostics("run",lines::add)) {_,_,_-> error("HTTP 503 private-provider-body") }.use { c ->
+            val task=JSONObject(c.execute(io.github.mangi.eta.agent.model.AgentModelClient.ToolCall("id","delegate_task","""{"task":"work"}""")).content).getString("task_id")
+            val done=JSONObject(c.execute(io.github.mangi.eta.agent.model.AgentModelClient.ToolCall("id","get_task_result",JSONObject().put("task_id",task).put("wait_ms",3000).toString())).content)
+            assertEquals("failed",done.getString("status"));assertEquals("SUB_AGENT_FAILED",done.getString("error_code"))
+            val error=lines.map{JSONObject(it.removePrefix("SubAgentDiag "))}.single{it.getString("stage")=="worker_exception"}
+            assertEquals(503,error.getInt("http_status"));assertEquals("IllegalStateException",error.getString("exception_type"))
+            assertFalse(lines.joinToString().contains("private-provider-body"))
+        }
+    }
+
 }

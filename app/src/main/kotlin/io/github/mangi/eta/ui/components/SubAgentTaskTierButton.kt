@@ -87,6 +87,7 @@ internal fun SubAgentTaskTierButton(
     enabled: Boolean,
     onTierSelected: (SubAgentTaskTier) -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val view = LocalView.current
@@ -94,10 +95,28 @@ internal fun SubAgentTaskTierButton(
     val latestSelection by rememberUpdatedState(onTierSelected)
     LaunchedEffect(enabled) { if (!enabled) expanded = false }
     Box(modifier) {
-        SubAgentChoiceField(label, tier?.label ?: "未设置分工", enabled, if (label == "任务分工") "设置任务分工" else "设置${label}任务分工",
+        if (compact) {
+            // 32dp visible chip with a 48dp hit area; no outlined container around the agent name.
+            Box(Modifier.widthIn(min = 48.dp, max = 116.dp).heightIn(min = 48.dp)
+                .semantics { contentDescription = "设置${label}任务分工" }
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
+                    enabled = enabled, role = Role.Button,
+                    onClick = { if (latestEnabled) { TouchHaptics.click(view); expanded = !expanded } }),
+                contentAlignment = Alignment.Center) {
+                Row(Modifier.clip(RoundedCornerShape(9.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = if (enabled) 0.65f else 0.25f))
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(tier?.label ?: "设置分工", modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Icon(Icons.Rounded.ExpandMore, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
+        } else SubAgentChoiceField(label, tier?.label ?: "未设置分工", enabled, if (label == "任务分工") "设置任务分工" else "设置${label}任务分工",
             onClick = { if (latestEnabled) { TouchHaptics.click(view); expanded = !expanded } })
         if (enabled) DropdownMenu(expanded, { expanded = false },
-            modifier = Modifier.width(208.dp).selectableGroup(),
+            modifier = Modifier.width(if (compact) 164.dp else 208.dp).selectableGroup(),
             shape = RoundedCornerShape(12.dp), containerColor = MaterialTheme.colorScheme.surfaceContainer,
             tonalElevation = 0.dp, shadowElevation = 3.dp) {
             SubAgentTaskTier.entries.forEach { option ->

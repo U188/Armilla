@@ -1,6 +1,5 @@
 package io.github.mangi.eta.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +10,10 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,31 +41,49 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
     CompositionLocalProvider(LocalRippleConfiguration provides null) {
     WithoutPressRipple {
         Scaffold(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = MaterialTheme.colorScheme.surface,
             topBar = {
                 TopAppBar(title = { Text("子代理") }, navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") }
-                }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow))
+                }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface))
+            },
+            bottomBar = {
+                Surface(color = MaterialTheme.colorScheme.surface) {
+                    Column(Modifier.navigationBarsPadding().horizontalCutoutPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                        Box(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            TextButton(onClick = { SubAgentPreferences.add() }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)) {
+                                    Icon(Icons.Rounded.Add, null, Modifier.padding(6.dp).size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Text("添加子代理", style = MaterialTheme.typography.bodyLarge)
+                            }
+                        }
+                    }
+                }
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).horizontalCutoutPadding(), contentAlignment = Alignment.TopCenter) {
                 LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     item {
                         Text("配置代理职责与模型，更改下次运行生效。", style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 4.dp))
                     }
                     items(profiles, key = { it.id }) { profile ->
-                        OutlinedCard(
-                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        ) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp)) {
+                            Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(when (profile.role) {
+                                        "review" -> Icons.Rounded.FactCheck
+                                        "image_generation" -> Icons.Rounded.Image
+                                        "video_generation" -> Icons.Rounded.Videocam
+                                        else -> Icons.Rounded.AccountTree
+                                    }, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f))
                                     Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Switch(profile.enabled, onCheckedChange = { active ->
@@ -86,16 +107,10 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                                 }
                                 SubAgentProfileRow(profile, providers, settings = true)
                             }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                         }
                     }
-                    item {
-                        FilledTonalButton(onClick = { SubAgentPreferences.add() },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) {
-                            Icon(Icons.Rounded.Add, null, Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("添加子代理")
-                        }
-                    }
+
                 }
             }
         }

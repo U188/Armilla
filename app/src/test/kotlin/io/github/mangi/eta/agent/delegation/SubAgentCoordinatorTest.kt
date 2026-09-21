@@ -103,7 +103,7 @@ class SubAgentCoordinatorTest {
     @Test fun imageAndVideoRolesUseDedicatedGeneratorsAndNeverReceiveResearchOrWorkspaceTasks() {
         val invoked = mutableListOf<String>()
         SubAgentCoordinator(listOf(model, model, model), roles = listOf("image_generation", "video_generation", "implementation"),
-            executeImageChild = { _, prompt, _ -> invoked += "image:$prompt"; "![generated](/cache/image.png)" },
+            executeImageChild = { _, prompt, _, _ -> invoked += "image:$prompt"; "![generated](/cache/image.png)" },
             executeVideoChild = { _, prompt, _ -> invoked += "video:$prompt"; "![generated-video](/cache/video.mp4)" },
             executeChild = { _, _, _ -> invoked += "research"; "analysis" }).use { c ->
             fun submit(role: String, extras: JSONObject = JSONObject()): JSONObject = JSONObject(c.execute(call("delegate_task",
@@ -363,6 +363,38 @@ class SubAgentCoordinatorTest {
             assertTrue(started.await(2, TimeUnit.SECONDS))
             c.execute(call("cancel_task", JSONObject().put("task_id", id)))
             assertTrue(cancelled.await(2, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun explicitImageOptionsReachOnlySelectedImageRunnerAndNeverMutateModel() {
+        val grok = model.copy(model = "grok-imagine-image-2.0")
+        var received: io.github.mangi.eta.agent.model.AgentImageGenerationOptions? = null
+        var called = 0
+        SubAgentCoordinator(listOf(grok), roles = listOf("image_generation"),
+            executeImageChild = { config, prompt, _, options ->
+                assertEquals(grok, config)
+                assertTrue(prompt.contains("portrait"))
+                received = options; called++; "file"
+            }, executeChild = { _, _, _ -> error("text runner must not be used") }).use { c ->
+            val args = JSONObject().put("task", "portrait").put("role", "image_generation")
+                .put("image_options", JSONObject().put("aspect_ratio", "9:16").put("resolution", "2k"))
+            val id = JSONObject(c.execute(call("delegate_task", args)).content).getString("task_id")
+            assertEquals("completed", get(c, id).getString("status"))
+            assertEquals("9:16", received!!.aspectRatio)
+            assertEquals("2k", received!!.resolution)
+            args.put("image_options", JSONObject().put("size", "1080x1920"))
+            val rejected = JSONObject(c.execute(call("delegate_task", args)).content)
+            assertEquals("IMAGE_GENERATION_INVALID_OPTIONS", rejected.getString("code"))
+            assertFalse(rejected.has("task_id"))
+            assertEquals(1, called)
+        }
+    }
+
+    @Test fun textDelegationRejectsImageOptionsInsteadOfIgnoringThem() {
+        SubAgentCoordinator(listOf(model)) { _, _, _ -> error("must not execute") }.use { c ->
+            val result = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "test")
+                .put("image_options", JSONObject().put("aspect_ratio", "9:16")))).content)
+            assertEquals("IMAGE_GENERATION_INVALID_OPTIONS", result.getString("code"))
         }
     }
 

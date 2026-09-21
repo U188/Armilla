@@ -33,6 +33,31 @@ class ConversationTurnJumpTest {
     @Test fun upwardTransitionPassesSupplementsWithoutStoppingOrReversing() = assertContinuousJump(12, 0)
     @Test fun downwardTransitionPassesSupplementsWithoutStoppingOrReversing() = assertContinuousJump(0, 12)
 
+    @Test fun clippedUserMessageReturnsToItsOwnTopBeforePreviousMessage() {
+        val state = LazyListState(firstVisibleItemIndex = 4, firstVisibleItemScrollOffset = 120)
+        lateinit var scope: CoroutineScope
+        compose.setContent {
+            val rememberedScope = rememberCoroutineScope()
+            SideEffect { scope = rememberedScope }
+            LazyColumn(state = state, modifier = Modifier.size(300.dp, 400.dp)) {
+                items(12) { Box(Modifier.height(900.dp)) }
+            }
+        }
+        compose.runOnIdle {
+            val target = conversationUserMessageTarget(listOf(0, 4, 8), state.firstVisibleItemIndex, 12,
+                ConversationNavigationDirection.Up, false, state.firstVisibleItemScrollOffset)
+            assertEquals(4, target)
+            scope.launch { state.animateToConversationTurn(target) }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals(4, state.firstVisibleItemIndex)
+            assertEquals(0, state.firstVisibleItemScrollOffset)
+            assertEquals(0, conversationUserMessageTarget(listOf(0, 4, 8), state.firstVisibleItemIndex, 12,
+                ConversationNavigationDirection.Up, false, state.firstVisibleItemScrollOffset))
+        }
+    }
+
     private fun assertContinuousJump(start: Int, target: Int) {
         val state = LazyListState(firstVisibleItemIndex = start)
         val observed = mutableListOf<Pair<Int, Int>>()

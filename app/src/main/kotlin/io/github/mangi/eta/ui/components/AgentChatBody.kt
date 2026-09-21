@@ -642,15 +642,15 @@ internal fun AgentConversationMessages(
     val compressingChildren = telemetry.children.filter { it.isCompacting }
     val compressingItemCount = if (isCompressingContext || isWaitingForCompression || compressingChildren.isNotEmpty()) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
-    val turnStarts = remember(timelineEntries) { timelineEntries.turnStartIndices() }
+    val userMessageTargets = remember(timelineEntries) { timelineEntries.userMessageIndices() }
     val directionThreshold = with(LocalDensity.current) { 12.dp.toPx() }
     val directionTracker = remember(scrollState, directionThreshold) {
         ConversationNavigationDirectionTracker(directionThreshold)
     }
     var navigationDirection by remember(scrollState) { mutableStateOf(ConversationNavigationDirection.Down) }
-    var turnNavigationJob by remember(scrollState) { mutableStateOf<Job?>(null) }
+    var messageNavigationJob by remember(scrollState) { mutableStateOf<Job?>(null) }
     DisposableEffect(scrollState) {
-        onDispose { turnNavigationJob?.cancel() }
+        onDispose { messageNavigationJob?.cancel() }
     }
     val isUserDragging by scrollState.interactionSource.collectIsDraggedAsState()
     // 手指拖走后的惯性也算用户滚动；跟底自己的 scrollBy 不能把这个标志打开。
@@ -661,7 +661,7 @@ internal fun AgentConversationMessages(
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source == NestedScrollSource.UserInput && available.y != 0f) {
-                    turnNavigationJob?.cancel()
+                    messageNavigationJob?.cancel()
                     isUserScrolling = true
                     navigationDirection = directionTracker.onScroll(available.y, userInput = true)
                 }
@@ -696,7 +696,7 @@ internal fun AgentConversationMessages(
     var hasLeftBottom by remember { mutableStateOf(false) }
     LaunchedEffect(scrollState) {
         snapshotFlow {
-            if (turnNavigationJob != null) null
+            if (messageNavigationJob != null) null
             else Triple(isUserScrolling, scrollState.isConversationAtBottom(), currentAnchor.value)
         }
             .distinctUntilChanged()
@@ -746,7 +746,7 @@ internal fun AgentConversationMessages(
         resolveBottomFollowEnabled(
             isStreaming = isStreaming,
             keepBottomAnchored = keepBottomAnchored,
-            isUserDragging = isUserScrolling || turnNavigationJob != null,
+            isUserDragging = isUserScrolling || messageNavigationJob != null,
             isBottomSettling = isBottomSettling,
         )
     )
@@ -759,14 +759,14 @@ internal fun AgentConversationMessages(
         bottomItemIndex,
         keepBottomAnchored,
         isUserScrolling,
-        turnNavigationJob,
+        messageNavigationJob,
         isStreaming,
         scrollToMessageId,
     ) {
         if (shouldSnapConversationToBottom(
                 isStreaming = isStreaming,
                 keepBottomAnchored = keepBottomAnchored,
-                isUserDragging = isUserScrolling || turnNavigationJob != null,
+                isUserDragging = isUserScrolling || messageNavigationJob != null,
                 hasItems = bottomItemIndex > 0,
                 scrollToMessageId = scrollToMessageId,
             )
@@ -777,7 +777,7 @@ internal fun AgentConversationMessages(
         if (shouldRequestInitialBottom(
                 isStreaming = isStreaming,
                 keepBottomAnchored = keepBottomAnchored,
-                isUserDragging = isUserScrolling || turnNavigationJob != null,
+                isUserDragging = isUserScrolling || messageNavigationJob != null,
             )
         ) {
             scrollState.requestScrollToItem(bottomItemIndex)
@@ -838,7 +838,7 @@ internal fun AgentConversationMessages(
                 accept(latest)
             }
 
-            if (!shouldFollowBottom || isUserScrolling || turnNavigationJob != null) {
+            if (!shouldFollowBottom || isUserScrolling || messageNavigationJob != null) {
                 remainingDistancePx = 0f
                 requestIndex = null
                 continue
@@ -864,7 +864,7 @@ internal fun AgentConversationMessages(
                 val latest = bottomFollowDecisions.tryReceive().getOrNull() ?: break
                 accept(latest)
             }
-            if (!shouldFollowBottom || isUserScrolling || turnNavigationJob != null || requestIndex != null || remainingDistancePx <= 0f) continue
+            if (!shouldFollowBottom || isUserScrolling || messageNavigationJob != null || requestIndex != null || remainingDistancePx <= 0f) continue
 
             val step = smoothBottomFollowStep(
                 distancePx = remainingDistancePx,
@@ -875,7 +875,7 @@ internal fun AgentConversationMessages(
             try {
                 scrollState.scroll {
                     // scroll() may wait for another mutation; check ownership again.
-                    if (!isUserScrolling && turnNavigationJob == null && shouldFollowBottom) {
+                    if (!isUserScrolling && messageNavigationJob == null && shouldFollowBottom) {
                         consumedStep = StreamPerformanceDiagnostics.measure("follow.scroll") { scrollBy(step) }
                     }
                 }
@@ -920,7 +920,7 @@ internal fun AgentConversationMessages(
                 .fillMaxSize()
                 .nestedScroll(userScrollConnection)
                 // Navigation already emits one explicit click/long-press haptic.
-                .then(if (turnNavigationJob == null) Modifier.scrollEndHaptic() else Modifier)
+                .then(if (messageNavigationJob == null) Modifier.scrollEndHaptic() else Modifier)
                 .overScrollVertical(),
             contentPadding = PaddingValues(
                 top = 14.dp,
@@ -1032,30 +1032,31 @@ internal fun AgentConversationMessages(
             }
         }
 
-        fun navigateTurn(toEdge: Boolean) {
+        fun navigateUserMessage(toEdge: Boolean) {
             // Do not queue animations on rapid taps; a new drag cancels the active jump.
-            if (turnNavigationJob != null) return
+            if (messageNavigationJob != null) return
             val direction = navigationDirection
-            val target = conversationTurnTarget(
-                turnStarts, scrollState.firstVisibleItemIndex, bottomItemIndex, direction, toEdge,
+            val target = conversationUserMessageTarget(
+                userMessageTargets, scrollState.firstVisibleItemIndex, bottomItemIndex, direction, toEdge,
+                firstVisibleScrollOffset = scrollState.firstVisibleItemScrollOffset,
             )
             onBottomAnchorChanged(false)
-            turnNavigationJob = coroutineScope.launch {
+            messageNavigationJob = coroutineScope.launch {
                 try {
                     // Let the follow/boundary-haptic observers yield before moving the list.
                     withFrameNanos { }
-                    // Keep one continuous motion past supplements, slowing only at the real target.
+                    // Keep one continuous motion, slowing only at the selected user-message target.
                     scrollState.animateToConversationTurn(target)
                     if (target == bottomItemIndex) snapListToBottom(scrollState, currentBottomItemIndex)
                     onBottomAnchorChanged(
                         direction == ConversationNavigationDirection.Down && scrollState.isConversationAtBottom(),
                     )
                 } finally {
-                    turnNavigationJob = null
+                    messageNavigationJob = null
                 }
             }
         }
-        val showTurnNavigation by remember(scrollState, navigationDirection, keepBottomAnchored) {
+        val showMessageNavigation by remember(scrollState, navigationDirection, keepBottomAnchored) {
             derivedStateOf {
                 !keepBottomAnchored && when (navigationDirection) {
                     ConversationNavigationDirection.Up -> scrollState.canScrollBackward
@@ -1065,9 +1066,9 @@ internal fun AgentConversationMessages(
         }
         ConversationTurnNavigationButton(
             direction = navigationDirection,
-            visible = showTurnNavigation,
-            onStep = { navigateTurn(toEdge = false) },
-            onEdge = { navigateTurn(toEdge = true) },
+            visible = showMessageNavigation,
+            onStep = { navigateUserMessage(toEdge = false) },
+            onEdge = { navigateUserMessage(toEdge = true) },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = bottomInset + 12.dp),
@@ -1119,58 +1120,6 @@ internal fun smoothBottomFollowStep(
     val speedLimitedStep = BOTTOM_FOLLOW_MAX_SPEED_DP_PER_SECOND * density * frameSeconds
     return min(distancePx, min(easedStep.coerceAtLeast(BOTTOM_FOLLOW_MIN_STEP_PX), speedLimitedStep))
 }
-
-internal sealed interface AgentTimelineEntry {
-    val key: String
-
-    data class Message(
-        val message: AgentChatMessageUi,
-    ) : AgentTimelineEntry {
-        override val key: String = message.id
-    }
-
-    data class WorkProcess(
-        override val key: String,
-        val messages: List<AgentChatMessageUi>,
-    ) : AgentTimelineEntry
-}
-
-internal fun List<AgentChatMessageUi>.toTimelineEntries(): List<AgentTimelineEntry> = buildList {
-    val workMessages = mutableListOf<AgentChatMessageUi>()
-
-    fun flushWorkProcess() {
-        if (workMessages.isEmpty()) return
-        add(
-            AgentTimelineEntry.WorkProcess(
-                key = "work-${workMessages.first().id}",
-                messages = workMessages.toList(),
-            )
-        )
-        workMessages.clear()
-    }
-
-    this@toTimelineEntries.forEach { message ->
-        if (message is UserMessageUi && message.isResumeAfterCompress()) {
-            return@forEach
-        }
-        if (message.isWorkProcessMessage()) {
-            workMessages += message
-        } else {
-            flushWorkProcess()
-            add(AgentTimelineEntry.Message(message))
-        }
-    }
-    flushWorkProcess()
-}
-
-/** Use projected list indices, not raw message indices (work steps are grouped). */
-internal fun List<AgentTimelineEntry>.turnStartIndices(): List<Int> = mapIndexedNotNull { index, entry ->
-    val user = (entry as? AgentTimelineEntry.Message)?.message as? UserMessageUi
-    index.takeIf { user != null && !user.isSteerSupplement() && !user.isResumeAfterCompress() }
-}
-
-private fun AgentChatMessageUi.isWorkProcessMessage(): Boolean =
-    this is ThinkingMessageUi || this is ToolActivityMessageUi || this is ToolSummaryMessageUi
 
 /**
  * 一轮对话（两条用户消息之间）里最后一条 Agent 正文视为最终结果，其余为中间步骤。

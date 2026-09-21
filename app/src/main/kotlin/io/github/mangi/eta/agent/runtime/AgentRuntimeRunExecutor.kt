@@ -227,9 +227,9 @@ internal class AgentRuntimeRunExecutor(
                             AgentRuntimePolicy.forCompression(config),
                             Prefs.localAgentPreferences()?.getString(Prefs.Keys.AGENT_MANUAL_COMPRESS_ENDPOINT_MODE, null))
                     },
-                    executeImageChild = { config, prompt, controller ->
+                    executeImageChild = { config, prompt, controller, imageOptions ->
                         io.github.mangi.eta.agent.delegation.SubAgentMediaRunner.run(
-                            appContext, request.effectiveModelSessionId, config, prompt, controller, video = false)
+                            appContext, request.effectiveModelSessionId, config, prompt, controller, video = false, imageOptions = imageOptions)
                     },
                     executeVideoChild = { config, prompt, controller ->
                         io.github.mangi.eta.agent.delegation.SubAgentMediaRunner.run(

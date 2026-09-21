@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.delegation
 
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.model.AgentImageGenerationOptions
+import io.github.mangi.eta.agent.model.ImageGenerationParameterException
 import io.github.mangi.eta.agent.runtime.AgentRunController
 import org.json.JSONObject
 import java.util.UUID
@@ -25,7 +27,7 @@ internal class SubAgentCoordinator(
     private val workerModelIds: List<String> = List(workers.size) { "" },
     private val prepareManualCompactor: (AgentModelClient.ModelConfig) -> AgentModelClient.ModelConfig = { it },
     private val executeVideoChild: ((AgentModelClient.ModelConfig, String, AgentRunController) -> String)? = null,
-    private val executeImageChild: ((AgentModelClient.ModelConfig, String, AgentRunController) -> String)? = null,
+    private val executeImageChild: ((AgentModelClient.ModelConfig, String, AgentRunController, AgentImageGenerationOptions) -> String)? = null,
     private val executeChild: (AgentModelClient.ModelConfig, String, AgentRunController) -> String,
 ) : AutoCloseable {
     init { require(workers.isNotEmpty() && roles.size == workers.size && workerIds.size == workers.size && workerIds.distinct().size == workers.size && workerNames.size == workers.size && workerModelIds.size == workers.size) }
@@ -80,6 +82,8 @@ internal class SubAgentCoordinator(
                 }
                 else -> error("Unknown delegation tool")
             }
+        } catch (error: ImageGenerationParameterException) {
+            JSONObject().put("ok", false).put("code", "IMAGE_GENERATION_INVALID_OPTIONS").put("message", error.message)
         } catch (_: IllegalArgumentException) {
             JSONObject().put("ok", false).put("code", "INVALID_TASK_ARGUMENTS")
         } catch (_: org.json.JSONException) {
@@ -109,6 +113,11 @@ internal class SubAgentCoordinator(
             require(worker in workers.indices)
             if (role == "research" && roles[worker] in setOf("image_generation", "video_generation")) return errorResult("WORKER_ROLE_MISMATCH")
             if (role != "research" && roles[worker] != (if (role == "summary") "review" else role)) return errorResult("WORKER_ROLE_MISMATCH")
+            val imageOptions = if (args.has("image_options")) {
+                if (role != "image_generation") AgentImageGenerationOptions.invalid("image_options 仅适用于 image_generation。")
+                val options = args.optJSONObject("image_options") ?: AgentImageGenerationOptions.invalid("image_options 必须是对象。")
+                AgentImageGenerationOptions.fromJson(options).also { it.applyTo(JSONObject(), workers[worker].model) }
+            } else AgentImageGenerationOptions()
             val project = args.optString("project")
             val workspaceId = args.optString("workspace_id").ifBlank { null }
             if (role in setOf("image_generation", "video_generation")) {
@@ -157,9 +166,9 @@ internal class SubAgentCoordinator(
                     task.controller.throwIfCancelled()
                     val prompt = "Role: $role\nTask:\n$instruction\n\nContext supplied by main agent:\n$context"
                     val answer = if (role in setOf("image_generation", "video_generation")) {
-                        val generate = if (role == "video_generation") executeVideoChild else executeImageChild
-                        generate!!.invoke(workers[worker], instruction +
-                            if (context.isBlank()) "" else "\n\n补充要求：\n$context", task.controller)
+                        val mediaPrompt = instruction + if (context.isBlank()) "" else "\n\n补充要求：\n$context"
+                        if (role == "video_generation") executeVideoChild!!.invoke(workers[worker], mediaPrompt, task.controller)
+                        else executeImageChild!!.invoke(workers[worker], mediaPrompt, task.controller, imageOptions)
                     } else if (executeObservedChild != null) {
                         executeObservedChild.invoke(workers[worker], prompt, task.controller, project, task.workspaceId, role == "implementation") { event ->
                             synchronized(task) {
@@ -192,6 +201,7 @@ internal class SubAgentCoordinator(
                     synchronized(task) {
                         if (task.state == "running") {
                             task.errorCode = when (error) {
+                                is ImageGenerationParameterException -> "IMAGE_GENERATION_INVALID_OPTIONS"
                                 is SubAgentContextLimitException -> "SUB_AGENT_CONTEXT_LIMIT"
                                 is WorkspaceOperationException -> error.code
                                 else -> when (role) {
@@ -200,7 +210,8 @@ internal class SubAgentCoordinator(
                                     else -> ""
                                 }
                             }
-                            task.result = if (error is SubAgentContextLimitException)
+                            task.result = if (error is ImageGenerationParameterException) error.message.orEmpty()
+                            else if (error is SubAgentContextLimitException)
                                 "子代理上下文不足，自动压缩不可用或未能释放足够空间。请拆分任务或调整模型窗口后重新委派；已有工作树改动保留。"
                             else "子代理未完成，请主代理接手或重新委派。"
                             task.state = "failed"

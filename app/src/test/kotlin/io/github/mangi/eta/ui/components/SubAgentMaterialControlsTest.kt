@@ -55,7 +55,7 @@ class SubAgentMaterialControlsTest {
                 SubAgentProfileRow(SubAgentProfile("test", "测试代理", role = role.value), emptyList(), settings = true)
             }
         }
-        compose.onNodeWithContentDescription("设置任务分工").assertExists()
+        compose.onNodeWithContentDescription("设置测试代理任务分工").assertExists()
         for (next in listOf("review", "image_generation", "video_generation")) {
             compose.runOnIdle { role.value = next }
             compose.onNodeWithText("任务分工").assertDoesNotExist()
@@ -71,7 +71,7 @@ class SubAgentMaterialControlsTest {
         }
         for (next in listOf("review", "image_generation", "video_generation")) {
             compose.runOnIdle { role.value = next }
-            compose.onNodeWithText("测试代理").assertHasNoClickAction()
+            compose.onNodeWithContentDescription("测试代理模型").assertHasClickAction()
             compose.onNodeWithContentDescription("设置测试代理任务分工").assertDoesNotExist()
             compose.onNodeWithText("未设置分工").assertDoesNotExist()
         }
@@ -119,6 +119,33 @@ class SubAgentMaterialControlsTest {
             assertEquals(before[x, y], pressed[x, y])
         }
         header.performTouchInput { cancel() }
+    }
+
+    @Test fun flatSettingsRowsPlaceValuesAfterAlignedLabels() {
+        compose.setContent {
+            MaterialTheme {
+                SubAgentProfileRow(SubAgentProfile("test", "测试代理", tier = SubAgentTaskTier.COMPLEX), emptyList(), settings = true)
+            }
+        }
+        val label = compose.onNodeWithText("职责", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val value = compose.onNodeWithText("执行", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue(value.left > label.right)
+        val model = compose.onNodeWithContentDescription("测试代理模型").fetchSemanticsNode().boundsInRoot
+        val role = compose.onNodeWithContentDescription("选择测试代理职责").fetchSemanticsNode().boundsInRoot
+        val tier = compose.onNodeWithContentDescription("设置测试代理任务分工").fetchSemanticsNode().boundsInRoot
+        assertTrue(role.top >= model.bottom)
+        assertTrue(tier.top >= role.bottom)
+        compose.onNodeWithContentDescription("设置测试代理任务分工").performClick()
+        compose.onNode(isSelectable() and hasText("复杂任务")).assertIsSelected()
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h480dp")
+    fun settingsAddActionStaysVisibleWhileAgentListScrolls() {
+        compose.setContent { MaterialTheme { io.github.mangi.eta.ui.SubAgentSettingsScreen({}) } }
+        compose.onNodeWithText("添加子代理").assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(3)
+        compose.onNodeWithText("添加子代理").assertIsDisplayed()
     }
 
 }

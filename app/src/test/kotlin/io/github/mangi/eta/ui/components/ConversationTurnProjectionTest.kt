@@ -23,11 +23,11 @@ class ConversationTurnProjectionTest {
             AgentMessageUi("answer-2", "answer"),
         ).toTimelineEntries()
         assertEquals(7, entries.size)
-        assertEquals(listOf(0, 5), entries.turnStartIndices())
-        assertEquals(5, conversationTurnTarget(entries.turnStartIndices(), 2, entries.size,
+        assertEquals(listOf(0, 3, 5), entries.userMessageIndices())
+        assertEquals(3, conversationUserMessageTarget(entries.userMessageIndices(), 2, entries.size,
             ConversationNavigationDirection.Down, false))
     }
-    @Test fun upwardJumpSkipsAllSupplementsWithinPreviousTurn() {
+    @Test fun upwardJumpIncludesSupplementsAndNearestUserMessage() {
         val entries = listOf(
             UserMessageUi("user-1", "first"),
             AgentMessageUi("answer-1", "long answer"),
@@ -38,15 +38,17 @@ class ConversationTurnProjectionTest {
             UserMessageUi("user-2", "second"),
             AgentMessageUi("answer-2", "answer"),
         ).toTimelineEntries()
-        assertEquals(listOf(0, 6), entries.turnStartIndices())
-        for (firstVisible in listOf(6, 7)) {
-            assertEquals(0, conversationTurnTarget(entries.turnStartIndices(), firstVisible,
-                entries.size, ConversationNavigationDirection.Up, false))
-        }
+        assertEquals(listOf(0, 2, 4, 6), entries.userMessageIndices())
+        assertEquals(4, conversationUserMessageTarget(entries.userMessageIndices(), 6,
+            entries.size, ConversationNavigationDirection.Up, false))
+        assertEquals(6, conversationUserMessageTarget(entries.userMessageIndices(), 7,
+            entries.size, ConversationNavigationDirection.Up, false))
+        assertEquals(2, conversationUserMessageTarget(entries.userMessageIndices(), 3,
+            entries.size, ConversationNavigationDirection.Up, false))
     }
 
-    @Test fun orphanAnswerAndEmptyHistoryHaveNoInventedTurns() {
-        assertEquals(emptyList<Int>(), listOf(AgentMessageUi("a", "answer")).toTimelineEntries().turnStartIndices())
-        assertEquals(emptyList<Int>(), emptyList<AgentTimelineEntry>().turnStartIndices())
+    @Test fun orphanAnswerAndEmptyHistoryHaveNoInventedUserMessages() {
+        assertEquals(emptyList<Int>(), listOf(AgentMessageUi("a", "answer")).toTimelineEntries().userMessageIndices())
+        assertEquals(emptyList<Int>(), emptyList<AgentTimelineEntry>().userMessageIndices())
     }
 }

@@ -10,8 +10,8 @@ class ImageRequestParametersTest {
         val p = ImagePromptOptions.parse("画猫\nimage_options: {\"aspect_ratio\":\"9:16\",\"resolution\":\"2k\"}")
         assertEquals("画猫", p.prompt)
         val r = ImageRequestParameters.prepare(JSONObject(), p.options, empty)
-        assertEquals("9:16", r.body.getString("aspect_ratio"))
-        assertEquals("2k", r.body.getString("resolution"))
+        assertEquals("1152x2048", r.body.getString("size"))
+        assertFalse(r.body.has("aspect_ratio")); assertFalse(r.body.has("resolution"))
     }
     @Test fun proseTimesExamplesAndNegationsAreNotGuessed() {
         for (text in listOf("9:16 开会", "不要2k方图", "例如1024x1024")) {
@@ -44,7 +44,7 @@ class ImageRequestParametersTest {
             AgentImageGenerationOptions(aspectRatio = "9:16", resolution = "2k"))
         assertEquals("9:16", r.options.aspectRatio)
         assertEquals("2k", r.options.resolution)
-        assertFalse(r.body.has("size"))
+        assertEquals("1152x2048", r.body.getString("size"))
         assertEquals(42, r.body.getInt("seed"))
     }
     @Test fun nestedFieldsAndMappedDefaultsWorkWithoutLeakingPrivateConfig() {
@@ -77,6 +77,52 @@ class ImageRequestParametersTest {
             assertThrows(ImageGenerationParameterException::class.java) {
                 ImageRequestParameters.prepare(JSONObject("""{"eta_image_config":{"fields":$fields}}"""), empty, empty)
             }
+        }
+    }
+
+    @Test fun defaultUsesSizeWithoutChangingSavedBody() {
+        val body = JSONObject("""{"model":"anything","prompt":"cat","n":1}""")
+        val r = ImageRequestParameters.prepare(body, empty, AgentImageGenerationOptions(aspectRatio="1:2", resolution="2k"))
+        assertEquals("1024x2048", r.body.getString("size"))
+        assertEquals(setOf("model","prompt","n","size"), r.body.keys().asSequence().toSet())
+        assertFalse(body.has("size"))
+    }
+    @Test fun explicitNativePassthroughKeepsRatioAndResolutionOnly() {
+        val r = ImageRequestParameters.prepare(JSONObject("""{"eta_image_config":{"protocol":"passthrough"}}"""),
+            empty, AgentImageGenerationOptions(aspectRatio="9:16", resolution="2k"))
+        assertEquals("9:16", r.body.getString("aspect_ratio"))
+        assertEquals("2k", r.body.getString("resolution")); assertFalse(r.body.has("size"))
+    }
+    @Test fun ratioAndTierMappingHandlesSizeAliasAndCapitalization() {
+        val body=JSONObject("""{"size":"1K","ratio":"1:1","eta_image_config":{"fields":{"aspect_ratio":"ratio","resolution":"size"},"values":{"resolution":{"1k":"1K","2k":"2K"}}}}""")
+        val r=ImageRequestParameters.prepare(body, empty, AgentImageGenerationOptions(aspectRatio="9:16",resolution="2k"))
+        assertEquals(setOf("size","ratio"), r.body.keys().asSequence().toSet())
+        assertEquals("2K",r.body.getString("size")); assertEquals("9:16",r.body.getString("ratio"))
+        assertEquals("1K",body.getString("size"))
+    }
+    @Test fun mappingNeverDropsAnUnconfiguredValueOrOverwritesAnotherActiveField() {
+        for (config in listOf(
+            """{"protocol":"passthrough","values":{"resolution":{"1k":"1K"}}}""",
+            """{"protocol":"passthrough","fields":{"aspect_ratio":"same","resolution":"same"}}""")) {
+            assertThrows(ImageGenerationParameterException::class.java) {
+                ImageRequestParameters.prepare(JSONObject().put("eta_image_config",JSONObject(config)),empty,
+                    AgentImageGenerationOptions(aspectRatio="9:16",resolution="2k"))
+            }
+        }
+    }
+    @Test fun malformedProtocolAndNativeOptionsFailLocally() {
+        for (config in listOf("""{"protocol":1}""", """{"endpoint":"chat"}""", """{"endpoint":"anthropic"}""",
+            """{"endpoint":"novelai_native","protocol":"passthrough"}""", """{"native_parameters":{"seed":1}}""")) {
+            assertThrows(ImageGenerationParameterException::class.java) {
+                ImageRequestParameters.prepare(JSONObject().put("eta_image_config",JSONObject(config)),empty,empty)
+            }
+        }
+    }
+
+    @Test fun unconfiguredAliasCannotBeBlindlySentAlongsideSize() {
+        assertThrows(ImageGenerationParameterException::class.java) {
+            ImageRequestParameters.prepare(JSONObject("""{"ratio":"1:1"}"""),empty,
+                AgentImageGenerationOptions(aspectRatio="9:16",resolution="2k"))
         }
     }
 }

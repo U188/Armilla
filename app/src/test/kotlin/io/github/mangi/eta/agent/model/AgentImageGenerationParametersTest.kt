@@ -23,7 +23,8 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AgentImageGenerationParametersTest {
     private fun config(model: String = "grok-imagine-image-2.0") = AgentModelClient.ModelConfig(
-        baseUrl = "https://example.invalid/v1", apiKey = "test", model = model, systemPrompt = "")
+        baseUrl = "https://example.invalid/v1", apiKey = "test", model = model, systemPrompt = "",
+        extraBodyJson = """{"eta_image_config":{"protocol":"passthrough"}}""")
     private fun png(w: Int = 90, h: Int = 160): ByteArray {
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         return ByteArrayOutputStream().use { out ->
@@ -42,7 +43,7 @@ class AgentImageGenerationParametersTest {
 
     @Test fun realGenerationBodyCarriesGrokRatioResolutionAndPerCallOverrides() {
         val requests = mutableListOf<Request>()
-        val configured = config().copy(extraBodyJson = """{"size":"1024x1024","aspect_ratio":"1:1","resolution":"1k"}""")
+        val configured = config().copy(extraBodyJson = """{"size":"1024x1024","aspect_ratio":"1:1","resolution":"1k","eta_image_config":{"protocol":"passthrough"}}""")
         val result = AgentImageGenerationClient(client(requests, response(png()))).generate(configured, "portrait",
             options = AgentImageGenerationOptions(aspectRatio = "9:16", resolution = "2k"))
         val json = JSONObject(body(requests.single()))
@@ -76,7 +77,7 @@ class AgentImageGenerationParametersTest {
     }
     @Test fun grokEditIsJsonAndCarriesOptionsAndReferenceImage() {
         val requests = mutableListOf<Request>()
-        AgentImageGenerationClient(client(requests, response(png()))).generate(config().copy(extraBodyJson = """{"eta_image_config":{"edit_protocol":"json_image_url"}}"""), "edit portrait",
+        AgentImageGenerationClient(client(requests, response(png()))).generate(config().copy(extraBodyJson = """{"eta_image_config":{"protocol":"passthrough","edit_protocol":"json_image_url"}}"""), "edit portrait",
             images = listOf(AgentImageGenerationClient.InputImage(png(), "image/png")),
             options = AgentImageGenerationOptions(aspectRatio = "9:16", resolution = "2k"))
         assertTrue(requests.single().url.encodedPath.endsWith("/images/edits"))
@@ -103,7 +104,7 @@ class AgentImageGenerationParametersTest {
         val body1 = JSONObject(body(requests.single()))
         assertEquals("864x1536", body1.getString("size")); assertFalse(body1.has("aspect_ratio"))
         requests.clear()
-        gen.generate(config().copy(extraBodyJson = """{"aspect_ratio":"9:16","resolution":"2k"}"""), "portrait")
+        gen.generate(config().copy(extraBodyJson = """{"aspect_ratio":"9:16","resolution":"2k","eta_image_config":{"protocol":"passthrough"}}"""), "portrait")
         assertEquals("9:16", JSONObject(body(requests.single())).getString("aspect_ratio"))
     }
     @Test fun ambiguousFailureOrSuccessfulEmptyResponseDoesNotGenerateAgain() {
@@ -166,4 +167,95 @@ class AgentImageGenerationParametersTest {
         assertEquals(1, requests.size)
     }
 
+
+    @Test fun defaultImagesPlanSendsExactSizeAndNoGeometryAliases() {
+        val requests=mutableListOf<Request>()
+        val result=AgentImageGenerationClient(client(requests,response(png(1152,2048)))).generate(
+            config("any-model").copy(extraBodyJson=""), "cat", options=AgentImageGenerationOptions(aspectRatio="9:16",resolution="2k"))
+        val json=JSONObject(body(requests.single()))
+        assertEquals("1152x2048",json.getString("size"))
+        assertEquals(setOf("model","prompt","n","size"),json.keys().asSequence().toSet())
+        assertFalse(result.text.contains("MISMATCH"))
+    }
+    @Test fun jsonGenerationsEditCarriesReferenceAndMaskWithoutChangingEndpoint() {
+        val requests=mutableListOf<Request>()
+        AgentImageGenerationClient(client(requests,response(png()))).generate(
+            config().copy(extraBodyJson="""{"eta_image_config":{"edit_protocol":"generations_image"}}"""), "edit cat",
+            images=listOf(AgentImageGenerationClient.InputImage(png(),"image/png")),
+            options=AgentImageGenerationOptions(size="90x160"), mask=AgentImageGenerationClient.InputImage(png(),"image/png"))
+        val json=JSONObject(body(requests.single()))
+        assertTrue(requests.single().url.encodedPath.endsWith("/images/generations"))
+        assertTrue(json.getString("image").startsWith("data:image/png;base64,"))
+        assertTrue(json.getString("mask").startsWith("data:image/png;base64,"))
+        assertEquals("90x160",json.getString("size"))
+        assertFalse(json.has("eta_image_config"))
+    }
+    @Test fun multipartMaskIsPreservedAndMismatchedMaskFailsBeforeRequest() {
+        val requests=mutableListOf<Request>()
+        val gen=AgentImageGenerationClient(client(requests,response(png())))
+        val image=AgentImageGenerationClient.InputImage(png(),"image/png")
+        gen.generate(config(),"edit",images=listOf(image),mask=image)
+        assertTrue(body(requests.single()).contains("name=\"mask\""))
+        requests.clear()
+        assertThrows(IllegalArgumentException::class.java) {
+            gen.generate(config(),"edit",images=listOf(image),mask=AgentImageGenerationClient.InputImage(png(100,100),"image/png"))
+        }
+        assertTrue(requests.isEmpty())
+    }
+    @Test fun multipleJsonReferencesAndEmptyInputsAreNotDiscarded() {
+        val requests=mutableListOf<Request>()
+        val gen=AgentImageGenerationClient(client(requests,response(png())))
+        val image=AgentImageGenerationClient.InputImage(png(),"image/png")
+        assertThrows(ImageGenerationParameterException::class.java) {
+            gen.generate(config().copy(extraBodyJson="""{"eta_image_config":{"edit_protocol":"generations_image"}}"""),"cat",images=listOf(image,image))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            gen.generate(config(),"cat",images=listOf(AgentImageGenerationClient.InputImage(byteArrayOf(),"image/png")))
+        }
+        assertTrue(requests.isEmpty())
+    }
+    @Test fun missingImagesEndpointNeverFallsBackToChatEvenWithoutParameters() {
+        val requests=mutableListOf<Request>()
+        assertThrows(IllegalStateException::class.java) {
+            AgentImageGenerationClient(client(requests,"{}",404)).generate(config().copy(extraBodyJson=""),"cat")
+        }
+        assertEquals(1,requests.size)
+        assertTrue(requests.single().url.encodedPath.endsWith("/images/generations"))
+    }
+    @Test fun anthropicRequiresExplicitImageEndpointContract() {
+        val requests=mutableListOf<Request>()
+        val gen=AgentImageGenerationClient(client(requests,response(png())))
+        val anth=config().copy(providerType=io.github.mangi.eta.data.model.ProviderTypes.ANTHROPIC)
+        assertThrows(ImageGenerationParameterException::class.java) { gen.generate(anth,"cat") }
+        assertTrue(requests.isEmpty())
+        gen.generate(anth.copy(extraBodyJson="""{"eta_image_config":{"endpoint":"openai_images"}}"""),"cat")
+        assertEquals(1,requests.size)
+        assertEquals("Bearer test",requests.single().header("Authorization"))
+    }
+    @Test fun nativeNovelAiBodyAndBinaryResponseUseSeparateProtocol() {
+        val requests=mutableListOf<Request>()
+        val image=png(832,1216)
+        val http=OkHttpClient.Builder().addInterceptor { chain ->
+            requests+=chain.request()
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("test")
+                .body(image.toResponseBody()).build()
+        }.build()
+        val result=AgentImageGenerationClient(http).generate(config("nai-custom").copy(baseUrl="https://example.invalid",
+            extraBodyJson="""{"eta_image_config":{"endpoint":"novelai_native","native_parameters":{"params_version":3,"steps":28,"scale":5,"sampler":"k_euler","seed":1}}}"""),
+            "cat",options=AgentImageGenerationOptions(size="832x1216"))
+        assertEquals("/ai/generate-image",requests.single().url.encodedPath)
+        val json=JSONObject(body(requests.single()))
+        assertEquals(setOf("model","input","action","parameters"),json.keys().asSequence().toSet())
+        assertEquals("cat",json.getString("input")); assertEquals(832,json.getJSONObject("parameters").getInt("width"))
+        assertEquals(1216,result.images.single().height)
+        assertFalse(result.text.contains("MISMATCH"))
+    }
+
+    @Test fun malformedExtrasFailInsteadOfGeneratingWithDefaults() {
+        val requests=mutableListOf<Request>()
+        assertThrows(ImageGenerationParameterException::class.java) {
+            AgentImageGenerationClient(client(requests,response(png()))).generate(config().copy(extraBodyJson="{broken"),"cat")
+        }
+        assertTrue(requests.isEmpty())
+    }
 }

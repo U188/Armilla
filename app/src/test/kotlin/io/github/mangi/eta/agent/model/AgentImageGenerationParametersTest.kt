@@ -344,4 +344,16 @@ class AgentImageGenerationParametersTest {
         assertTrue(result.text.contains("IMAGE_DOWNLOAD_PARTIAL"));assertTrue(result.text.contains("IMAGE_COUNT_MISMATCH"))
     }
 
+    @Test fun rejectionIncludesStatusAndShapeWithoutSendingAgain() {
+        val requests=mutableListOf<Request>()
+        val gen=AgentImageGenerationClient(client(requests,"""{"error":{"message":"The request could not be processed."}}""",400))
+        val error=assertThrows(IllegalStateException::class.java) {
+            gen.generate(config().copy(extraBodyJson="{}"),"private artwork description",options=AgentImageGenerationOptions(aspectRatio="9:16",resolution="2k"))
+        }
+        assertEquals(1,requests.size)
+        assertTrue(error.message!!.contains("HTTP 400"));assertTrue(error.message!!.contains("1152x2048"))
+        assertTrue(error.message!!.contains("未自动重试"));assertFalse(error.message!!.contains("private artwork description"))
+        assertFalse(error.message!!.contains("test-key"))
+    }
+
 }

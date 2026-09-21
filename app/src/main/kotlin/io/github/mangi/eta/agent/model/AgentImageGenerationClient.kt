@@ -126,7 +126,12 @@ internal class AgentImageGenerationClient(
             val limit = if (plan.kind == ImageEndpointPlan.Kind.NOVELAI) NovelAiImageProtocol.MAX_RESPONSE_BYTES
                 else MAX_AGENT_IMAGE_BYTES / 3 * 4 + 1024 * 1024
             val bytes = response.body.byteStream().readGenerationBytes(limit)
-            check(response.isSuccessful) { AgentImageGenerationParser.errorMessage(bytes.toString(Charsets.UTF_8), response.code) }
+            check(response.isSuccessful) {
+                val requested = plan.options.toJson().toString()
+                "生图请求失败（HTTP ${response.code}，协议 ${plan.kind.name.lowercase()}）\n" +
+                    AgentImageGenerationParser.errorMessage(bytes.toString(Charsets.UTF_8), response.code) +
+                    "\n本次输出参数：$requested\n未自动重试。服务端未明确原因时，不能断言是尺寸、模型限制或内容审核。"
+            }
             if (plan.kind == ImageEndpointPlan.Kind.NOVELAI)
                 NovelAiImageProtocol.parse(bytes) { controller?.throwIfCancelled() }
             else AgentImageGenerationParser.parse(bytes.toString(Charsets.UTF_8))

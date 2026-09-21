@@ -55,22 +55,17 @@ internal class AgentImageGenerationClient(
         }
         val headers = requestHeaders(config)
         val inputImages = images.filter { it.bytes.isNotEmpty() }
-        // Validate and capture once, before any network request or billable fallback.
-        val callOptions = AgentImageGenerationOptions.fromJson(options.toJson())
-        val parameters = generationsBody(config, prompt).also { callOptions.applyTo(it, config.model) }
-        // Apply model adaptation to both defaults and per-call values, not just a validation copy.
-        val shape = JSONObject()
-        listOf("size", "aspect_ratio", "resolution", "quality", "response_format", "n").forEach { key ->
-            if (parameters.has(key)) shape.put(key, parameters.get(key))
-        }
-        val requested = AgentImageGenerationOptions.fromJson(shape)
-        requested.applyTo(parameters, config.model)
-        val constrained = !options.isEmpty || listOf("size", "aspect_ratio", "resolution", "quality", "response_format").any(parameters::has) || parameters.optInt("n", 1) != 1
-        val effectiveOptions = requested.copy(
-            aspectRatio = callOptions.aspectRatio ?: requested.aspectRatio,
-            size = parameters.optString("size").takeIf { it.isNotBlank() })
-        val grok = config.model.lowercase().substringAfterLast('/').startsWith("grok-imagine-image")
-        if (grok && inputImages.size > 1) AgentImageGenerationOptions.invalid("当前 Grok 编辑适配仅支持一张参考图；不会丢弃额外参考图。")
+        // Both direct chat and delegated generation enter this same parameter pipeline.
+        val parsedPrompt = ImagePromptOptions.parse(prompt)
+        require(parsedPrompt.prompt.isNotBlank()) { "请输入图片描述" }
+        val prepared = ImageRequestParameters.prepare(
+            generationsBody(config, parsedPrompt.prompt), parsedPrompt.options, options,
+        )
+        val parameters = prepared.body
+        val effectiveOptions = prepared.options
+        val constrained = !effectiveOptions.isEmpty
+        if (prepared.editProtocol == "json_image_url" && inputImages.size > 1)
+            AgentImageGenerationOptions.invalid("json_image_url 编辑协议仅支持一张参考图，不会丢弃额外图片。")
         val attempts = buildList {
             if (inputImages.isNotEmpty()) {
                 add(Attempt.Edits)
@@ -85,7 +80,7 @@ internal class AgentImageGenerationClient(
         attempts.forEach { attempt ->
             runController?.throwIfCancelled()
             // Do not replay requests after an ambiguous transport/server failure.
-            val response = execute(config, prompt, inputImages, headers, attempt, parameters)
+            val response = execute(config, parsedPrompt.prompt, inputImages, headers, attempt, parameters, prepared.editProtocol)
             if (response.ok) {
                 val parsed = AgentImageGenerationParser.parse(response.body)
                 val generated = materialize(parsed)
@@ -93,9 +88,9 @@ internal class AgentImageGenerationClient(
                     val reports = generated.images.mapIndexed { index, image ->
                         "图片 ${index + 1}：" + effectiveOptions.dimensionReport(image.width, image.height)
                     }.toMutableList()
-                    val expectedCount = parameters.optInt("n", 1)
+                    val expectedCount = effectiveOptions.count ?: 1
                     if (generated.images.size != expectedCount) reports += "IMAGE_COUNT_MISMATCH：请求 $expectedCount 张，实际 ${generated.images.size} 张。"
-                    return generated.copy(text = reports.joinToString("\n") +
+                    return generated.copy(text = prepared.summary + "\n" + reports.joinToString("\n") +
                         generated.text.takeIf { it.isNotBlank() }?.let { "\n\n$it" }.orEmpty())
                 }
                 error("响应里没有图片；不会自动重发可能已计费的生图请求。")
@@ -124,6 +119,7 @@ internal class AgentImageGenerationClient(
         headers: Headers,
         attempt: Attempt,
         parameters: JSONObject,
+        editProtocol: String,
     ): RawResponse {
         val request = when (attempt) {
             Attempt.Generations -> {
@@ -135,9 +131,8 @@ internal class AgentImageGenerationClient(
                     .build()
             }
             Attempt.Edits -> {
-                val grok = config.model.lowercase().substringAfterLast('/').startsWith("grok-imagine-image")
-                val body = if (grok) {
-                    if (images.size != 1) AgentImageGenerationOptions.invalid("当前 Grok 编辑适配仅支持一张参考图；不会丢弃额外参考图。")
+                val body = if (editProtocol == "json_image_url") {
+                    if (images.size != 1) AgentImageGenerationOptions.invalid("json_image_url 编辑协议仅支持一张参考图；不会丢弃额外参考图。")
                     val image = images.single()
                     val mime = image.mimeType.ifBlank { "image/png" }
                     JSONObject(parameters.toString()).put("image", JSONObject().put("type", "image_url")
@@ -151,7 +146,8 @@ internal class AgentImageGenerationClient(
                     .build()
             }
             Attempt.ChatCompletions -> {
-                val body = chatBody(config, prompt, images).toString().toRequestBody(JSON_MEDIA_TYPE)
+                val body = chatBody(config, prompt, images).also { it.remove(ImageRequestParameters.CONFIG_KEY) }
+                    .toString().toRequestBody(JSON_MEDIA_TYPE)
                 Request.Builder()
                     .url(ProviderUrls.openAiChatCompletionsUrl(config.baseUrl))
                     .headers(headers)

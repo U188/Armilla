@@ -65,7 +65,7 @@ class AgentImageGenerationParametersTest {
         val requests = mutableListOf<Request>()
         val generator = AgentImageGenerationClient(client(requests, """{"error":{"message":"unsupported endpoint"}}""", 404))
         assertThrows(ImageGenerationParameterException::class.java) {
-            generator.generate(config(), "portrait", options = AgentImageGenerationOptions(size = "1080x1920"))
+            generator.generate(config(), "portrait", options = AgentImageGenerationOptions(aspectRatio = "9:16", size = "1024x1024"))
         }
         assertTrue(requests.isEmpty())
         assertThrows(IllegalStateException::class.java) {
@@ -76,7 +76,7 @@ class AgentImageGenerationParametersTest {
     }
     @Test fun grokEditIsJsonAndCarriesOptionsAndReferenceImage() {
         val requests = mutableListOf<Request>()
-        AgentImageGenerationClient(client(requests, response(png()))).generate(config(), "edit portrait",
+        AgentImageGenerationClient(client(requests, response(png()))).generate(config().copy(extraBodyJson = """{"eta_image_config":{"edit_protocol":"json_image_url"}}"""), "edit portrait",
             images = listOf(AgentImageGenerationClient.InputImage(png(), "image/png")),
             options = AgentImageGenerationOptions(aspectRatio = "9:16", resolution = "2k"))
         assertTrue(requests.single().url.encodedPath.endsWith("/images/edits"))
@@ -99,7 +99,7 @@ class AgentImageGenerationParametersTest {
     @Test fun gpt2RatioBecomesExactSizeAndConfiguredGrokDefaultsSurviveWithoutExplicitOptions() {
         val requests = mutableListOf<Request>()
         val gen = AgentImageGenerationClient(client(requests, response(png())))
-        gen.generate(config("gpt-image-2"), "portrait", options = AgentImageGenerationOptions(aspectRatio = "9:16"))
+        gen.generate(config("gpt-image-2").copy(extraBodyJson = """{"eta_image_config":{"protocol":"size","sizes":{"9:16":"864x1536"}}}"""), "portrait", options = AgentImageGenerationOptions(aspectRatio = "9:16"))
         val body1 = JSONObject(body(requests.single()))
         assertEquals("864x1536", body1.getString("size")); assertFalse(body1.has("aspect_ratio"))
         requests.clear()
@@ -148,6 +148,22 @@ class AgentImageGenerationParametersTest {
         assertEquals(expected.keys().asSequence().toSet(), actual.keys().asSequence().toSet())
         expected.keys().forEach { key -> assertEquals("field $key", expected.get(key), actual.get(key)) }
         assertFalse(actual.has("size"))
+    }
+
+    @Test fun directInlineOptionsReachUnknownModelAndConfigNeverLeaks() {
+        val requests = mutableListOf<Request>()
+        val output = AgentImageGenerationClient(client(requests, response(png(100, 100)))).generate(
+            config("agnes-image-2.5-flash"),
+            "portrait\nimage_options: {\"aspect_ratio\":\"9:16\",\"resolution\":\"2k\"}",
+        )
+        val actual = JSONObject(body(requests.single()))
+        assertEquals("9:16", actual.getString("aspect_ratio"))
+        assertEquals("2k", actual.getString("resolution"))
+        assertEquals("portrait", actual.getString("prompt"))
+        assertFalse(actual.has("eta_image_config"))
+        assertTrue(output.text.contains("发送参数"))
+        assertTrue(output.text.contains("IMAGE_DIMENSIONS_MISMATCH"))
+        assertEquals(1, requests.size)
     }
 
 }

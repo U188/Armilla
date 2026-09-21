@@ -79,13 +79,13 @@ internal fun SubAgentDropdownMenu(
         onDismissRequest = onDismissRequest,
         modifier = modifier,
         offset = offset,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
     ) {
-        Column(Modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp, max = 280.dp), content = content)
+        Column(Modifier.width(IntrinsicSize.Max).widthIn(min = 96.dp, max = 220.dp), content = content)
     }
 }
 
@@ -94,15 +94,15 @@ internal fun SubAgentDropdownMenu(
 internal fun SubAgentSelectionItem(text: String, selected: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val view = LocalView.current
-    Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp)
-        .clip(RoundedCornerShape(8.dp))
+    Box(Modifier.fillMaxWidth() .padding(horizontal = 3.dp, vertical = 1.dp)
+        .clip(RoundedCornerShape(7.dp))
         .background(if (selected) colors.surfaceVariant else Color.Transparent)
         .selectable(selected = selected, role = Role.RadioButton,
             interactionSource = remember { MutableInteractionSource() }, indication = null,
             onClick = { TouchHaptics.click(view); onClick() })
-        .height(40.dp).padding(horizontal = 16.dp),
+        .height(32.dp).padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1, softWrap = false,
+        Text(text, style = MaterialTheme.typography.bodyMedium, maxLines = 1, softWrap = false,
             overflow = TextOverflow.Ellipsis,
             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
             color = colors.onSurface)
@@ -126,27 +126,27 @@ internal fun SubAgentTaskTierButton(
     Box(modifier) {
         if (compact) {
             // 32dp visible chip with a 48dp hit area; no outlined container around the agent name.
-            Box(Modifier.widthIn(min = 48.dp, max = 116.dp).heightIn(min = 48.dp)
+            Box(Modifier.widthIn(min = 44.dp, max = 108.dp).heightIn(min = 40.dp)
                 .semantics { contentDescription = "设置${label}任务分工" }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
                     enabled = enabled, role = Role.Button,
                     onClick = { if (latestEnabled) { TouchHaptics.click(view); expanded = !expanded } }),
                 contentAlignment = Alignment.Center) {
-                Row(Modifier.clip(RoundedCornerShape(9.dp))
+                Row(Modifier.clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 1f else 0.38f))
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(tier?.label ?: "设置分工", modifier = Modifier.weight(1f, fill = false),
                         maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f))
-                    Icon(Icons.Rounded.ExpandMore, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f))
+                    Icon(Icons.Rounded.ExpandMore, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f))
                 }
             }
         } else SubAgentChoiceField(label, tier?.label ?: "未设置分工", enabled, if (label == "任务分工") "设置任务分工" else "设置${label}任务分工",
             onClick = { if (latestEnabled) { TouchHaptics.click(view); expanded = !expanded } })
         if (enabled) SubAgentDropdownMenu(
             expanded, { expanded = false }, Modifier.selectableGroup(),
-            offset = if (compact) DpOffset(0.dp, (-(40 * SubAgentTaskTier.entries.size + 16)).dp) else DpOffset.Zero,
+            offset = if (compact) DpOffset(0.dp, (-(32 * SubAgentTaskTier.entries.size + 10)).dp) else DpOffset.Zero,
         ) {
             SubAgentTaskTier.entries.forEach { option ->
                 SubAgentSelectionItem(option.label, option == tier) {

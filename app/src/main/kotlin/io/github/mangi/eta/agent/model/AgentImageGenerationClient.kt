@@ -117,10 +117,32 @@ internal class AgentImageGenerationClient(
         }
     }
 
+
+    private fun imageOutputLine(plan: ImageEndpointPlan.Plan, width: Int, height: Int): String {
+        val report = plan.options.dimensionReport(width, height, plan.expectedSize)
+        val ratio = plan.options.aspectRatio?.takeUnless { it.isBlank() || it == "auto" }
+            ?: reducedRatio(width, height)
+        val size = if (width > 0 && height > 0) "${width}x$height" else "未知"
+        val problem = when {
+            "IMAGE_DIMENSIONS_UNVERIFIED" in report -> " IMAGE_DIMENSIONS_UNVERIFIED"
+            "IMAGE_DIMENSIONS_MISMATCH" in report -> " IMAGE_DIMENSIONS_MISMATCH"
+            "IMAGE_RESOLUTION_UNVERIFIED" in report -> " IMAGE_RESOLUTION_UNVERIFIED"
+            else -> ""
+        }
+        return "尺寸:$size 比例:$ratio$problem"
+    }
+
+    private fun reducedRatio(width: Int, height: Int): String {
+        if (width <= 0 || height <= 0) return "未知"
+        fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+        val divisor = gcd(width, height)
+        return "${width / divisor}:${height / divisor}"
+    }
+
     private fun executePlan(
         plan: ImageEndpointPlan.Plan,
         request: Request,
-        parameterSummary: String,
+        @Suppress("UNUSED_PARAMETER") parameterSummary: String,
         controller: AgentRunController?,
     ): Result {
         // One selected endpoint, one billable POST. No chat fallback or parameter-changing retries.
@@ -140,16 +162,13 @@ internal class AgentImageGenerationClient(
         }
         val generated = materialize(parsed, controller)
         check(generated.images.isNotEmpty()) { "响应里没有图片；不会自动重发可能已计费的请求。" }
-        val reports = generated.images.mapIndexed { index, image ->
-            "图片 ${index + 1}：" + plan.options.dimensionReport(image.width, image.height, plan.expectedSize)
+        val reports = generated.images.map { image ->
+            imageOutputLine(plan, image.width, image.height)
         }.toMutableList()
         val expectedCount = plan.options.count ?: 1
         if (generated.images.size != expectedCount)
             reports += "IMAGE_COUNT_MISMATCH：请求 $expectedCount 张，实际 ${generated.images.size} 张。"
-        val summary = if (plan.kind == ImageEndpointPlan.Kind.NOVELAI)
-            "端点协议：novelai_native；发送尺寸：${plan.options.size}；n_samples：$expectedCount"
-        else "端点协议：${plan.kind.name.lowercase()}；${parameterSummary}"
-        return generated.copy(text = summary + "\n" + reports.joinToString("\n") +
+        return generated.copy(text = reports.joinToString("\n") +
             generated.text.takeIf { it.isNotBlank() }?.let { "\n\n$it" }.orEmpty())
     }
 

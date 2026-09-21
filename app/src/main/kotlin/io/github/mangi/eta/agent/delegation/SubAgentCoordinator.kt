@@ -194,11 +194,13 @@ internal class SubAgentCoordinator(
                     }, minOf(timeoutMs, 100L).coerceAtLeast(1), 50, TimeUnit.MILLISECONDS)
                     task.controller.throwIfCancelled()
                     if (role == "implementation") {
-                        diagnostic(task,"workspace_prepare")
-                        val prepared = workspace!!.requireOperation(project, "prepare")
-                        task.workspaceId = prepared.getString("id")
+                        if (task.workspaceId == null) {
+                            diagnostic(task,"workspace_prepare")
+                            val prepared = workspace!!.requireOperation(project, "prepare")
+                            task.workspaceId = prepared.getString("id")
+                            task.workspacePath = prepared.getString("path")
+                        }
                         ownsWorkspaceLease = true
-                        task.workspacePath = prepared.getString("path")
                     } else if (workspaceId != null) {
                         diagnostic(task,"workspace_begin_review")
                         val existing = workspace!!.requireOperation(project, "begin_review", workspaceId)
@@ -302,6 +304,21 @@ internal class SubAgentCoordinator(
                 }
             }
             task
+        }
+        // Prepare the implementation worktree before the caller sees the task. The worker
+        // stays behind dispatchGate, so a failed prepare never starts the model loop.
+        if (task.role == "implementation") {
+            try {
+                val prepared = workspace!!.requireOperation(task.project, "prepare")
+                synchronized(task) {
+                    task.workspaceId = prepared.getString("id")
+                    task.workspacePath = prepared.getString("path")
+                }
+            } catch (error: WorkspaceOperationException) {
+                stop(task, "failed", error.code)
+                task.dispatchGate.countDown()
+                return errorResult(error.code)
+            }
         }
         // Never call an external telemetry sink while holding the coordinator lock.
         // The gate preserves queued -> running event order without charging queue time.

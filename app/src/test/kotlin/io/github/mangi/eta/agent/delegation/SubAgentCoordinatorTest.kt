@@ -406,6 +406,39 @@ class SubAgentCoordinatorTest {
         }
     }
 
+    @Test fun implementationWorkspaceIsReadyBeforeTheCallerReturns() {
+        val workspace = SubAgentWorkspace("unused", AgentModelClient.ToolExecutor {
+            AgentModelClient.ToolResult(JSONObject()
+                .put("ok", true)
+                .put("exit_code", 0)
+                .put("stdout", JSONObject()
+                    .put("ok", true)
+                    .put("id", "0123456789abcdef0123456789abcdef")
+                    .put("path", "/workspace/Eta/.agent/worktrees/0123456789abcdef0123456789abcdef")
+                    .put("state", "editing")
+                    .toString())
+                .toString())
+        })
+        SubAgentCoordinator(
+            listOf(model),
+            roles = listOf("implementation"),
+            workspace = workspace,
+            executeWorkspaceChild = { _, _, _, _, _, _ -> "edited" },
+            executeChild = { _, _, _ -> error("research runner must not own an implementation task") },
+        ).use { coordinator ->
+            val started = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
+                .put("task", "edit the project")
+                .put("role", "implementation")
+                .put("project", "/workspace/Eta"))).content)
+            assertEquals(true, started.getBoolean("ok"))
+            assertEquals("0123456789abcdef0123456789abcdef", started.getString("workspace_id"))
+            assertTrue(started.getString("workspace_path").contains("worktrees"))
+            val finished = get(coordinator, started.getString("task_id"))
+            assertEquals("completed", finished.getString("status"))
+            assertEquals("edited", finished.getString("result"))
+        }
+    }
+
     @Test fun textDelegationRejectsImageOptionsInsteadOfIgnoringThem() {
         SubAgentCoordinator(listOf(model)) { _, _, _ -> error("must not execute") }.use { c ->
             val result = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "test")

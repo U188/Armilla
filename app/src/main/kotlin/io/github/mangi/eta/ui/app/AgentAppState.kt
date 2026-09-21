@@ -3690,13 +3690,14 @@ internal class AgentAppState(
                         }
                         if (index < 0) updated += event.stats else updated[index] = event.stats
                         updateConversation(id, current.copy(childContextRunId = runId, childContexts = updated), updateTimestamp = false)
-                        if (event.stats.status == "timed_out" && existing.getOrNull(index)?.status != "timed_out") {
+                        val hideStatus = event.stats.status
+                        if (timedOutChildVisibility.schedulesHide(hideStatus) && existing.getOrNull(index)?.status != hideStatus) {
                             scope.launch {
                                 delay(timedOutChildVisibility.remaining(runId, event.stats.taskId))
                                 val latest = conversationsById[id] ?: return@launch
                                 if (latest.childContextRunId != runId) return@launch
                                 val taskId = event.stats.taskId
-                                if (latest.childContexts.none { it.taskId == taskId && it.status == "timed_out" }) return@launch
+                                if (latest.childContexts.none { it.taskId == taskId && it.status == hideStatus }) return@launch
                                 updateConversation(id, latest.copy(
                                     childContexts = latest.childContexts.filterNot { it.taskId == taskId },
                                     selectedContextTaskId = latest.selectedContextTaskId.takeUnless { it == taskId },

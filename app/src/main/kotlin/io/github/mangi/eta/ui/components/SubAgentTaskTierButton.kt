@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,7 +54,7 @@ internal fun SubAgentChoiceField(
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(label, style = MaterialTheme.typography.labelMedium,
-                    color = if (enabled) colors.onSurfaceVariant else textColor,
+                    color = textColor,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(value, style = MaterialTheme.typography.bodyMedium, color = textColor,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -63,20 +64,43 @@ internal fun SubAgentChoiceField(
     }
 }
 
-/** Selection is conveyed by a tonal background AND accessibility semantics, never a check icon. */
+/** Compact app-matching menu: wrap to the longest label, outline, no drop shadow. */
+@Composable
+internal fun SubAgentDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        modifier = Modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp, max = 280.dp).then(modifier),
+        shape = RoundedCornerShape(16.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+        content = content,
+    )
+}
+
+/** Selection is a light-gray background AND accessibility semantics, never a check icon. */
 @Composable
 internal fun SubAgentSelectionItem(text: String, selected: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Box(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-        .fillMaxWidth().clip(RoundedCornerShape(8.dp))
-        .background(if (selected) colors.secondaryContainer else Color.Transparent)
+    val view = LocalView.current
+    Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp)
+        .clip(RoundedCornerShape(10.dp))
+        .background(if (selected) colors.surfaceVariant else Color.Transparent)
         .selectable(selected = selected, role = Role.RadioButton,
-            interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
-        .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            interactionSource = remember { MutableInteractionSource() }, indication = null,
+            onClick = { TouchHaptics.click(view); onClick() })
+        .heightIn(min = 48.dp).padding(horizontal = 20.dp, vertical = 12.dp),
         contentAlignment = Alignment.CenterStart) {
-        Text(text, style = MaterialTheme.typography.bodyLarge,
+        Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-            color = if (selected) colors.onSecondaryContainer else colors.onSurface)
+            color = colors.onSurface)
     }
 }
 
@@ -104,25 +128,21 @@ internal fun SubAgentTaskTierButton(
                     onClick = { if (latestEnabled) { TouchHaptics.click(view); expanded = !expanded } }),
                 contentAlignment = Alignment.Center) {
                 Row(Modifier.clip(RoundedCornerShape(9.dp))
-                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = if (enabled) 0.65f else 0.25f))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 1f else 0.38f))
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(tier?.label ?: "设置分工", modifier = Modifier.weight(1f, fill = false),
                         maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Icon(Icons.Rounded.ExpandMore, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f))
+                    Icon(Icons.Rounded.ExpandMore, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f))
                 }
             }
         } else SubAgentChoiceField(label, tier?.label ?: "未设置分工", enabled, if (label == "任务分工") "设置任务分工" else "设置${label}任务分工",
             onClick = { if (latestEnabled) { TouchHaptics.click(view); expanded = !expanded } })
-        if (enabled) DropdownMenu(expanded, { expanded = false },
-            modifier = Modifier.width(if (compact) 164.dp else 208.dp).selectableGroup(),
-            shape = RoundedCornerShape(12.dp), containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            tonalElevation = 0.dp, shadowElevation = 3.dp) {
+        if (enabled) SubAgentDropdownMenu(expanded, { expanded = false }, Modifier.selectableGroup()) {
             SubAgentTaskTier.entries.forEach { option ->
                 SubAgentSelectionItem(option.label, option == tier) {
                     if (latestEnabled) {
-                        TouchHaptics.click(view)
                         latestSelection(option)
                         expanded = false
                     }

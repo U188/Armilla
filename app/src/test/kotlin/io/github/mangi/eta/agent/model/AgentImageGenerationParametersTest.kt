@@ -124,4 +124,30 @@ class AgentImageGenerationParametersTest {
         assertEquals(1, requests.size)
     }
 
+    @Test fun userProvidedGrokCurlExampleIsPreservedInActualJsonRequest() {
+        // An interceptor returns an error locally: no HTTP transport or paid image generation.
+        val requests = mutableListOf<Request>()
+        val expected = JSONObject("""{
+            "model":"grok-imagine-image-2.0",
+            "prompt":"A collage of London landmarks in a stenciled street-art style",
+            "n":2,"aspect_ratio":"16:9","resolution":"2k","quality":"medium","response_format":"url"
+        }""")
+        val options = AgentImageGenerationOptions.fromJson(JSONObject(expected.toString()).also {
+            it.remove("model"); it.remove("prompt")
+        })
+        val generator = AgentImageGenerationClient(client(requests, "{}", 400))
+        assertThrows(IllegalStateException::class.java) {
+            generator.generate(config().copy(baseUrl = "https://api.x.ai/v1"), expected.getString("prompt"), options = options)
+        }
+        val request = requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("https://api.x.ai/v1/images/generations", request.url.toString())
+        assertEquals("Bearer test", request.header("Authorization"))
+        assertTrue(request.body!!.contentType().toString().startsWith("application/json"))
+        val actual = JSONObject(body(request))
+        assertEquals(expected.keys().asSequence().toSet(), actual.keys().asSequence().toSet())
+        expected.keys().forEach { key -> assertEquals("field $key", expected.get(key), actual.get(key)) }
+        assertFalse(actual.has("size"))
+    }
+
 }

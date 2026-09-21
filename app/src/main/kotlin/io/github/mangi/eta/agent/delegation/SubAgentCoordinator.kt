@@ -28,9 +28,11 @@ internal class SubAgentCoordinator(
     private val prepareManualCompactor: (AgentModelClient.ModelConfig) -> AgentModelClient.ModelConfig = { it },
     private val executeVideoChild: ((AgentModelClient.ModelConfig, String, AgentRunController) -> String)? = null,
     private val executeImageChild: ((AgentModelClient.ModelConfig, String, AgentRunController, AgentImageGenerationOptions) -> String)? = null,
+    private val modelParallelLimits: List<Int> = List(workers.size) { 1 },
+    private val allowTimeoutContinuation: Boolean = false,
     private val executeChild: (AgentModelClient.ModelConfig, String, AgentRunController) -> String,
 ) : AutoCloseable {
-    init { require(workers.isNotEmpty() && roles.size == workers.size && workerIds.size == workers.size && workerIds.distinct().size == workers.size && workerNames.size == workers.size && workerModelIds.size == workers.size) }
+    init { require(workers.isNotEmpty() && roles.size == workers.size && workerIds.size == workers.size && workerIds.distinct().size == workers.size && workerNames.size == workers.size && workerModelIds.size == workers.size && modelParallelLimits.size == workers.size && modelParallelLimits.all { it >= 0 }) }
 
     private class Task(val id: String, val worker: Int, val role: String, val project: String, @Volatile var workspaceId: String? = null) {
         lateinit var context: SubAgentContextTracker
@@ -38,6 +40,9 @@ internal class SubAgentCoordinator(
         @Volatile var watchdog: java.util.concurrent.ScheduledFuture<*>? = null
         @Volatile var workspacePath = ""
         @Volatile var executing = false
+        @Volatile var continuationCount = 0
+        @Volatile var finalizing = false
+        @Volatile var leaseRenewal: java.util.concurrent.ScheduledFuture<*>? = null
 
         val dispatchGate = java.util.concurrent.CountDownLatch(1)
         val controller = AgentRunController()
@@ -46,9 +51,15 @@ internal class SubAgentCoordinator(
         @Volatile var errorCode = ""
         @Volatile var future: Future<*>? = null
     }
-    // Lazy single-thread executors enforce one live task per configured identity, including cleanup.
-    private val pools = workers.map { Executors.newSingleThreadExecutor() }
-    private val timer = Executors.newSingleThreadScheduledExecutor()
+    private val poolLeases = workers.indices.map { i ->
+        val config = workers[i]
+        // Real providers use one shared budget by API model name, not per profile/UUID.
+        val key = if (config.providerId.isBlank()) "unconfigured:${System.identityHashCode(this)}:${workerIds[i]}"
+            else config.providerId + "\u0000" + config.model
+        SubAgentModelPools.acquire(key, modelParallelLimits[i])
+    }
+    private val pools = poolLeases.map { it.executor }
+    private val timer = Executors.newScheduledThreadPool(2)
     private val tasks = linkedMapOf<String, Task>()
     private var closed = false
 
@@ -74,6 +85,7 @@ internal class SubAgentCoordinator(
             when (call.name) {
                 "delegate_task" -> start(args)
                 "get_task_result" -> get(args)
+                "continue_task" -> continueTask(args)
                 "manage_agent_workspace" -> manage(args)
                 "cancel_task" -> {
                     val task = find(args.getString("task_id"))
@@ -147,9 +159,21 @@ internal class SubAgentCoordinator(
                 var ownsWorkspaceLease = false
                 try {
                     task.watchdog = timer.scheduleAtFixedRate({
-                        val expired = synchronized(task) { if (task.state == "running") task.clock.expired() else null }
-                        if (expired != null) stop(task, "timed_out", expired)
-                        if (task.state != "running") task.watchdog?.cancel(false)
+                        val expired = synchronized(task) { if (task.state in setOf("running", "awaiting_decision") && !task.finalizing) task.clock.expired() else null }
+                        if (expired != null) {
+                            if (allowTimeoutContinuation && role !in setOf("image_generation", "video_generation") && expired == "SUB_AGENT_TIMEOUT") {
+                                synchronized(task) {
+                                    if (task.state == "running" && !task.finalizing) {
+                                        task.controller.pauseAtCheckpoint()
+                                        task.clock.pauseExecution()
+                                        task.state = "awaiting_decision"
+                                        task.errorCode = expired
+                                        publishContext(task.context.awaitDecision())
+                                    }
+                                }
+                            } else stop(task, "timed_out", expired)
+                        }
+                        if (task.state !in setOf("running", "awaiting_decision")) task.watchdog?.cancel(false)
                     }, minOf(timeoutMs, 100L).coerceAtLeast(1), 50, TimeUnit.MILLISECONDS)
                     task.controller.throwIfCancelled()
                     if (role == "implementation") {
@@ -163,6 +187,14 @@ internal class SubAgentCoordinator(
                         ownsWorkspaceLease = true
                         task.workspacePath = existing.getString("path")
                     }
+                    if (ownsWorkspaceLease) {
+                        task.leaseRenewal = timer.scheduleWithFixedDelay({
+                            if (task.state in setOf("running", "awaiting_decision") && !task.finalizing) {
+                                val renewed = runCatching { workspace!!.requireOperation(project, "renew", task.workspaceId) }
+                                if (renewed.isFailure) stop(task, "failed", "WORKSPACE_LEASE_LOST")
+                            }
+                        }, 60, 60, TimeUnit.SECONDS)
+                    }
                     task.controller.throwIfCancelled()
                     val prompt = "Role: $role\nTask:\n$instruction\n\nContext supplied by main agent:\n$context"
                     val answer = if (role in setOf("image_generation", "video_generation")) {
@@ -172,7 +204,7 @@ internal class SubAgentCoordinator(
                     } else if (executeObservedChild != null) {
                         executeObservedChild.invoke(workers[worker], prompt, task.controller, project, task.workspaceId, role == "implementation") { event ->
                             synchronized(task) {
-                                if (task.state == "running") task.context.accept(event)?.let { stats ->
+                                if (task.state in setOf("running", "awaiting_decision")) task.context.accept(event)?.let { stats ->
                                     task.clock.setCompacting(stats.isCompacting)
                                     publishContext(stats)
                                 }
@@ -182,16 +214,28 @@ internal class SubAgentCoordinator(
                         executeWorkspaceChild!!.invoke(workers[worker], prompt, task.controller, project, id, role == "implementation")
                     } ?: executeChild(workers[worker], prompt, task.controller)
                     task.controller.throwIfCancelled()
+                    while (true) {
+                        task.controller.throwIfCancelled()
+                        val canFinalize = synchronized(task) {
+                            if (task.state == "running") { task.finalizing = true; true } else false
+                        }
+                        if (canFinalize) break
+                    }
                     if (role == "implementation") workspace!!.requireOperation(project, "seal", task.workspaceId)
                     else if (task.workspaceId != null) workspace!!.requireOperation(project, if (role == "review") "review" else "end_review", task.workspaceId)
                     task.controller.throwIfCancelled()
-                    synchronized(task) {
-                        check(task.state == "running") { "Task stopped during workspace finalization" }
-                        if (task.state == "running") {
-                            task.result = answer.take(16000) + if (answer.length > 16000) "\n[结果已截断]" else ""
-                            task.state = "completed"
-                            task.context.finish(task.state)
+                    while (true) {
+                        task.controller.throwIfCancelled()
+                        val published = synchronized(task) {
+                            if (task.state == "running") {
+                                task.result = answer.take(16000) + if (answer.length > 16000) "\n[结果已截断]" else ""
+                                task.state = "completed"
+                                task.context.finish(task.state)
+                                true
+                            } else false
                         }
+                        if (published) break
+                        if (task.state != "awaiting_decision") task.controller.throwIfCancelled()
                     }
                 } catch (error: Exception) {
                     // Future.cancel interrupts the worker. Clear only for bounded cleanup, then restore.
@@ -199,7 +243,7 @@ internal class SubAgentCoordinator(
                     if (ownsWorkspaceLease && task.workspaceId != null) runCatching { workspace?.operation(project, if (role == "implementation") "fail" else "end_review", task.workspaceId) }
                     if (interrupted) Thread.currentThread().interrupt()
                     synchronized(task) {
-                        if (task.state == "running") {
+                        if (task.state in setOf("running", "awaiting_decision")) {
                             task.errorCode = when (error) {
                                 is ImageGenerationParameterException -> "IMAGE_GENERATION_INVALID_OPTIONS"
                                 is SubAgentContextLimitException -> "SUB_AGENT_CONTEXT_LIMIT"
@@ -220,6 +264,7 @@ internal class SubAgentCoordinator(
                     }
                 } finally {
                     task.watchdog?.cancel(false)
+                    task.leaseRenewal?.cancel(false)
                     synchronized(task) { publishContext(task.context.finish(task.state)) }
                     task.executing = false
                 }
@@ -257,9 +302,22 @@ internal class SubAgentCoordinator(
         }
         return snapshot(task)
     }
+    private fun continueTask(args: JSONObject): JSONObject {
+        val task = find(args.getString("task_id"))
+        synchronized(task) {
+            if (task.state != "awaiting_decision") return errorResult("TASK_NOT_AWAITING_DECISION")
+            task.clock.renewExecution()
+            task.errorCode = ""
+            task.continuationCount++
+            task.state = "running"
+            publishContext(task.context.start())
+            task.controller.resume()
+            return snapshot(task)
+        }
+    }
     private fun stop(task: Task, state: String, errorCode: String = "") {
         synchronized(task) {
-            if (task.state !in setOf("queued", "running")) return
+            if (task.state !in setOf("queued", "running", "awaiting_decision")) return
             task.state = state
             task.errorCode = errorCode
             task.watchdog?.cancel(false)
@@ -277,6 +335,10 @@ internal class SubAgentCoordinator(
             .put("role", task.role).put("project", task.project).put("error_code", task.errorCode)
             .put("workspace_id", task.workspaceId ?: JSONObject.NULL).put("workspace_path", task.workspacePath)
             .put("review_required", true)
+            .put("can_continue", task.state == "awaiting_decision")
+            .put("continuation_count", task.continuationCount)
+            .put("parallel_limit", SubAgentModelPools.currentLimit(poolLeases[task.worker]))
+            .put("continuation_note", if (task.state == "awaiting_decision") "已请求在安全边界暂停，保留同一任务、上下文与工作树；主代理可 continue_task 或 cancel_task。正在进行的请求/工具不会重放。" else "")
     }
     @Synchronized private fun manage(args: JSONObject): JSONObject {
         if (closed) return errorResult("RUN_CLOSED")
@@ -291,11 +353,12 @@ internal class SubAgentCoordinator(
     private fun errorResult(code: String) = JSONObject().put("ok", false).put("code", code)
     override fun close() {
         val owned = synchronized(this) {
+            if (closed) return
             closed = true
             tasks.values.toList()
         }
         owned.forEach { stop(it, "cancelled") }
-        pools.forEach { it.shutdownNow() }
+        poolLeases.forEach(SubAgentModelPools::release)
         timer.shutdownNow()
     }
 }

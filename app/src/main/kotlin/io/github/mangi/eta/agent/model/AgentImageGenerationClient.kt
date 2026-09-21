@@ -52,15 +52,17 @@ internal class AgentImageGenerationClient(
         require(prompt.isNotBlank()) { "请输入图片描述" }
         val parsedPrompt = ImagePromptOptions.parse(prompt, options)
         require(parsedPrompt.prompt.isNotBlank()) { "请输入图片描述" }
-        val prepared = ImageRequestParameters.prepare(
-            generationsBody(config, parsedPrompt.prompt), parsedPrompt.options, options, defaultCount = 1,
-        )
+        val inputBody = generationsBody(config, parsedPrompt.prompt)
+        val grok = GrokImageProfile.applies(config.baseUrl, config.model, inputBody)
+        fun prepare(inline: AgentImageGenerationOptions, overrides: AgentImageGenerationOptions) =
+            if (grok) GrokImageProfile.prepare(inputBody, inline, overrides, images.size, mask != null)
+            else ImageRequestParameters.prepare(inputBody, inline, overrides, defaultCount = 1)
+        val prepared = prepare(parsedPrompt.options, options)
         if (config.providerType == ProviderTypes.ANTHROPIC && !prepared.explicitEndpoint)
             AgentImageGenerationOptions.invalid("Anthropic 原生消息协议不是生图接口；若该中转另有 Images 端点，请显式配置 eta_image_config.endpoint。")
         val batchCount = prepared.options.count ?: 1
         val parallelism = prepared.options.concurrency
-        val single = if (parallelism == null) prepared else ImageRequestParameters.prepare(
-            generationsBody(config, parsedPrompt.prompt),
+        val single = if (parallelism == null) prepared else prepare(
             parsedPrompt.options.copy(count = 1, concurrency = null),
             options.copy(count = 1, concurrency = null),
         )
@@ -139,7 +141,7 @@ internal class AgentImageGenerationClient(
         val generated = materialize(parsed, controller)
         check(generated.images.isNotEmpty()) { "响应里没有图片；不会自动重发可能已计费的请求。" }
         val reports = generated.images.mapIndexed { index, image ->
-            "图片 ${index + 1}：" + plan.options.dimensionReport(image.width, image.height)
+            "图片 ${index + 1}：" + plan.options.dimensionReport(image.width, image.height, plan.expectedSize)
         }.toMutableList()
         val expectedCount = plan.options.count ?: 1
         if (generated.images.size != expectedCount)

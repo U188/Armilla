@@ -47,6 +47,7 @@ internal fun SubAgentProfileRow(
     var thinkingPicker by remember(profile.id) { mutableStateOf(false) }
     var rolePicker by remember(profile.id) { mutableStateOf(false) }
     var tierPicker by remember(profile.id) { mutableStateOf(false) }
+    var resolutionPicker by remember(profile.id, profile.providerId, profile.modelId, profile.role) { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) { modelPicker = false; thinkingPicker = false; rolePicker = false; tierPicker = false } }
     LaunchedEffect(profile.role) { rolePicker = false; tierPicker = false; thinkingPicker = false; modelPicker = false }
     val config = remember(profile.providerId, profile.modelId, profile.role, providers) {
@@ -106,6 +107,11 @@ internal fun SubAgentProfileRow(
                 }
                 }
             }
+            if (profile.role == "image_generation") {
+                SubAgentSettingRow("默认分辨率", profile.imageResolution?.let(io.github.mangi.eta.agent.model.ImageResolutionTier::label) ?: "跟随接口",
+                    Icons.Rounded.ViewInAr, "设置${profile.name}分辨率", enabled = enabled && config != null,
+                    onClick = { if (currentEnabled && config != null) { TouchHaptics.click(view); resolutionPicker = true } })
+            }
             SubAgentSettingRow("思考深度", thinkingLabel,
                 Icons.Rounded.AutoAwesome, "调整${profile.name}思考深度", enabled = enabled && canThink,
                 onClick = { if (currentEnabled && canThink) { TouchHaptics.click(view); thinkingPicker = true } })
@@ -137,6 +143,28 @@ internal fun SubAgentProfileRow(
                 }
             }
         }
+    }
+
+    if (enabled && resolutionPicker && config != null) {
+        val verifiedGrok = runCatching {
+            val body = if (config.extraBodyJson.isBlank()) org.json.JSONObject() else org.json.JSONObject(config.extraBodyJson)
+            io.github.mangi.eta.agent.model.RequestBodyMerge.mergeCustomBody(body, config.customBody)
+            io.github.mangi.eta.agent.model.GrokImageProfile.applies(config.baseUrl, config.model, body)
+        }.getOrDefault(false)
+        AlertDialog(onDismissRequest = { resolutionPicker = false }, title = { Text("默认分辨率") },
+            text = { Column {
+                Text("低、中、高、超高表示请求档位，不承诺固定像素。自然语言和本次子代理参数可覆盖此默认值。" +
+                    if (verifiedGrok) "当前 Grok 实测端点仅验证低、高；中、超高不可选。" else "实际支持取决于端点映射。")
+                (listOf<String?>(null) + io.github.mangi.eta.agent.model.ImageResolutionTier.values).forEach { tier ->
+                    val allowed = !verifiedGrok || tier == null || tier in setOf("low", "high")
+                    TextButton(enabled = allowed, onClick = {
+                        if (currentEnabled) SubAgentPreferences.update(profile.id) { latest ->
+                            if (latest.providerId == profile.providerId && latest.modelId == profile.modelId && latest.role == "image_generation") latest.copy(imageResolution = tier) else latest
+                        }
+                        resolutionPicker = false
+                    }) { Text(tier?.let(io.github.mangi.eta.agent.model.ImageResolutionTier::label) ?: "跟随接口") }
+                }
+            } }, confirmButton = { TextButton(onClick = { resolutionPicker = false }) { Text("关闭") } })
     }
 
     if (enabled && modelPicker) {

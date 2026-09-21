@@ -218,4 +218,27 @@ class SubAgentPreferencesTest {
         assertEquals(ReasoningEffort.HIGH,SubAgentPreferences.applyReasoning(media,unsupported).reasoningEffort)
     }
 
+    @Test fun modelLimitsArePerProviderAndApiModelWithoutArtificialCeiling() {
+        Prefs.initLocal(RuntimeEnvironment.getApplication())
+        val provider="parallel-${java.util.UUID.randomUUID()}"
+        assertEquals(1,SubAgentPreferences.parallelLimit(provider,"same"))
+        SubAgentPreferences.saveParallelLimit(provider,"same",1000)
+        assertEquals(1000,SubAgentPreferences.parallelLimit(provider,"same"))
+        assertEquals(1,SubAgentPreferences.parallelLimit(provider,"other"))
+        assertEquals(1,SubAgentPreferences.parallelLimit(provider+"x","same"))
+        SubAgentPreferences.saveParallelLimit(provider,"same",0)
+        assertEquals(0,SubAgentPreferences.parallelLimit(provider,"same"))
+        assertThrows(IllegalArgumentException::class.java) { SubAgentPreferences.saveParallelLimit(provider,"same",-1) }
+    }
+    @Test fun imageResolutionIsChildDefaultAndNeverMutatesSharedModel() {
+        val profile=SubAgentProfile("image-default","image",role="image_generation",imageResolution="high")
+        assertEquals("high",SubAgentProfile.fromJson(profile.toJson()).imageResolution)
+        val shared=AgentModelClient.ModelConfig(baseUrl="https://example.invalid",apiKey="test",model="image",systemPrompt="",extraBodyJson="""{"size":"1024x1024","seed":1}""")
+        val next=SubAgentPreferences.applyImageResolution(profile,shared)
+        assertEquals("high",org.json.JSONObject(next.extraBodyJson).getString("resolution"))
+        assertFalse(org.json.JSONObject(next.extraBodyJson).has("size"))
+        assertTrue(shared.extraBodyJson.contains("1024x1024"))
+        assertEquals(1,org.json.JSONObject(next.extraBodyJson).getInt("seed"))
+    }
+
 }

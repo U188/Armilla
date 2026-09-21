@@ -9,7 +9,7 @@ internal object ImageTargetSize {
     fun resolve(ratio: String?, resolution: String?): String {
         if (ratio == null || ratio == "auto" || resolution == null)
             AgentImageGenerationOptions.invalid("像素尺寸协议需要明确比例和分辨率档位，或直接指定 size。")
-        val edge = edges[resolution] ?: AgentImageGenerationOptions.invalid("未配置该分辨率档位的像素映射，请指定 size 或 sizes。")
+        val edge = edges[ImageResolutionTier.legacy(resolution)] ?: AgentImageGenerationOptions.invalid("未配置该分辨率档位的像素映射，请指定 size 或 sizes。")
         val parts = ratio.split(':').map(::BigDecimal)
         val scale = maxOf(parts[0].scale(), parts[1].scale(), 0)
         val w = parts[0].movePointRight(scale).toBigIntegerExact()

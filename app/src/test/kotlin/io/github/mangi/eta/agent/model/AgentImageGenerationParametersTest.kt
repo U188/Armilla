@@ -24,7 +24,7 @@ import org.robolectric.annotation.GraphicsMode
 class AgentImageGenerationParametersTest {
     private fun config(model: String = "grok-imagine-image-2.0") = AgentModelClient.ModelConfig(
         baseUrl = "https://example.invalid/v1", apiKey = "test", model = model, systemPrompt = "",
-        extraBodyJson = """{"eta_image_config":{"protocol":"passthrough"}}""")
+        extraBodyJson = """{"eta_image_config":{"protocol":"passthrough","values":{"resolution":{"low":"1k","medium":"1.5k","high":"2k","ultra":"4k"}}}}""")
     private fun png(w: Int = 90, h: Int = 160): ByteArray {
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         return ByteArrayOutputStream().use { out ->
@@ -43,7 +43,7 @@ class AgentImageGenerationParametersTest {
 
     @Test fun realGenerationBodyCarriesGrokRatioResolutionAndPerCallOverrides() {
         val requests = mutableListOf<Request>()
-        val configured = config().copy(extraBodyJson = """{"size":"1024x1024","aspect_ratio":"1:1","resolution":"1k","eta_image_config":{"protocol":"passthrough"}}""")
+        val configured = config().copy(extraBodyJson = """{"size":"1024x1024","aspect_ratio":"1:1","resolution":"1k","eta_image_config":{"protocol":"passthrough","values":{"resolution":{"low":"1k","medium":"1.5k","high":"2k","ultra":"4k"}}}}""")
         val result = AgentImageGenerationClient(client(requests, response(png()))).generate(configured, "portrait",
             options = AgentImageGenerationOptions(aspectRatio = "9:16", resolution = "2k"))
         val json = JSONObject(body(requests.single()))
@@ -52,7 +52,7 @@ class AgentImageGenerationParametersTest {
         assertFalse(json.has("size")); assertEquals("portrait", json.getString("prompt"))
         assertTrue(configured.extraBodyJson.contains("1:1"))
         assertEquals(90, result.images.single().width); assertEquals(160, result.images.single().height)
-        assertTrue(result.text.contains("IMAGE_DIMENSIONS_MISMATCH")) // tiny output cannot satisfy 2k
+        assertTrue(result.text.contains("IMAGE_RESOLUTION_UNVERIFIED")) // No declared pixel mapping: cannot claim this native tier is verified.
     }
     @Test fun squareResultIsReportedNotRetriedOrResized() {
         val requests = mutableListOf<Request>()
@@ -77,7 +77,7 @@ class AgentImageGenerationParametersTest {
     }
     @Test fun grokEditIsJsonAndCarriesOptionsAndReferenceImage() {
         val requests = mutableListOf<Request>()
-        AgentImageGenerationClient(client(requests, response(png()))).generate(config().copy(extraBodyJson = """{"eta_image_config":{"protocol":"passthrough","edit_protocol":"json_image_url"}}"""), "edit portrait",
+        AgentImageGenerationClient(client(requests, response(png()))).generate(config().copy(extraBodyJson = """{"eta_image_config":{"protocol":"passthrough","values":{"resolution":{"low":"1k","medium":"1.5k","high":"2k","ultra":"4k"}},"edit_protocol":"json_image_url"}}"""), "edit portrait",
             images = listOf(AgentImageGenerationClient.InputImage(png(), "image/png")),
             options = AgentImageGenerationOptions(aspectRatio = "9:16", resolution = "2k"))
         assertTrue(requests.single().url.encodedPath.endsWith("/images/edits"))
@@ -104,7 +104,7 @@ class AgentImageGenerationParametersTest {
         val body1 = JSONObject(body(requests.single()))
         assertEquals("864x1536", body1.getString("size")); assertFalse(body1.has("aspect_ratio"))
         requests.clear()
-        gen.generate(config().copy(extraBodyJson = """{"aspect_ratio":"9:16","resolution":"2k","eta_image_config":{"protocol":"passthrough"}}"""), "portrait")
+        gen.generate(config().copy(extraBodyJson = """{"aspect_ratio":"9:16","resolution":"2k","eta_image_config":{"protocol":"passthrough","values":{"resolution":{"low":"1k","medium":"1.5k","high":"2k","ultra":"4k"}}}}"""), "portrait")
         assertEquals("9:16", JSONObject(body(requests.single())).getString("aspect_ratio"))
     }
     @Test fun ambiguousFailureOrSuccessfulEmptyResponseDoesNotGenerateAgain() {

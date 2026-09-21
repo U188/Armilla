@@ -38,6 +38,7 @@ internal object ImageRequestParameters {
         val endpoint: String = "openai_images",
         val explicitEndpoint: Boolean = false,
         val nativeParameters: JSONObject = JSONObject(),
+        val expectedSize: String? = null,
     )
 
     fun prepare(input: JSONObject, inline: AgentImageGenerationOptions, explicit: AgentImageGenerationOptions, defaultCount: Int? = null): Prepared {
@@ -50,7 +51,7 @@ internal object ImageRequestParameters {
             is JSONObject -> rawConfig
             else -> AgentImageGenerationOptions.invalid("eta_image_config 必须是对象。")
         }
-        if (config.keys().asSequence().any { it !in setOf("endpoint", "protocol", "fields", "values", "sizes", "edit_protocol", "native_parameters") })
+        if (config.keys().asSequence().any { it !in setOf("endpoint", "protocol", "fields", "values", "sizes", "edit_protocol", "native_parameters", "profile") })
             AgentImageGenerationOptions.invalid("eta_image_config 含未知配置。")
         fun text(key: String, default: String): String = if (!config.has(key)) default else
             config.opt(key) as? String ?: AgentImageGenerationOptions.invalid("$key 必须是字符串。")
@@ -63,7 +64,7 @@ internal object ImageRequestParameters {
         val values = obj("values")
         val sizes = obj("sizes")
         val native = obj("native_parameters")
-        // Preserve existing explicit field mappings; ordinary Images uses concrete size like Imagine.
+        // Preserve existing explicit field mappings; ordinary Images uses an explicit client pixel policy.
         val protocol = text("protocol", if (fields.length() > 0) "passthrough" else "size_long_edge")
         if (protocol !in setOf("passthrough", "size", "size_long_edge"))
             AgentImageGenerationOptions.invalid("参数协议应为 size_long_edge、size 或 passthrough。")
@@ -119,13 +120,16 @@ internal object ImageRequestParameters {
         explicit.applyTo(canonical)
         if (!canonical.has("n") && defaultCount != null) canonical.put("n", defaultCount)
         var options = AgentImageGenerationOptions.fromJson(canonical).also { it.validateShape() }
+        if (canonical.has("resolution")) canonical.put("resolution", options.resolution)
         if (protocol != "passthrough" && (options.aspectRatio != null || options.resolution != null)) {
             if (options.size != null && options.resolution != null)
                 AgentImageGenerationOptions.invalid("不能同时指定精确 size 和分辨率档位。")
             if (options.size == null) {
                 val ratio = options.aspectRatio ?: AgentImageGenerationOptions.invalid("像素尺寸转换需要明确比例。")
                 val mappingKey = if (options.resolution == null) ratio else "$ratio@${options.resolution}"
-                val mapped = if (sizes.has(mappingKey)) sizes.opt(mappingKey) as? String
+                val legacyMappingKey = if (options.resolution == null) ratio else "$ratio@${ImageResolutionTier.legacy(options.resolution)}"
+                val selectedKey = if (sizes.has(mappingKey)) mappingKey else legacyMappingKey
+                val mapped = if (sizes.has(selectedKey)) sizes.opt(selectedKey) as? String
                     ?: AgentImageGenerationOptions.invalid("sizes 映射值必须是像素尺寸字符串。")
                 else if (protocol == "size") AgentImageGenerationOptions.invalid("未配置 sizes[$mappingKey]；不会替换为近似比例。")
                 else ImageTargetSize.resolve(options.aspectRatio, options.resolution)
@@ -145,7 +149,11 @@ internal object ImageRequestParameters {
         canonical.keys().forEach { key ->
             val value = canonical.get(key)
             val mapping = maps[key]
-            val encoded = if (mapping == null) value else mapping[value.toString()]
+            val encoded = if (mapping == null) {
+                if (key == "resolution" && value.toString() in ImageResolutionTier.values)
+                    AgentImageGenerationOptions.invalid("原生分辨率协议需要 values.resolution 显式映射低、中、高、超高档位，不能直接猜测上游参数。")
+                value
+            } else mapping[value.toString()] ?: (if (key == "resolution") mapping[ImageResolutionTier.legacy(value.toString())] else null)
                 ?: AgentImageGenerationOptions.invalid("values 未配置本次 $key 的取值；不会猜测。")
             writePath(body, paths.getValue(key), encoded)
             sent.put(paths.getValue(key).joinToString("."), encoded)

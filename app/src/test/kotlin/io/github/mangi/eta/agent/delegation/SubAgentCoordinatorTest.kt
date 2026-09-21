@@ -382,7 +382,7 @@ class SubAgentCoordinatorTest {
             assertEquals("completed", get(c, id).getString("status"))
             val receivedOptions = requireNotNull(received)
             assertEquals("9:16", receivedOptions.aspectRatio)
-            assertEquals("2k", receivedOptions.resolution)
+            assertEquals("high", receivedOptions.resolution)
             assertEquals(3, receivedOptions.count)
             assertEquals(2, receivedOptions.concurrency)
             args.put("image_options", JSONObject().put("aspect_ratio", "9:16").put("size", "1024x1024"))

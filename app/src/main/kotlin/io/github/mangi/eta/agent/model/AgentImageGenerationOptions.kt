@@ -16,7 +16,7 @@ internal data class AgentImageGenerationOptions(
     val isEmpty get() = this == AgentImageGenerationOptions()
 
     fun toJson() = JSONObject().also { json ->
-        aspectRatio?.let { json.put("aspect_ratio", it) }; resolution?.let { json.put("resolution", it) }
+        aspectRatio?.let { json.put("aspect_ratio", it) }; resolution?.let { json.put("resolution", ImageResolutionTier.normalize(it)) }
         size?.let { json.put("size", it) }; count?.let { json.put("n", it) }
         quality?.let { json.put("quality", it) }; responseFormat?.let { json.put("response_format", it) }
         concurrency?.let { json.put("concurrency", it) }
@@ -49,20 +49,20 @@ internal data class AgentImageGenerationOptions(
     }
 
     /** Validate actual decoded dimensions, not a provider's claimed metadata. Never resize or retry. */
-    fun dimensionReport(width: Int, height: Int): String {
-        val requested = listOfNotNull(aspectRatio?.let { "比例 $it" }, resolution?.let { "分辨率档位 $it" }, size?.let { "尺寸 $it" }).joinToString("，")
+    fun dimensionReport(width: Int, height: Int, expectedSize: String? = null): String {
+        val requested = listOfNotNull(aspectRatio?.let { "比例 $it" }, resolution?.let { "${ImageResolutionTier.label(it)}分辨率" }, size?.let { "尺寸 $it" }).joinToString("，")
         if (width <= 0 || height <= 0) return "IMAGE_DIMENSIONS_UNVERIFIED：无法解码实际宽高" + if (requested.isBlank()) "。" else "；请求 $requested，不能声称符合要求。"
         val problems = mutableListOf<String>()
         if (aspectRatio != null && aspectRatio != "auto" && !matchesRatio(width, height, aspectRatio)) problems += "宽高比不符合 $aspectRatio"
         if (size != null && size != "auto" && dimensions(size) != (width to height)) problems += "像素尺寸不符合 $size"
-        // A tier is provider-defined; flag clearly undersized output without claiming an exact edge length.
-        val tier = resolution?.takeIf { Regex("[1-9][0-9]?k").matches(it) }?.dropLast(1)?.toInt()
-        if (tier != null && maxOf(width, height) <= tier * 512)
-            problems += "实际长边不超过 ${tier * 512}，与请求的 $resolution 档位明显不符"
+        if (expectedSize != null && dimensions(expectedSize) != (width to height))
+            problems += "与该端点已验证档位输出 $expectedSize 不符"
+        val tierUnverified = resolution != null && size == null && expectedSize == null
         return (if (problems.isEmpty()) "实际尺寸" else "IMAGE_DIMENSIONS_MISMATCH") + "：${width}x$height" +
             (if (requested.isBlank()) "" else "；请求 $requested") +
             (if (problems.isEmpty()) "。" else "；${problems.joinToString("，")}，不能作为符合要求的结果交付。") +
-            (if (resolution == null) "" else "分辨率档位是请求意图，不等同于精确像素承诺；发送字段见参数摘要。")
+            (if (tierUnverified) "IMAGE_RESOLUTION_UNVERIFIED：端点未提供该档位可验证的像素映射，不得仅凭比例正确宣称分辨率达标。"
+                else if (resolution == null) "" else "分辨率档位是请求意图，不等同于精确像素承诺；发送字段见参数摘要。")
     }
 
     companion object {
@@ -78,7 +78,7 @@ internal data class AgentImageGenerationOptions(
             }
             val ratio = text("aspect_ratio")?.replace('：', ':')?.replace(" ", "")
             if (ratio != null && ratio != "auto" && !Regex("[1-9][0-9]{0,3}(?:\\.[0-9]{1,2})?:[1-9][0-9]{0,3}(?:\\.[0-9]{1,2})?").matches(ratio)) invalid("aspect_ratio 必须是正数比例或 auto。")
-            val resolution = text("resolution")
+            val resolution = text("resolution")?.let(ImageResolutionTier::normalize)
             if (resolution != null && !Regex("[a-z0-9][a-z0-9_.-]{0,19}").matches(resolution)) invalid("resolution 格式无效。")
             val size = text("size")?.replace('×', 'x')?.replace(" ", "")
             if (size != null && size != "auto") dimensions(size)

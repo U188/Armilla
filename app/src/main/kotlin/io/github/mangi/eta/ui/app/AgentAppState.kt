@@ -173,6 +173,7 @@ internal class AgentAppState(
     private val runJobs = mutableMapOf<String, Job>()
     private val imageGenerationRunIds = mutableSetOf<String>()
     private val directMediaRuns = DirectMediaRunControl()
+    private val timedOutChildVisibility = TimedOutChildVisibility()
     private data class PendingSteerDraft(
         val conversationId: String?, val imageIds: Set<String>, val fileIds: Set<String>,
         val mentionIds: Set<String> = emptySet(),
@@ -3679,6 +3680,7 @@ internal class AgentAppState(
                 conversationIdForRun(runId)?.let { id ->
                     conversationsById[id]?.let conversation@ { current ->
                         if (current.childContextRunId.isNotBlank() && current.childContextRunId != runId) return@conversation
+                        if (!timedOutChildVisibility.observe(runId, event.stats.taskId, event.stats.status)) return@conversation
                         val existing = if (current.childContextRunId == runId) current.childContexts else emptyList()
                         val updated = existing.toMutableList()
                         val index = updated.indexOfFirst { it.taskId == event.stats.taskId }
@@ -3688,6 +3690,19 @@ internal class AgentAppState(
                         }
                         if (index < 0) updated += event.stats else updated[index] = event.stats
                         updateConversation(id, current.copy(childContextRunId = runId, childContexts = updated), updateTimestamp = false)
+                        if (event.stats.status == "timed_out" && existing.getOrNull(index)?.status != "timed_out") {
+                            scope.launch {
+                                delay(timedOutChildVisibility.remaining(runId, event.stats.taskId))
+                                val latest = conversationsById[id] ?: return@launch
+                                if (latest.childContextRunId != runId) return@launch
+                                val taskId = event.stats.taskId
+                                if (latest.childContexts.none { it.taskId == taskId && it.status == "timed_out" }) return@launch
+                                updateConversation(id, latest.copy(
+                                    childContexts = latest.childContexts.filterNot { it.taskId == taskId },
+                                    selectedContextTaskId = latest.selectedContextTaskId.takeUnless { it == taskId },
+                                ), updateTimestamp = false)
+                            }
+                        }
                     }
                 }
             }

@@ -8,7 +8,7 @@ class NaturalImagePromptOptionsTest {
     private fun parse(text: String)=ImagePromptOptions.parse(text).options
     @Test fun screenshotsAndEmbeddedChineseDimensionsWork() {
         for(prompt in listOf("生成一张2k，9:16的动漫美少女","生成一张2k、9:16的动漫美少女","生成一张2K 9:16的动漫美少女")) {
-            val o=parse(prompt);assertEquals("2k",o.resolution);assertEquals("9:16",o.aspectRatio);assertEquals(1,o.count)
+            val o=parse(prompt);assertEquals("high",o.resolution);assertEquals("9:16",o.aspectRatio);assertEquals(1,o.count)
             val body=ImageRequestParameters.prepare(JSONObject().put("n",1),o,AgentImageGenerationOptions()).body
             assertEquals("1152x2048",body.getString("size"))
         }
@@ -21,25 +21,25 @@ class NaturalImagePromptOptionsTest {
         val tiers=listOf("1k","1.5k","2k","4k")
         for(ratio in ratios) for(tier in tiers) {
             val options=parse("生成一张${tier}画质、${ratio}画幅的风景")
-            assertEquals(tier,options.resolution);assertEquals(ratio,options.aspectRatio)
+            assertEquals(ImageResolutionTier.normalize(tier),options.resolution);assertEquals(ratio,options.aspectRatio)
             val plan=ImageRequestParameters.prepare(JSONObject(),options,AgentImageGenerationOptions())
             val (w,h)=AgentImageGenerationOptions.dimensions(plan.body.getString("size"))
             val (a,b)=ratio.split(':').map(String::toInt)
-            assertEquals("$ratio@$tier",w*b,h*a)
+            assertEquals("$ratio@${ImageResolutionTier.normalize(tier)}",w*b,h*a)
             assertFalse(plan.body.has("resolution"));assertFalse(plan.body.has("aspect_ratio"))
         }
     }
     @Test fun spokenRatiosAndChineseQuantitiesAreRecognized() {
         val a=parse("画三张4K、16比9的风景")
-        assertEquals(3,a.count);assertEquals("16:9",a.aspectRatio);assertEquals("4k",a.resolution)
+        assertEquals(3,a.count);assertEquals("16:9",a.aspectRatio);assertEquals("ultra",a.resolution)
         assertEquals("9:16",parse("画一张九比十六的插画，2K").aspectRatio)
         assertEquals("21:9",parse("画一张二十一比九的壁纸，2K").aspectRatio)
-        assertEquals("1.5k",parse("1.5K画质，3:4").resolution)
+        assertEquals("medium",parse("1.5K画质，3:4").resolution)
     }
     @Test fun fullWidthDigitsAndWhitespaceNormalizeWithoutChangingPrompt() {
         val prompt="生成一张２Ｋ、９：１６的插画"
         val result=ImagePromptOptions.parse(prompt)
-        assertEquals(prompt,result.prompt);assertEquals("2k",result.options.resolution);assertEquals("9:16",result.options.aspectRatio)
+        assertEquals(prompt,result.prompt);assertEquals("high",result.options.resolution);assertEquals("9:16",result.options.aspectRatio)
     }
     @Test fun countDoesNotMeanNumberOfPeopleOrFurniture() {
         for(text in listOf("画三个人和两只猫","画三张床","画两张桌子","一张脸的特写","画猫，猫的数量为3","画两张书桌","画两张漂亮的书桌","画一个正在画三张画的女孩","画一个画三张画的人","画猫，扑克牌的张数为3")) assertNull(text,parse(text).count)
@@ -66,10 +66,10 @@ class NaturalImagePromptOptionsTest {
     }
     @Test fun unrelatedNegationDoesNotSwallowOutputSettings() {
         val options=parse("画一张风景，不要水印，2k，9:16")
-        assertEquals("2k",options.resolution);assertEquals("9:16",options.aspectRatio)
-        assertEquals("2k",parse("不要水印的2k图片，9:16").resolution)
-        assertEquals("2k",parse("不要文字的2k图片，9:16").resolution)
-        assertEquals("4k",parse("不要2k，改成4k，9:16").resolution)
+        assertEquals("high",options.resolution);assertEquals("9:16",options.aspectRatio)
+        assertEquals("high",parse("不要水印的2k图片，9:16").resolution)
+        assertEquals("high",parse("不要文字的2k图片，9:16").resolution)
+        assertEquals("ultra",parse("不要2k，改成4k，9:16").resolution)
         assertEquals("16:9",parse("不是9:16而是16:9，2k").aspectRatio)
     }
     @Test fun rejectedOrConflictingParametersCannotSilentlyProduceDefaultImages() {
@@ -84,7 +84,7 @@ class NaturalImagePromptOptionsTest {
         }
     }
     @Test fun structuredWorkerOptionsOverrideProseAndJsonDirectiveStillWorks() {
-        val explicit=AgentImageGenerationOptions(aspectRatio="1:1",resolution="4k",count=2,concurrency=2)
+        val explicit=AgentImageGenerationOptions(aspectRatio="1:1",resolution="ultra",count=2,concurrency=2)
         val prose=ImagePromptOptions.parse("生成一张2k、9:16的插画",explicit)
         val body=ImageRequestParameters.prepare(JSONObject().put("n",1),prose.options,explicit)
         assertEquals("4096x4096",body.body.getString("size"));assertEquals(2,body.body.getInt("n"));assertFalse(body.body.has("concurrency"))

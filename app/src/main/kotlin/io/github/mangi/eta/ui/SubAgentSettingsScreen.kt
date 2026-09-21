@@ -78,6 +78,7 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(bottom = 4.dp))
                     }
+                    item { io.github.mangi.eta.ui.components.SubAgentParallelSettings(providers) }
                     items(profiles, key = { it.id }) { profile ->
                         Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp)) {
                             Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

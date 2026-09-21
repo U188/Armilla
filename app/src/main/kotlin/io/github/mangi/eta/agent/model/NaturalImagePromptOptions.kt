@@ -36,7 +36,12 @@ internal object NaturalImagePromptOptions {
         Regex("宽(?:度)?\\s*(?:为|是|=|:)?\\s*([1-9][0-9]{1,4})\\s*(?:像素|px)?\\s*[,，、]?\\s*高(?:度)?\\s*(?:为|是|=|:)?\\s*([1-9][0-9]{1,4})(?![0-9])",flags)
             .findAll(searchable).forEach { candidates += Candidate("size", "${it.groupValues[1]}x${it.groupValues[2]}",it.range) }
         ratio.findAll(searchable).forEach { candidates += Candidate("aspect_ratio", "${it.groupValues[1]}:${it.groupValues[2]}",it.range) }
-        tier.findAll(searchable).forEach { candidates += Candidate("resolution", "${it.groupValues[1]}k",it.range) }
+        tier.findAll(searchable).forEach { candidates += Candidate("resolution", ImageResolutionTier.normalize("${it.groupValues[1]}k"),it.range) }
+        Regex("(超高|低|中|高)\\s*(?:分辨率|清晰度|画质)|(?:分辨率|清晰度|画质)\\s*(?:设为|设置为|为|是|=|:)?\\s*(超高|低|中|高)|\\b(low|medium|high|ultra)[ -]+resolution\\b", flags)
+            .findAll(searchable).forEach {
+                val value = it.groupValues.drop(1).first { part -> part.isNotBlank() }
+                candidates += Candidate("resolution", ImageResolutionTier.normalize(value), it.range)
+            }
         size.findAll(searchable).forEach { candidates += Candidate("size", "${it.groupValues[1]}x${it.groupValues[2]}",it.range) }
         listOf(count to "n", namedCount to "n", englishCount to "n", concurrency to "concurrency").forEach { (pattern,key) ->
             pattern.findAll(searchable).forEach { match ->

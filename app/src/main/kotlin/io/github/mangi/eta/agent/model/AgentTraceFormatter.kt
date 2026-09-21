@@ -47,6 +47,7 @@ internal class AgentTraceFormatter(
             "delegate_task" -> "委派子代理任务"
             "manage_agent_workspace" -> "管理任务工作区"
             "get_task_result" -> "查询子代理结果"
+            "continue_task" -> "继续子代理任务"
             "cancel_task" -> "取消子代理任务"
             "memory_get" -> summarizeMemoryGetArguments(toolCall.argumentsJson)
             "memory_write" -> summarizeMemoryWriteArguments(toolCall.argumentsJson)
@@ -269,7 +270,7 @@ internal class AgentTraceFormatter(
             BROWSER_TOOL_NAME -> json?.let(::summarizeBrowserResult) ?: "浏览器操作完成"
             "memory_get", "memory_write" ->
                 json?.let { summarizeMemoryResult(toolName, it) } ?: "完成"
-            "delegate_task", "get_task_result", "cancel_task" -> summarizeSubAgentResult(json)
+            "delegate_task", "get_task_result", "continue_task", "cancel_task" -> summarizeSubAgentResult(json)
             "search_apps" -> json?.let(::summarizeSearchAppsResult) ?: "完成"
             "launch_app" -> json?.let(::summarizeLaunchAppResult) ?: "已打开"
             else -> json?.let { summarizeGenericResult(it, result) } ?: "完成"
@@ -286,6 +287,7 @@ internal class AgentTraceFormatter(
             for (i in 0 until tasks.length()) {
                 val status = tasks.optJSONObject(i)?.optString("status").orEmpty()
                 val label = when (status) {
+                    "awaiting_decision" -> "超时待主代理决定"
                     "queued" -> "排队中"
                     "running" -> "执行中"
                     "completed" -> "已完成"
@@ -299,6 +301,7 @@ internal class AgentTraceFormatter(
             return "子代理任务 · " + counts.entries.joinToString(" · ") { "${it.key} ${it.value}" }
         }
         return when (json.optString("status")) {
+            "awaiting_decision" -> "子代理超时 · 等待主代理继续或取消"
             "queued" -> "子代理已提交 · 排队中"
             "running" -> "子代理执行中"
             "completed" -> "子代理已返回 · 等待主代理审核"

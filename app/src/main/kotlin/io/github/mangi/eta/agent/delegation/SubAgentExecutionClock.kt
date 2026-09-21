@@ -10,19 +10,23 @@ internal class SubAgentExecutionClock(
     private var execution = 0L
     private var compression = 0L
     private var compacting = false
+    private var executionPaused = false
+    @Synchronized fun pauseExecution() { tick(); executionPaused = true }
     @Synchronized fun setCompacting(value: Boolean) { tick(); compacting = value }
     @Synchronized fun expired(): String? {
         tick()
         return when {
             compression >= compressionMs -> "SUB_AGENT_COMPACTION_TIMEOUT"
-            execution >= executionMs -> "SUB_AGENT_TIMEOUT"
+            !executionPaused && execution >= executionMs -> "SUB_AGENT_TIMEOUT"
             else -> null
         }
     }
+    /** Renew only execution time. Waiting is not charged; cumulative compression budget survives. */
+    @Synchronized fun renewExecution() { tick(); execution = 0; executionPaused = false }
     private fun tick() {
         val current = now()
         val elapsed = (current - last).coerceAtLeast(0)
-        if (compacting) compression += elapsed else execution += elapsed
+        if (compacting) compression += elapsed else if (!executionPaused) execution += elapsed
         last = current
     }
 }

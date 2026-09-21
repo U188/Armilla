@@ -87,6 +87,8 @@ class AgentPromptBuilderTest {
         assertTrue(messages.systemContents().any { it.contains("立即调用工具") })
         assertTrue(messages.systemContents().any { it.contains("不要先输出计划、解释或中间进度") })
         assertTrue(messages.systemContents().any { it.contains("不要为了展示思考而拆成多个回合") })
+        assertTrue(messages.systemContents().any { it.contains("默认优先并行委派多个") })
+        assertTrue(messages.systemContents().any { it.contains("同文件写冲突") })
         assertTrue(messages.systemContents().any { it.contains("不要例行调用 observe_screen") })
         assertTrue(messages.systemContents().any { it.contains("读取或汇总屏幕信息") })
         assertTrue(messages.systemContents().any { it.contains("确认最终结果") })

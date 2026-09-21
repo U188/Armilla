@@ -129,7 +129,7 @@ internal class AgentImageGenerationClient(
             "IMAGE_RESOLUTION_UNVERIFIED" in report -> " IMAGE_RESOLUTION_UNVERIFIED"
             else -> ""
         }
-        return "尺寸:$size 比例:$ratio$problem"
+        return "分辨率:$size 比例:$ratio$problem"
     }
 
     private fun reducedRatio(width: Int, height: Int): String {

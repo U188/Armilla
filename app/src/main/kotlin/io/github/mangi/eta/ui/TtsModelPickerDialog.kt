@@ -1,6 +1,12 @@
 package io.github.mangi.eta.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import io.github.mangi.eta.ui.components.WithoutPressRipple
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -24,6 +30,7 @@ import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.ui.model.AgentModelPickerUiState
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TtsModelPickerDialog(
     state: AgentModelPickerUiState,
@@ -32,10 +39,13 @@ internal fun TtsModelPickerDialog(
     onModelSelected: (String, String) -> Unit,
     title: String,
     onClearSelection: (() -> Unit)? = null,
+    highlightSelection: Boolean = false,
 ) {
     if (!show) return
     val view = LocalView.current
     var expanded by remember { mutableStateOf(state.selectedModel?.providerId ?: state.providerGroups.singleOrNull()?.providerId) }
+    CompositionLocalProvider(LocalRippleConfiguration provides null) {
+    WithoutPressRipple {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -45,15 +55,18 @@ internal fun TtsModelPickerDialog(
             Column(Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
                 if (onClearSelection != null) {
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .selectable(selected = state.selectedModel == null, role = Role.RadioButton, onClick = {
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp))
+                            .background(if (highlightSelection && state.selectedModel == null) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                            .selectable(selected = state.selectedModel == null, role = Role.RadioButton,
+                                interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {
                                 TouchHaptics.click(view)
                                 onClearSelection()
                             }).padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RadioButton(selected = state.selectedModel == null, onClick = null)
-                        Text("无", modifier = Modifier.weight(1f).padding(start = 12.dp))
+                        if (!highlightSelection) RadioButton(selected = state.selectedModel == null, onClick = null)
+                        Text("无", modifier = Modifier.weight(1f).padding(start = 12.dp),
+                            color = if (highlightSelection && state.selectedModel == null) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -63,7 +76,7 @@ internal fun TtsModelPickerDialog(
                     val isExpanded = expanded == group.providerId
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .clickable(role = Role.Button) {
+                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Button) {
                                 TouchHaptics.click(view)
                                 expanded = if (isExpanded) null else group.providerId
                             }.padding(horizontal = 4.dp, vertical = 8.dp),
@@ -77,16 +90,18 @@ internal fun TtsModelPickerDialog(
                         group.models.forEach { model ->
                             val selected = state.selectedModel?.providerId == model.providerId && state.selectedModel?.id == model.id
                             Row(
-                                Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                    .selectable(selected = selected, role = Role.RadioButton, onClick = {
+                                Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp))
+                                    .background(if (highlightSelection && selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                    .selectable(selected = selected, role = Role.RadioButton,
+                                        interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {
                                         TouchHaptics.click(view)
                                         onModelSelected(model.providerId, model.id)
                                     }).padding(horizontal = 4.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                RadioButton(selected = selected, onClick = null)
+                                if (!highlightSelection) RadioButton(selected = selected, onClick = null)
                                 Text(model.displayName, style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = if (highlightSelection && selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f).padding(start = 12.dp))
                             }
                         }
@@ -98,6 +113,8 @@ internal fun TtsModelPickerDialog(
             TextButton(onClick = { TouchHaptics.click(view); onDismiss() }) { Text(stringResource(R.string.action_close)) }
         },
     )
+    }
+    }
 }
 
 internal data class SpeechVoiceSections(

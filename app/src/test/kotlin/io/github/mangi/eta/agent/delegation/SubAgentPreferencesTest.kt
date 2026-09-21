@@ -142,14 +142,14 @@ class SubAgentPreferencesTest {
                 reasoning = ReasoningEffort.HIGH, enabled = false) }
             val updated = SubAgentPreferences.profiles().single { it.id == first.id }
             assertEquals("review", updated.role)
-            assertEquals(SubAgentTaskTier.COMPLEX, updated.tier)
+            assertNull(updated.tier)
             assertFalse(updated.enabled)
             assertNull(SubAgentPreferences.profiles().single { it.id == second.id }.reasoning)
             SubAgentPreferences.remove(first.id)
             SubAgentPreferences.update(first.id) { it.copy(name = "stale callback") }
             assertFalse(SubAgentPreferences.profiles().any { it.id == first.id })
             assertTrue(SubAgentPreferences.profiles().any { it.id == second.id })
-            assertEquals(SubAgentTaskTier.COMPLEX, updated.tier) // immutable running snapshot
+            assertNull(updated.tier) // immutable running snapshot
         } finally { Prefs.putString(SubAgentPreferences.PROFILES_KEY, saved) }
     }
 
@@ -182,6 +182,26 @@ class SubAgentPreferencesTest {
         assertTrue(video.acceptsModel(image = false, video = true))
         assertFalse(video.acceptsModel(image = false, video = false))
         assertEquals(video, SubAgentProfile.fromJson(video.toJson()))
+    }
+
+    @Test fun nonImplementationRolesClearLegacyTiersOnReadWriteAndRoleChange() {
+        val implementation = SubAgentProfile("test", "测试", tier = SubAgentTaskTier.COMPLEX)
+        assertTrue(implementation.supportsTaskTier)
+        assertEquals(SubAgentTaskTier.COMPLEX, implementation.withRole("implementation").tier)
+        for (role in listOf("review", "image_generation", "video_generation")) {
+            val changed = implementation.withRole(role)
+            assertFalse(changed.supportsTaskTier)
+            assertNull(changed.tier)
+            assertNull(changed.withRole("implementation").tier)
+            val legacyJson = implementation.toJson().put("role", role).put("tier", "complex")
+            assertNull(SubAgentProfile.fromJson(legacyJson).tier)
+            assertEquals("", implementation.copy(role = role).toJson().getString("tier"))
+            val config = AgentModelClient.ModelConfig(baseUrl = "", apiKey = "", model = "m", systemPrompt = "")
+            val description = SubAgentPreferences.workerDescription(implementation.copy(role = role), 1, config)
+            assertTrue(description.contains("task tier=not applicable"))
+            assertFalse(description.contains("complex"))
+            assertFalse(description.contains("suited tasks"))
+        }
     }
 
 }

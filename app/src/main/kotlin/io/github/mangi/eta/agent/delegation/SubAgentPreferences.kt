@@ -29,7 +29,7 @@ internal object SubAgentPreferences {
                 providerId = Prefs.getString("agent_child_${slot}_provider"),
                 modelId = Prefs.getString("agent_child_${slot}_model"),
                 reasoning = ReasoningEffort.fromWireValue(Prefs.getString("agent_child_${slot}_reasoning")),
-                tier = SubAgentTaskTier.fromWireValue(Prefs.getString("agent_child_${slot}_task_tier")))
+                tier = if (slot == 1) null else SubAgentTaskTier.fromWireValue(Prefs.getString("agent_child_${slot}_task_tier")))
         }
         persist(migrated)
         return migrated
@@ -51,7 +51,7 @@ internal object SubAgentPreferences {
     @Synchronized fun update(id: String, change: (SubAgentProfile) -> SubAgentProfile) {
         val current = profiles()
         if (current.none { it.id == id }) return // A stale dialog must not recreate a deleted profile.
-        persist(current.map { old -> if (old.id == id) change(old).also { require(it.id == old.id) } else old })
+        persist(current.map { old -> if (old.id == id) change(old).normalizedTaskTier().also { require(it.id == old.id) } else old })
     }
     @Synchronized fun remove(id: String) { persist(profiles().filterNot { it.id == id }) }
     fun saveModel(id: String, selection: ModelFeatureSelection) = update(id) { old ->
@@ -65,7 +65,7 @@ internal object SubAgentPreferences {
         return config.copy(reasoningEffort = effort, thinkingEnabled = effort.enablesReasoning)
     }
     fun workerDescription(profile: SubAgentProfile, workerNumber: Int, config: AgentModelClient.ModelConfig): String {
-        val tier = profile.tier?.let { "${it.wireValue} (${it.label}); suited tasks: ${it.routingHint}" }
+        val tier = if (!profile.supportsTaskTier) "not applicable (only implementation agents have task tiers)" else profile.tier?.let { "${it.wireValue} (${it.label}); suited tasks: ${it.routingHint}" }
             ?: "unspecified; capability unknown"
         return "$workerNumber: agent_id=${profile.id}, name=${profile.name}, role=${profile.role} — " +
             "${config.providerName} / ${config.modelDisplayName.ifBlank { config.model }}; " +

@@ -18,15 +18,17 @@ internal data class SubAgentProfile(
         require(id.isNotBlank() && name.isNotBlank() && name.length <= 80)
         require(role in setOf("implementation", "review", "image_generation", "video_generation"))
     }
+    val supportsTaskTier: Boolean get() = role == "implementation"
+    fun normalizedTaskTier(): SubAgentProfile = if (supportsTaskTier || tier == null) this else copy(tier = null)
     val isMedia: Boolean get() = role == "image_generation" || role == "video_generation"
     fun acceptsModel(image: Boolean, video: Boolean): Boolean = when (role) {
         "image_generation" -> image
         "video_generation" -> video
         else -> !image && !video
     }
-    fun withRole(next: String): SubAgentProfile = if (role == next ||
+    fun withRole(next: String): SubAgentProfile = (if (role == next ||
         (!isMedia && next in setOf("implementation", "review"))) copy(role = next)
-        else copy(role = next, providerId = "", modelId = "", reasoning = null)
+        else copy(role = next, providerId = "", modelId = "", reasoning = null)).normalizedTaskTier()
     val selection get() = ModelFeatureSelection(true, providerId, modelId)
     val roleLabel get() = when (role) {
         "implementation" -> "执行"
@@ -35,12 +37,12 @@ internal data class SubAgentProfile(
         else -> "审查／总结"
     }
     fun toJson() = JSONObject().put("id", id).put("name", name).put("role", role).put("enabled", enabled)
-        .put("provider", providerId).put("model", modelId).put("tier", tier?.wireValue.orEmpty())
+        .put("provider", providerId).put("model", modelId).put("tier", tier?.takeIf { supportsTaskTier }?.wireValue.orEmpty())
         .put("reasoning", reasoning?.wireValue.orEmpty())
 
     companion object {
         fun fromJson(j: JSONObject) = SubAgentProfile(j.getString("id"), j.getString("name"),
             j.getString("role"), j.optBoolean("enabled", true), j.optString("provider"), j.optString("model"),
-            SubAgentTaskTier.fromWireValue(j.optString("tier")), ReasoningEffort.fromWireValue(j.optString("reasoning")))
+            SubAgentTaskTier.fromWireValue(j.optString("tier")), ReasoningEffort.fromWireValue(j.optString("reasoning"))).normalizedTaskTier()
     }
 }

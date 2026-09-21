@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.delegation
 
+import io.github.mangi.eta.agent.model.MediaReasoningSettings
 import io.github.mangi.eta.agent.model.ModelFeatureSelection
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.agent.model.AgentModelClient
@@ -60,6 +61,12 @@ internal object SubAgentPreferences {
                 old.providerId != selection.providerId || old.modelId != selection.modelId) null else old.reasoning)
     }
     fun applyReasoning(profile: SubAgentProfile, config: AgentModelClient.ModelConfig): AgentModelClient.ModelConfig {
+        if (profile.isMedia) {
+            val media = MediaReasoningSettings.resolve(config, profile.role)
+            // Keep a stale explicit choice visible; generation rejects it rather than silently changing it.
+            val effort = media.effective(profile.reasoning)
+            return config.copy(reasoningEffort = effort, thinkingEnabled = effort.enablesReasoning)
+        }
         val requested = profile.reasoning ?: return config
         val effort = config.reasoningCapabilities?.normalize(requested) ?: ReasoningEffort.OFF
         return config.copy(reasoningEffort = effort, thinkingEnabled = effort.enablesReasoning)
@@ -69,7 +76,12 @@ internal object SubAgentPreferences {
             ?: "unspecified; capability unknown"
         return "$workerNumber: agent_id=${profile.id}, name=${profile.name}, role=${profile.role} — " +
             "${config.providerName} / ${config.modelDisplayName.ifBlank { config.model }}; " +
-            "user-assigned task tier=$tier; reasoning=${if (profile.isMedia) "not applicable (media API)" else config.effectiveReasoningEffort.wireValue}"
+            "user-assigned task tier=$tier; reasoning=${if (profile.isMedia) {
+                val media = MediaReasoningSettings.resolve(config, profile.role)
+                if (media.status == MediaReasoningSettings.Status.SUPPORTED)
+                    "${config.effectiveReasoningEffort.wireValue} (explicit media endpoint mapping; not a text reasoning loop)"
+                else media.label
+            } else config.effectiveReasoningEffort.wireValue}"
     }
 
     // Compatibility for old saved slot references and migration tests; runtime/UI use profiles exclusively.

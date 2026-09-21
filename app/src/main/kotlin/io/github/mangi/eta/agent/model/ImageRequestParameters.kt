@@ -43,6 +43,7 @@ internal object ImageRequestParameters {
     fun prepare(input: JSONObject, inline: AgentImageGenerationOptions, explicit: AgentImageGenerationOptions, defaultCount: Int? = null): Prepared {
         // Planning must not mutate saved configuration or a caller's body, even on validation failure.
         val body = JSONObject(input.toString())
+        body.remove("eta_media_reasoning") // Private media capability metadata is never a wire field.
         val rawConfig = body.remove(CONFIG_KEY)
         val config = when (rawConfig) {
             null -> JSONObject()

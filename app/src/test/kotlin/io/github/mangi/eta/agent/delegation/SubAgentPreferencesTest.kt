@@ -204,4 +204,18 @@ class SubAgentPreferencesTest {
         }
     }
 
+    @Test fun mediaEffortIsProfileLocalAndNeverInheritsChatDefaults() {
+        val media=SubAgentProfile("media-test","图片","image_generation",reasoning=ReasoningEffort.HIGH)
+        val cfg=AgentModelClient.ModelConfig(baseUrl="https://example.invalid",apiKey="test",model="same-model",systemPrompt="",
+            thinkingEnabled=true,reasoningEffort=ReasoningEffort.XHIGH,
+            extraBodyJson="""{"eta_media_reasoning":{"image_generation":{"field":"reasoning_effort","values":{"low":"low","high":"high"},"default":"low"}}}""")
+        assertEquals(ReasoningEffort.HIGH,SubAgentPreferences.applyReasoning(media,cfg).reasoningEffort)
+        assertEquals(ReasoningEffort.LOW,SubAgentPreferences.applyReasoning(media.copy(reasoning=null),cfg).reasoningEffort)
+        assertEquals(ReasoningEffort.XHIGH,cfg.reasoningEffort)
+        val unsupported=cfg.copy(extraBodyJson="")
+        assertEquals(ReasoningEffort.OFF,SubAgentPreferences.applyReasoning(media.copy(reasoning=null),unsupported).reasoningEffort)
+        assertTrue(SubAgentPreferences.workerDescription(media,1,unsupported).contains("当前接口未适配"))
+        assertEquals(ReasoningEffort.HIGH,SubAgentPreferences.applyReasoning(media,unsupported).reasoningEffort)
+    }
+
 }

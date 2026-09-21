@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.delegation.SubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
+import io.github.mangi.eta.agent.model.MediaReasoningSettings
 import io.github.mangi.eta.agent.model.ModelFeatureSelection
 import io.github.mangi.eta.data.model.ProviderSetting
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
@@ -55,8 +56,17 @@ internal fun SubAgentProfileRow(
             !profile.acceptsModel(model.supportsImageGeneration, model.supportsVideoGeneration)) null
         else runCatching { RuntimeConfigRepository.buildRuntimeConfig(provider, model) }.getOrNull()
     }
-    val canThink = config != null && !profile.isMedia
+    val media = if (profile.isMedia && config != null) MediaReasoningSettings.resolve(config, profile.role) else null
+    val canThink = config != null && (!profile.isMedia || media?.status == MediaReasoningSettings.Status.SUPPORTED)
     val effective = config?.let { SubAgentPreferences.applyReasoning(profile, it).effectiveReasoningEffort }
+    val efforts = if (profile.isMedia) media?.efforts.orEmpty() else config?.reasoningCapabilities?.selectableEfforts.orEmpty()
+    val thinkingLabel = when {
+        config == null -> "未选择模型"
+        profile.isMedia && !canThink -> media?.label ?: "当前接口未适配"
+        profile.isMedia && effective !in efforts -> "原档位不可用，请重选"
+        else -> effective?.displayName ?: "未启用"
+    }
+    LaunchedEffect(profile.providerId, profile.modelId, config) { thinkingPicker = false }
     Column(verticalArrangement = Arrangement.spacedBy(if (settings) 0.dp else 12.dp)) {
         if (settings) {
             SubAgentSettingRow("模型", config?.let { it.modelDisplayName.ifBlank { it.model } }
@@ -96,7 +106,7 @@ internal fun SubAgentProfileRow(
                 }
                 }
             }
-            if (!profile.isMedia) SubAgentSettingRow("思考深度", effective?.displayName ?: "未启用",
+            SubAgentSettingRow("思考深度", thinkingLabel,
                 Icons.Rounded.AutoAwesome, "调整${profile.name}思考深度", enabled = enabled && canThink,
                 onClick = { if (currentEnabled && canThink) { TouchHaptics.click(view); thinkingPicker = true } })
         } else {
@@ -114,7 +124,7 @@ internal fun SubAgentProfileRow(
                     Text(config?.let { it.modelDisplayName.ifBlank { it.model } } ?: if (profile.modelId.isBlank()) "无" else "模型不可用",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (config != null) Text(config.providerName + if (canThink) " · 思考 ${effective?.displayName}" else "",
+                    if (config != null) Text(config.providerName + " · 思考 $thinkingLabel",
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -144,9 +154,13 @@ internal fun SubAgentProfileRow(
     }
     if (enabled && thinkingPicker && config != null && canThink) {
         val effort = requireNotNull(effective)
-        val options = config.reasoningCapabilities?.selectableEfforts.orEmpty()
+        val options = efforts
         ThinkingEffortPickerDialog(true, effort, options.ifEmpty { listOf(effort) }, { thinkingPicker = false }, { next ->
-            if (currentEnabled && next in options) SubAgentPreferences.update(profile.id) { it.copy(reasoning = next) }
-        }, description = "${profile.name} · 仅影响此代理")
+            if (currentEnabled && next in options) SubAgentPreferences.update(profile.id) { latest ->
+                if (latest.role == profile.role && latest.providerId == profile.providerId && latest.modelId == profile.modelId)
+                    latest.copy(reasoning = next) else latest
+            }
+        }, description = "${profile.name} · 仅影响此代理" +
+            if (profile.isMedia) "；档位依据端点显式映射，不代表执行代理式思考或可见思考过程" else "")
     }
 }

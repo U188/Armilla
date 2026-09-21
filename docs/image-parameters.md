@@ -163,3 +163,38 @@ ZIP 限制压缩/解压总量、单项大小、条目数与图片数，不把服
 Eta 独立实现，不移植其 UI、角色工作台、自动重试、合图与缩放裁剪逻辑。
 参考项目保留放大选项且默认关闭，不能把“有 ensureResolution”说成默认会改图。
 来源说明和 MIT 许可见 `third_party/imagine-reference/`。
+
+## 媒体子代理思考设置
+
+生图、生视频子代理的设置页都显示“思考深度”，会话协作行也显示状态；已适配时与执行代理共用档位选择对话框，长按模型也可打开。
+没有媒体端点契约时显示“当前接口未适配”并禁用，不能把聊天模型的 reasoningCapabilities 当成 Images/Videos 的能力。
+这不是给媒体子代理增加一个文本规划模型，不提供思考过程展示，也不保证服务端内部实现。
+
+目前没有按型号内置生图/视频的思考映射。对已确认开放该能力的自建/兼容端点，可在供应商或模型自定义请求体设置私有键 `eta_media_reasoning`。
+以下仅是映射格式示例，**不是 Grok、Agnes、Gemini 或 Sora 的有效接口声明**；必须按实际端点文档设置 field 和 values，勿直接照抄到不支持的服务。
+
+```json
+{
+  "eta_media_reasoning": {
+    "image_generation": {
+      "field": "reasoning_effort",
+      "values": {"off": "none", "low": "low", "high": "high"},
+      "default": "low"
+    },
+    "video_generation": {
+      "transport": "videos_json",
+      "field": "thinking.budget",
+      "values": {"low": 1024, "high": 4096},
+      "default": "low"
+    }
+  }
+}
+```
+
+- 两个职责分开配置。可选档位仅来自明确 values；缺少 off 时不提供关闭选项。default 缺省时取枚举顺序第一档。
+- 档位只影响该子代理；模型变更清空覆盖，不修改共享模型配置。旧档位不再支持时提示重选，请求前报错，不静默替换。
+- 配置从 extraBodyJson 与真实 customBody 合并读取；本次选择在合并后写入，不能被模型额外参数再次覆盖。
+- 私有键不发送给模型；字段支持最多六级对象路径，值仅为标量；保留输出参数和请求结构字段不能被覆盖。
+- 视频需明确 transport：videos_json / videos_multipart / videos_generations / video_generations / ark_contents；此映射路径只发一次，不自动改端点尝试。multipart 仅支持顶层字段，不能假定 JSON 嵌套字段有等效表单形式。
+- 图片仍遵循 eta_image_config 的既有端点选择；原生 NovelAI 的参数约束仍生效，不因此假定支持思考。
+- 此处只适用于媒体子代理；直接生图/生视频不会自动使用这个独立子代理设置。

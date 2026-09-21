@@ -101,7 +101,7 @@ internal fun SubAgentSelectionItem(text: String, selected: Boolean, onClick: () 
             interactionSource = remember { MutableInteractionSource() }, indication = null,
             onClick = { TouchHaptics.click(view); onClick() })
         .height(40.dp).padding(horizontal = 16.dp),
-        contentAlignment = Alignment.CenterStart) {
+        contentAlignment = Alignment.Center) {
         Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1, softWrap = false,
             overflow = TextOverflow.Ellipsis,
             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,

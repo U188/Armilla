@@ -3,6 +3,7 @@ package io.github.mangi.eta.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -15,11 +16,13 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.delegation.SubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
@@ -49,24 +52,26 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") }
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface))
             },
-            bottomBar = {
-                Surface(color = MaterialTheme.colorScheme.surface) {
-                    Column(Modifier.navigationBarsPadding().horizontalCutoutPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                        Box(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            contentAlignment = Alignment.Center) {
-                            TextButton(onClick = { TouchHaptics.click(view); SubAgentPreferences.add() },
-                                modifier = Modifier.heightIn(min = 48.dp)) {
-                                Text("添加子代理", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                    }
+            floatingActionButtonPosition = FabPosition.Center,
+            floatingActionButton = {
+                FilledTonalButton(
+                    onClick = { TouchHaptics.click(view); SubAgentPreferences.add() },
+                    modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 168.dp),
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    elevation = ButtonDefaults.filledTonalButtonElevation(defaultElevation = 3.dp),
+                ) {
+                    Text("添加子代理", style = MaterialTheme.typography.bodyLarge)
                 }
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).horizontalCutoutPadding(), contentAlignment = Alignment.TopCenter) {
                 LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                    // Allow the last row to scroll fully above the floating add action.
+                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     item {
                         Text("配置代理职责与模型，更改下次运行生效。", style = MaterialTheme.typography.bodyMedium,
@@ -86,10 +91,24 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                                     }, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurface)
                                     Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Switch(profile.enabled, onCheckedChange = { active ->
-                                        TouchHaptics.click(view)
-                                        SubAgentPreferences.update(profile.id) { it.copy(enabled = active) }
-                                    }, modifier = Modifier.semantics { contentDescription = "启用${profile.name}" })
+                                    Box(
+                                        Modifier
+                                            .requiredSize(36.dp, 22.dp)
+                                            .wrapContentSize(unbounded = true)
+                                            .semantics { contentDescription = "启用${profile.name}" },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                                            Switch(
+                                                profile.enabled,
+                                                onCheckedChange = { active ->
+                                                    TouchHaptics.click(view)
+                                                    SubAgentPreferences.update(profile.id) { it.copy(enabled = active) }
+                                                },
+                                                modifier = Modifier.scale(0.7f),
+                                            )
+                                        }
+                                    }
                                     var expanded by remember(profile.id) { mutableStateOf(false) }
                                     Box {
                                         IconButton(onClick = { TouchHaptics.click(view); expanded = true }) {

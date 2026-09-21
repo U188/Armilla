@@ -266,24 +266,32 @@ internal class SubAgentCoordinator(
                     if (ownsWorkspaceLease && task.workspaceId != null) runCatching { workspace?.operation(project, if (role == "implementation") "fail" else "end_review", task.workspaceId) }
                     if (interrupted) Thread.currentThread().interrupt()
                     synchronized(task) {
-                        if (task.state in setOf("running", "awaiting_decision")) {
-                            task.errorCode = when (error) {
-                                is ImageGenerationParameterException -> "IMAGE_GENERATION_INVALID_OPTIONS"
-                                is SubAgentContextLimitException -> "SUB_AGENT_CONTEXT_LIMIT"
-                                is WorkspaceOperationException -> error.code
-                                else -> when (role) {
-                                    "image_generation" -> "IMAGE_GENERATION_FAILED"
-                                    "video_generation" -> "VIDEO_GENERATION_FAILED"
-                                    else -> "SUB_AGENT_FAILED"
-                                }
-                            }
-                            task.result = if (error is ImageGenerationParameterException) error.message.orEmpty()
-                            else if (error is SubAgentContextLimitException)
-                                "子代理上下文不足，自动压缩不可用或未能释放足够空间。请拆分任务或调整模型窗口后重新委派；已有工作树改动保留。"
-                            else "子代理未完成，请主代理接手或重新委派。"
-                            task.state = "failed"
+                        if (task.state !in setOf("running", "awaiting_decision")) return@synchronized
+                        val cancelledByCaller = task.controller.isCancelled || interrupted ||
+                            error is io.github.mangi.eta.agent.runtime.AgentRunCancelledException ||
+                            error is java.util.concurrent.CancellationException
+                        if (cancelledByCaller) {
+                            task.state = "cancelled"
+                            task.errorCode = ""
                             task.context.finish(task.state)
+                            return@synchronized
                         }
+                        task.errorCode = when (error) {
+                            is ImageGenerationParameterException -> "IMAGE_GENERATION_INVALID_OPTIONS"
+                            is SubAgentContextLimitException -> "SUB_AGENT_CONTEXT_LIMIT"
+                            is WorkspaceOperationException -> error.code
+                            else -> when (role) {
+                                "image_generation" -> "IMAGE_GENERATION_FAILED"
+                                "video_generation" -> "VIDEO_GENERATION_FAILED"
+                                else -> "SUB_AGENT_FAILED"
+                            }
+                        }
+                        task.result = if (error is ImageGenerationParameterException) error.message.orEmpty()
+                        else if (error is SubAgentContextLimitException)
+                            "子代理上下文不足，自动压缩不可用或未能释放足够空间。请拆分任务或调整模型窗口后重新委派；已有工作树改动保留。"
+                        else "子代理未完成，请主代理接手或重新委派。（${error.javaClass.simpleName}）"
+                        task.state = "failed"
+                        task.context.finish(task.state)
                     }
                 } finally {
                     task.watchdog?.cancel(false)

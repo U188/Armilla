@@ -37,7 +37,7 @@
   <string name="search_history_empty">輸入關鍵詞搜尋對話</string>
   <string name="search_history_no_results">沒有符合的訊息</string>
   <string name="search_history_role_user">我</string>
-  <string name="search_history_role_assistant">Eta</string>
+  <string name="search_history_role_assistant">代魚</string>
   <string name="search_history_role_thinking">思考</string>
   <string name="search_history_role_tool">工具</string>
   <string name="action_token_usage">Token 用量</string>

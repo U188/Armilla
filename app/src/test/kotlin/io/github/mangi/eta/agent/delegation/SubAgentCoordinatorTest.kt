@@ -13,6 +13,19 @@ class SubAgentCoordinatorTest {
     private fun start(c: SubAgentCoordinator) = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "check evidence"))).content)
     private fun get(c: SubAgentCoordinator, id: String, wait: Int = 1000) = JSONObject(c.execute(call("get_task_result", JSONObject().put("task_id", id).put("wait_ms", wait))).content)
 
+    @Test fun callerCancellationIsNotReportedAsWorkerFailure() {
+        SubAgentCoordinator(listOf(model)) { _, _, controller ->
+            controller.cancel()
+            throw io.github.mangi.eta.agent.runtime.AgentRunCancelledException()
+        }.use { c ->
+            val id = start(c).getString("task_id")
+            val done = get(c, id)
+            assertEquals("cancelled", done.getString("status"))
+            assertEquals("", done.getString("error_code"))
+            assertFalse(done.getString("result").contains("SUB_AGENT_FAILED"))
+        }
+    }
+
     @Test fun dynamicWorkersRunInParallelAndBusyWorkerQueues() {
         val started = CountDownLatch(6)
         val release = CountDownLatch(1)

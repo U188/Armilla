@@ -38,7 +38,7 @@
   <string name="search_history_empty">Enter a keyword to search conversations</string>
   <string name="search_history_no_results">No matching messages</string>
   <string name="search_history_role_user">You</string>
-  <string name="search_history_role_assistant">Eta</string>
+  <string name="search_history_role_assistant">代鱼</string>
   <string name="search_history_role_thinking">Thinking</string>
   <string name="search_history_role_tool">Tool</string>
   <string name="action_token_usage">Token usage</string>

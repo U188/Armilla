@@ -208,7 +208,9 @@ class SubAgentMaterialControlsTest {
         compose.onNodeWithText("添加子代理").assertIsDisplayed()
     }
 
-    @Test fun boundParallelRowsEditOnlyTheirModelAndRefreshTogether() {
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.LEGACY)
+    fun boundParallelRowsEditOnlyTheirModelAndRefreshTogether() {
         val prefs = io.github.mangi.eta.agent.delegation.SubAgentPreferences
         val provider = "parallel-ui-${java.util.UUID.randomUUID()}"
         val first = prefs.add()
@@ -242,7 +244,9 @@ class SubAgentMaterialControlsTest {
         } finally { prefs.remove(first.id); prefs.remove(second.id) }
     }
 
-    @Test fun parallelDialogClosesWhenBindingChangesOrControlIsDisabled() {
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.LEGACY)
+    fun parallelDialogClosesWhenBindingChangesOrControlIsDisabled() {
         val profile = SubAgentProfile("dialog-test", "测试代理", providerId = "provider", modelId = "record")
         val config = mutableStateOf(io.github.mangi.eta.agent.model.AgentModelClient.ModelConfig(
             providerId = "provider", baseUrl = "https://example.invalid", apiKey = "test", model = "first-api", systemPrompt = ""))

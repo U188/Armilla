@@ -68,6 +68,7 @@ internal fun SubAgentProfileRow(
                 SubAgentSettingRow("职责", profile.roleLabel, Icons.Rounded.Assignment,
                     "选择${profile.name}职责", enabled = enabled, dropdown = true,
                     onClick = { if (currentEnabled) { TouchHaptics.click(view); rolePicker = !rolePicker } })
+                Box(Modifier.align(Alignment.CenterEnd).size(40.dp)) {
                 if (enabled) SubAgentDropdownMenu(rolePicker, { rolePicker = false }, Modifier.selectableGroup()) {
                     listOf("implementation" to "执行", "review" to "审查／总结", "image_generation" to "图片生成", "video_generation" to "视频生成").forEach { (role, label) ->
                         SubAgentSelectionItem(label, profile.role == role) {
@@ -76,11 +77,13 @@ internal fun SubAgentProfileRow(
                         }
                     }
                 }
+                }
             }
             if (profile.supportsTaskTier) Box(Modifier.fillMaxWidth()) {
                 SubAgentSettingRow("任务分工", profile.tier?.label ?: "未设置分工", Icons.Rounded.AccountTree,
                     "设置${profile.name}任务分工", enabled = enabled, dropdown = true,
                     onClick = { if (currentEnabled) { TouchHaptics.click(view); tierPicker = !tierPicker } })
+                Box(Modifier.align(Alignment.CenterEnd).size(40.dp)) {
                 if (enabled) SubAgentDropdownMenu(tierPicker, { tierPicker = false }, Modifier.selectableGroup()) {
                     SubAgentTaskTier.entries.forEach { tier ->
                         SubAgentSelectionItem(tier.label, profile.tier == tier) {
@@ -90,6 +93,7 @@ internal fun SubAgentProfileRow(
                             tierPicker = false
                         }
                     }
+                }
                 }
             }
             if (!profile.isMedia) SubAgentSettingRow("思考深度", effective?.displayName ?: "未启用",

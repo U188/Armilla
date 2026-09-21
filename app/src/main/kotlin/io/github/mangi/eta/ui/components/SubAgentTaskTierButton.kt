@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.delegation.SubAgentTaskTier
 import io.github.mangi.eta.ui.haptics.TouchHaptics
@@ -70,19 +71,22 @@ internal fun SubAgentDropdownMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
+    offset: DpOffset = DpOffset.Zero,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
-        modifier = Modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp, max = 280.dp).then(modifier),
+        modifier = modifier,
+        offset = offset,
         shape = RoundedCornerShape(16.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
-        content = content,
-    )
+    ) {
+        Column(Modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp, max = 280.dp), content = content)
+    }
 }
 
 /** Selection is a light-gray background AND accessibility semantics, never a check icon. */
@@ -90,15 +94,16 @@ internal fun SubAgentDropdownMenu(
 internal fun SubAgentSelectionItem(text: String, selected: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val view = LocalView.current
-    Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp)
-        .clip(RoundedCornerShape(10.dp))
+    Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp)
+        .clip(RoundedCornerShape(8.dp))
         .background(if (selected) colors.surfaceVariant else Color.Transparent)
         .selectable(selected = selected, role = Role.RadioButton,
             interactionSource = remember { MutableInteractionSource() }, indication = null,
             onClick = { TouchHaptics.click(view); onClick() })
-        .heightIn(min = 48.dp).padding(horizontal = 20.dp, vertical = 12.dp),
+        .height(40.dp).padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart) {
-        Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1, softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
             color = colors.onSurface)
     }
@@ -139,7 +144,10 @@ internal fun SubAgentTaskTierButton(
             }
         } else SubAgentChoiceField(label, tier?.label ?: "未设置分工", enabled, if (label == "任务分工") "设置任务分工" else "设置${label}任务分工",
             onClick = { if (latestEnabled) { TouchHaptics.click(view); expanded = !expanded } })
-        if (enabled) SubAgentDropdownMenu(expanded, { expanded = false }, Modifier.selectableGroup()) {
+        if (enabled) SubAgentDropdownMenu(
+            expanded, { expanded = false }, Modifier.selectableGroup(),
+            offset = if (compact) DpOffset(0.dp, (-(40 * SubAgentTaskTier.entries.size + 16)).dp) else DpOffset.Zero,
+        ) {
             SubAgentTaskTier.entries.forEach { option ->
                 SubAgentSelectionItem(option.label, option == tier) {
                     if (latestEnabled) {

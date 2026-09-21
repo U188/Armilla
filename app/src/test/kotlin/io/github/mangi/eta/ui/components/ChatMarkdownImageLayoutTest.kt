@@ -86,9 +86,9 @@ class ChatMarkdownImageLayoutTest {
         val firstMeasured=compose.onAllNodesWithContentDescription(imageDescription,useUnmergedTree=true)[0].getUnclippedBoundsInRoot()
         val secondMeasured=compose.onAllNodesWithContentDescription(imageDescription,useUnmergedTree=true)[1].getUnclippedBoundsInRoot()
         // Use actual layout bounds, not the scroll viewport's clipped bounds.
-        assertTrue("portrait preview must reserve its bounded height",firstMeasured.height >= 319.dp && firstMeasured.height <= 321.dp)
-        assertTrue("landscape preview must also be bounded",secondMeasured.height > 0.dp && secondMeasured.height <= 321.dp)
-        assertTrue("not a tiny inline thumbnail",firstMeasured.width >= 300.dp)
+        assertTrue("portrait preview must reserve its bounded height",(firstMeasured.bottom - firstMeasured.top) >= 319.dp && (firstMeasured.bottom - firstMeasured.top) <= 321.dp)
+        assertTrue("landscape preview must also be bounded",(secondMeasured.bottom - secondMeasured.top) > 0.dp && (secondMeasured.bottom - secondMeasured.top) <= 321.dp)
+        assertTrue("not a tiny inline thumbnail",(firstMeasured.right - firstMeasured.left) >= 300.dp)
         compose.onAllNodesWithContentDescription(imageDescription,useUnmergedTree=true)[0].performClick()
         compose.runOnIdle { assertEquals(portrait,opened) }
         val out=File("build/reports/tests/testDebugUnitTest/image-caption-layout.png")

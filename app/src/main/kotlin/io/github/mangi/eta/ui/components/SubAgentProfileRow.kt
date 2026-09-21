@@ -115,6 +115,7 @@ internal fun SubAgentProfileRow(
             SubAgentSettingRow("思考深度", thinkingLabel,
                 Icons.Rounded.AutoAwesome, "调整${profile.name}思考深度", enabled = enabled && canThink,
                 onClick = { if (currentEnabled && canThink) { TouchHaptics.click(view); thinkingPicker = true } })
+            SubAgentParallelLimitRow(profile, config, enabled)
         } else {
             Row(Modifier.fillMaxWidth().heightIn(min = 88.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically) {

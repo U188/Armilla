@@ -99,7 +99,19 @@ internal object SubAgentPreferences {
             .joinToString("") { "%02x".format(it) }
     fun parallelLimit(providerId: String, model: String): Int =
         Prefs.getString(parallelKey(providerId, model), "1").toIntOrNull()?.takeIf { it >= 0 } ?: 1
-    fun saveParallelLimit(providerId: String, model: String, limit: Int) {
+    fun parallelLimitFlow(providerId: String, model: String) =
+        revision.map { parallelLimit(providerId, model) }.distinctUntilChanged()
+
+    /** A stale row must not save after the profile is removed or rebound to another model. */
+    @Synchronized fun saveProfileParallelLimit(profileId: String, providerId: String, modelId: String,
+        apiModel: String, limit: Int): Boolean {
+        val profile = profiles().firstOrNull { it.id == profileId } ?: return false
+        if (profile.providerId != providerId || profile.modelId != modelId) return false
+        saveParallelLimit(providerId, apiModel, limit)
+        return true
+    }
+
+    @Synchronized fun saveParallelLimit(providerId: String, model: String, limit: Int) {
         require(providerId.isNotBlank() && model.isNotBlank() && limit >= 0)
         Prefs.putString(parallelKey(providerId, model), limit.toString())
         SubAgentModelPools.configure(providerId + "\u0000" + model, limit)

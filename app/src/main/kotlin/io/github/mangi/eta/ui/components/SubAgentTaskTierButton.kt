@@ -126,7 +126,7 @@ internal fun SubAgentTaskTierButton(
     Box(modifier) {
         if (compact) {
             // 32dp visible chip with a 48dp hit area; no outlined container around the agent name.
-            Box(Modifier.widthIn(min = 44.dp, max = 108.dp).heightIn(min = 40.dp)
+            Box(Modifier.widthIn(min = 48.dp, max = 108.dp).heightIn(min = 48.dp)
                 .semantics { contentDescription = "设置${label}任务分工" }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
                     enabled = enabled, role = Role.Button,

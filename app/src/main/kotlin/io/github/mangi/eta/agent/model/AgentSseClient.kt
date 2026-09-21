@@ -32,7 +32,8 @@ internal object AgentSseClient {
         val timings = StreamArrivalStats(System.nanoTime())
         fun reportTimings(final: Boolean = false) {
             timings.report(System.nanoTime(), final)?.let {
-                io.github.mangi.eta.core.AndroidAgentLogger.info("SseDiag id=$timingId $it")
+                // Diagnostics must never fail or replace the actual network outcome.
+                runCatching { io.github.mangi.eta.core.AndroidAgentLogger.info("SseDiag id=$timingId $it") }
             }
         }
         val done = CountDownLatch(1)

@@ -98,7 +98,7 @@ internal class AgentExecutionService : Service() {
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(getString(R.string.execution_title))
-            .setContentText(getString(R.string.execution_summary, leases.count()))
+            .setContentText(if (leases.executingSessionCount() == 0) getString(R.string.execution_summary_idle) else getString(R.string.execution_summary, leases.executingSessionCount()))
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

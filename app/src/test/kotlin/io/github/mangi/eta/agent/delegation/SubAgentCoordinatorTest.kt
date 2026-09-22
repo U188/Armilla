@@ -424,6 +424,7 @@ class SubAgentCoordinatorTest {
         SubAgentCoordinator(
             listOf(model),
             roles = listOf("implementation"),
+            workerIds = listOf("exec-agent"),
             workspace = workspace,
             executeWorkspaceChild = { _, _, _, _, _, _ -> "edited" },
             executeChild = { _, _, _ -> error("research runner must not own an implementation task") },
@@ -431,6 +432,7 @@ class SubAgentCoordinatorTest {
             val started = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
                 .put("task", "edit the project")
                 .put("role", "implementation")
+                .put("agent_id", "exec-agent")
                 .put("project", "/workspace/Eta"))).content)
             assertEquals(true, started.getBoolean("ok"))
             assertEquals("0123456789abcdef0123456789abcdef", started.getString("workspace_id"))
@@ -465,15 +467,31 @@ class SubAgentCoordinatorTest {
         assertTrue(SubAgentProviderFailure.isUnavailable("MODEL_CONNECTION_FAILED"))
     }
 
-    @Test fun agentIdWithoutRoleUsesTheSelectedWorkersRole() {
-        SubAgentCoordinator(listOf(model), roles = listOf("review"), workerIds = listOf("review-agent")) { _, _, _ ->
-            "reviewed"
+    @Test fun omittedRoleRemainsResearchForBothAgentIdAndWorkerSelectors() {
+        SubAgentCoordinator(listOf(model), roles = listOf("implementation"), workerIds = listOf("exec-agent")) { _, _, _ ->
+            "read-only"
         }.use { coordinator ->
-            val started = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
-                .put("task", "read the change")
-                .put("agent_id", "review-agent"))).content)
-            assertEquals("review", started.getString("role"))
-            assertEquals("completed", get(coordinator, started.getString("task_id")).getString("status"))
+            for (selector in listOf(JSONObject().put("agent_id", "exec-agent"), JSONObject().put("worker", 1))) {
+                val started = JSONObject(coordinator.execute(call("delegate_task", selector.put("task", "inspect"))).content)
+                assertEquals("research", started.getString("role"))
+                assertTrue(started.isNull("workspace_id"))
+                assertEquals("completed", get(coordinator, started.getString("task_id")).getString("status"))
+            }
+        }
+    }
+
+    @Test fun explicitInvalidOrMismatchedRoleIsNotSilentlyChanged() {
+        SubAgentCoordinator(listOf(model), roles = listOf("implementation"), workerIds = listOf("exec-agent")) { _, _, _ ->
+            error("invalid requests must not execute")
+        }.use { coordinator ->
+            for (role in listOf<Any>("", " ", JSONObject.NULL, "unknown")) {
+                val result = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
+                    .put("task", "inspect").put("agent_id", "exec-agent").put("role", role))).content)
+                assertFalse(result.getBoolean("ok"))
+            }
+            val mismatch = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
+                .put("task", "inspect").put("agent_id", "exec-agent").put("role", "review"))).content)
+            assertEquals("WORKER_ROLE_MISMATCH", mismatch.getString("code"))
         }
     }
 

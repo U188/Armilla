@@ -119,18 +119,21 @@ internal class SubAgentCoordinator(
             val instruction = args.getString("task")
             val context = args.optString("context")
             require(instruction.isNotBlank() && instruction.length <= 12000 && context.length <= 20000)
-            val role = args.optString("role", "research")
-            require(role in setOf("research", "implementation", "review", "summary", "image_generation", "video_generation"))
+            val suppliedRole = args.optString("role").trim().takeIf { args.has("role") && it.isNotBlank() }
+            require(suppliedRole == null || suppliedRole in setOf("research", "implementation", "review", "summary", "image_generation", "video_generation"))
             val workerById = args.optString("agent_id").takeIf { it.isNotBlank() }?.let { workerIds.indexOf(it) }
             if (workerById != null && workerById < 0) return errorResult("AGENT_NOT_CONFIGURED")
             if (workerById != null && args.has("worker") && workerById != args.getInt("worker") - 1) return errorResult("WORKER_ID_MISMATCH")
             val worker = workerById ?: if (args.has("worker")) args.getInt("worker") - 1 else {
-                val desired = if (role == "summary") "review" else role
-                val candidates = if (role == "research") roles.indices.filter { roles[it] !in setOf("image_generation", "video_generation") } else roles.indices.filter { roles[it] == desired }
+                val roleForSelection = suppliedRole ?: "research"
+                val desired = if (roleForSelection == "summary") "review" else roleForSelection
+                val candidates = if (roleForSelection == "research") roles.indices.filter { roles[it] !in setOf("image_generation", "video_generation") } else roles.indices.filter { roles[it] == desired }
                 candidates.minByOrNull { candidate -> tasks.values.count { it.worker == candidate && (it.state in setOf("queued", "running") || it.executing) } }
                     ?: return errorResult("ROLE_NOT_CONFIGURED")
             }
             require(worker in workers.indices)
+            val role = suppliedRole ?: if (workerById != null) roles[worker] else "research"
+            require(role in setOf("research", "implementation", "review", "summary", "image_generation", "video_generation"))
             if (role == "research" && roles[worker] in setOf("image_generation", "video_generation")) return errorResult("WORKER_ROLE_MISMATCH")
             if (role != "research" && roles[worker] != (if (role == "summary") "review" else role)) return errorResult("WORKER_ROLE_MISMATCH")
             val imageOptions = if (args.has("image_options")) {

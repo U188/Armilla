@@ -465,6 +465,31 @@ class SubAgentCoordinatorTest {
         assertTrue(SubAgentProviderFailure.isUnavailable("MODEL_CONNECTION_FAILED"))
     }
 
+    @Test fun agentIdWithoutRoleUsesTheSelectedWorkersRole() {
+        SubAgentCoordinator(listOf(model), roles = listOf("review"), workerIds = listOf("review-agent")) { _, _, _ ->
+            "reviewed"
+        }.use { coordinator ->
+            val started = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
+                .put("task", "read the change")
+                .put("agent_id", "review-agent"))).content)
+            assertEquals("review", started.getString("role"))
+            assertEquals("completed", get(coordinator, started.getString("task_id")).getString("status"))
+        }
+    }
+
+    @Test fun explicitResearchRoleStaysReadOnlyOnAnImplementationWorker() {
+        SubAgentCoordinator(listOf(model), roles = listOf("implementation"), workerIds = listOf("exec-agent")) { _, _, _ ->
+            "read"
+        }.use { coordinator ->
+            val started = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
+                .put("task", "inspect")
+                .put("role", "research")
+                .put("agent_id", "exec-agent"))).content)
+            assertEquals("research", started.getString("role"))
+            assertTrue(started.isNull("workspace_id"))
+        }
+    }
+
     @Test fun textDelegationRejectsImageOptionsInsteadOfIgnoringThem() {
         SubAgentCoordinator(listOf(model)) { _, _, _ -> error("must not execute") }.use { c ->
             val result = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "test")

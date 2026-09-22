@@ -130,10 +130,11 @@ internal class AgentExecutionService : Service() {
             context: Context,
             id: String,
             allowBoundFallback: Boolean = false,
+            countsAsExecutingSession: Boolean = true,
             onStop: () -> Unit,
         ): Boolean {
             if (backupMaintenance || instance?.startRejected == true) return false
-            if (!leases.acquire(id, allowBoundFallback, onStop)) return true
+            if (!leases.acquire(id, allowBoundFallback, countsAsExecutingSession, onStop)) return true
             return try {
                 context.applicationContext.startForegroundService(Intent(context, AgentExecutionService::class.java))
                 true

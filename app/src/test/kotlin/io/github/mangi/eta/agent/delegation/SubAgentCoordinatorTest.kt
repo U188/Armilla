@@ -1,6 +1,8 @@
 package io.github.mangi.eta.agent.delegation
 
 import io.github.mangi.eta.agent.model.AgentModelClient
+import io.github.mangi.eta.agent.model.AgentModelExecutionException
+import io.github.mangi.eta.agent.model.AgentModelFailure
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -437,6 +439,30 @@ class SubAgentCoordinatorTest {
             assertEquals("completed", finished.getString("status"))
             assertEquals("edited", finished.getString("result"))
         }
+    }
+
+    @Test fun providerOutageIsNotReportedAsATaskFailure() {
+        val failure = AgentModelFailure("HTTP_503", true, "模型接口返回 HTTP 503")
+        val named = model.copy(providerName = "示例供应商", model = "demo-model")
+        SubAgentCoordinator(listOf(named), workerNames = listOf("执行")) { _, _, _ ->
+            throw AgentModelExecutionException(failure, "", emptyList())
+        }.use { coordinator ->
+            val result = get(coordinator, start(coordinator).getString("task_id"))
+            assertEquals("failed", result.getString("status"))
+            assertEquals("SUB_AGENT_PROVIDER_UNAVAILABLE", result.getString("error_code"))
+            val message = result.getString("result")
+            assertTrue(message.contains("供应商不可用"))
+            assertTrue(message.contains("示例供应商"))
+            assertTrue(message.contains("HTTP 503"))
+            assertFalse(message.contains("apiKey"))
+        }
+    }
+
+    @Test fun ordinaryChildFailureDoesNotClaimTheProviderIsDown() {
+        assertFalse(SubAgentProviderFailure.isUnavailable("CONTEXT_WINDOW_EXCEEDED"))
+        assertFalse(SubAgentProviderFailure.isUnavailable("HTTP_400"))
+        assertTrue(SubAgentProviderFailure.isUnavailable("HTTP_401"))
+        assertTrue(SubAgentProviderFailure.isUnavailable("MODEL_CONNECTION_FAILED"))
     }
 
     @Test fun textDelegationRejectsImageOptionsInsteadOfIgnoringThem() {

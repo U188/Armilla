@@ -634,6 +634,20 @@ internal fun AgentConversationMessages(
     // 滑回时复用同一解析会话与打字机进度，避免整段内容重新解析并重放显现动画。
     val fallbackStreamingStates = remember { mutableStateMapOf<String, StreamingMarkdownState>() }
     val streamingMarkdownStates = LocalStreamingMarkdownStates.current ?: fallbackStreamingStates
+    // Messages already on screen before this live run must not replay. A text block that
+    // arrives and ends in one snapshot is absent from this set, so it still gets a typewriter.
+    val settledMessageIds = remember { mutableSetOf<String>() }
+    var seededSettledMessages by remember { mutableStateOf(false) }
+    if (!seededSettledMessages) {
+        seededSettledMessages = true
+        if (isStreaming || isPaused) visibleMessages.forEach { settledMessageIds.add(it.id) }
+    }
+    SideEffect {
+        if (!isStreaming && !isPaused) {
+            settledMessageIds.clear()
+            visibleMessages.forEach { settledMessageIds.add(it.id) }
+        }
+    }
     LaunchedEffect(visibleMessages, streamingMarkdownStates) {
         val activeIds = visibleMessages.mapTo(mutableSetOf()) { it.id }
         streamingMarkdownStates.keys.retainAll(activeIds)
@@ -909,6 +923,16 @@ internal fun AgentConversationMessages(
         LaunchedEffect(isStreaming, isListScrollable) {
             streamFilledViewport = if (isStreaming) streamFilledViewport || isListScrollable else false
         }
+        val messageActions = remember { ChatMessageActions() }
+        SideEffect {
+            messageActions.onSuggestionClick = onSuggestionClick
+            messageActions.onRunTraceClick = onRunTraceClick
+            messageActions.onOpenBrowser = onOpenBrowser
+            messageActions.onEditMessage = onEditMessage
+            messageActions.onDeleteMessage = onDeleteMessage
+            messageActions.onRegenerateMessage = onRegenerateMessage
+            messageActions.onBranchMessage = onBranchMessage
+        }
         LazyColumn(
             state = scrollState,
             verticalArrangement = if (shouldPinConversationToBottom(isStreaming, streamFilledViewport)) {
@@ -940,15 +964,21 @@ internal fun AgentConversationMessages(
                             message = message,
                             speechPreface = (message as? AgentMessageUi)?.let { speechPrefaces[it.id] }.orEmpty(),
                             retainedStreamingState = (message as? AgentMessageUi)
-                                ?.takeIf { it.isStreaming || streamingMarkdownStates.containsKey(it.id) }
+                                ?.takeIf { agentMessage ->
+                                    agentMessage.isStreaming ||
+                                        streamingMarkdownStates.containsKey(agentMessage.id) ||
+                                        (
+                                            (isStreaming || isPaused) &&
+                                                agentMessage.id !in settledMessageIds &&
+                                                agentMessage.content.isNotEmpty()
+                                            )
+                                }
                                 ?.let { agentMessage ->
                                     streamingMarkdownStates.getOrPut(agentMessage.id) {
                                         StreamingMarkdownState()
                                     }
                                 },
-                            onSuggestionClick = onSuggestionClick,
-                            onRunTraceClick = onRunTraceClick,
-                            onOpenBrowser = onOpenBrowser,
+                            actions = messageActions,
                             showBrowserShortcut = message is ToolActivityMessageUi &&
                                 message.toolName == "browser_use" &&
                                 message.id == currentBrowserMessageId,
@@ -959,10 +989,6 @@ internal fun AgentConversationMessages(
                             messageActionsEnabled = messageActionsEnabled && !isStreaming && !isPaused,
                             branchEnabled = branchEnabled,
                             isEditing = message.id == editTargetMessageId,
-                            onEditMessage = onEditMessage,
-                            onDeleteMessage = onDeleteMessage,
-                            onRegenerateMessage = onRegenerateMessage,
-                            onBranchMessage = onBranchMessage,
                             isPaused = isPaused,
                             // Keep this modifier stable. Attaching fadeIn only after the run
                             // ends replays appearance on the already-visible answer.

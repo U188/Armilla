@@ -353,7 +353,9 @@ internal class SmoothTextRevealNode(
         cachedVisibleHeight = visibleHeight
         val measuredHeight = visibleHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
         return layout(placeable.width, measuredHeight) {
-            placeable.place(0, 0)
+            // Compose owns display-list invalidation for content/style updates.
+            // Reveal clipping can replay the child layer without recording text twice.
+            placeable.placeWithLayer(0, 0)
         }
     }
 

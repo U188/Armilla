@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.agent.delegation.SubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
 import io.github.mangi.eta.data.repository.ProviderRepository
+import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.components.SubAgentDropdownMenu
 import io.github.mangi.eta.ui.components.SubAgentProfileRow
 import io.github.mangi.eta.ui.components.WithoutPressRipple

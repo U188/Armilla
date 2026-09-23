@@ -68,6 +68,7 @@ internal class AgentLoop(
 
     private var toolCallValidator = AgentToolCallValidator(tools)
     private val delegationArgumentRepair = AgentDelegationArgumentRepair()
+    private val subAgentPollGuard = SubAgentPollGuard(enabled = SubAgentPollGuard.enabled())
     private var delegationRepairNotifiedRound: Int? = null
     private val accumulatedReasoning = StringBuilder()
     private val sensitiveToolCallIds = linkedSetOf<String>()
@@ -126,7 +127,8 @@ internal class AgentLoop(
         roundLoop@ while (true) {
             runController.throwIfCancelled()
             appendPendingSteeringMessage()
-            currentRoundTools = delegationArgumentRepair.availableTools(toolsForRound?.invoke() ?: tools)
+            appendPendingChildNotice()
+            currentRoundTools = subAgentPollGuard.availableTools(delegationArgumentRepair.availableTools(toolsForRound?.invoke() ?: tools))
             try {
                 auxiliaryVision.prepare(messages)
             } catch (failure: Exception) {
@@ -152,7 +154,8 @@ internal class AgentLoop(
                 runController.throwIfCancelled()
                 reductions = 0
                 appendPendingSteeringMessage()
-                currentRoundTools = delegationArgumentRepair.availableTools(toolsForRound?.invoke() ?: tools)
+                appendPendingChildNotice()
+                currentRoundTools = subAgentPollGuard.availableTools(delegationArgumentRepair.availableTools(toolsForRound?.invoke() ?: tools))
                 try {
                     auxiliaryVision.prepare(messages)
                 } catch (failure: Exception) {
@@ -273,6 +276,7 @@ internal class AgentLoop(
                 }
                 runController.throwIfCancelled()
                 appendPendingSteeringMessage()
+                appendPendingChildNotice()
                 continue
             }
             if (hasAssistantPayload) {
@@ -291,8 +295,9 @@ internal class AgentLoop(
                         toolNames = toolCalls.map { it.name },
                     )
                 )
-            } else if (runController.hasPendingSteering) {
+            } else if (runController.hasPendingSteering || runController.hasPendingChildNotice) {
                 appendPendingSteeringMessage()
+                appendPendingChildNotice()
                 interruptedTextPrefix.setLength(0)
                 round += 1
                 continue
@@ -499,12 +504,12 @@ internal class AgentLoop(
                 val original = messages.getJSONObject(index)
                 if (original.optString("role") != "tool" || original.optString("tool_call_id") in sensitiveToolCallIds) continue
                 val text = original.opt("content") as? String ?: continue
-                if (text.codePointCount(0, text.length) <= 8192 || text.contains("[Eta tool output pruned;")) continue
+                if (text.codePointCount(0, text.length) <= 8192 || text.contains("tool output pruned;")) continue
                 val id = archive.save(listOf(AgentConversationCodec.fromJsonObject(original)))
                 archive.record(id, "started")
                 val head = text.offsetByCodePoints(0, 4096)
                 val tail = text.offsetByCodePoints(text.length, -1024)
-                val shorter = text.substring(0, head) + "\n[Eta tool output pruned; original: context-checkpoint:$id; read_compacted_history]\n" + text.substring(tail)
+                val shorter = text.substring(0, head) + "\n[Armilla tool output pruned; original: context-checkpoint:$id; read_compacted_history]\n" + text.substring(tail)
                 val copy = JSONObject(original.toString()).put("content", shorter)
                 if (AgentContextBudget.countTokens(shorter) >= AgentContextBudget.countTokens(text)) continue
                 archive.record(id, "ready")
@@ -643,6 +648,24 @@ internal class AgentLoop(
         return true
     }
 
+    /**
+     * 注入本回合完成的子代理通知：全部通知合并为 **一条** user 消息，避免打爆 prompt 缓存。
+     *
+     * 该消息只进入运行时 messages：不产生落盘投影事件，并已在压缩计数（keep 数）与
+     * transcript 外流路径上单独豁免/脱敏。刻意不改 [supplementStartsNewBlock]，避免把
+     * 子代理结果伪装成用户正文块。
+     */
+    private fun appendPendingChildNotice(): Boolean {
+        val notices = runController.drainChildNotices()
+        if (notices.isEmpty()) return false
+        messages.put(
+            AgentConversationCodec.userTextMessage(
+                AgentContextCompactor.childNoticeUserContent(AgentChildNotice.merge(notices)),
+            ).put(AgentTurnIdentity.JSON_KEY, turnId),
+        )
+        return true
+    }
+
     private fun appendPendingSteeringOrSeal(): Boolean {
         val supplement = runController.pollSteeringInputOrSeal() ?: return false
         supplementStartsNewBlock = true
@@ -700,6 +723,14 @@ internal class AgentLoop(
                 message = validationError,
             )
         }
+        subAgentPollGuard.reject(toolCall)?.let { rejection ->
+            return rejectedToolOutcome(
+                round = round,
+                toolCall = toolCall,
+                code = rejection.code,
+                message = "${rejection.message} next_poll_after_ms=${rejection.nextPollAfterMs}",
+            )
+        }
         onEvent(
             AgentEvent.ToolStarted(
                 round = round,
@@ -727,6 +758,7 @@ internal class AgentLoop(
         if (result.sensitive || AgentSensitiveToolPolicy.isSensitive(toolCall.name)) {
             sensitiveToolCallIds += toolCall.id
         }
+        subAgentPollGuard.observe(toolCall, result)
 
         // Once returned, this result remains evidence even if stop arrived concurrently.
         emitToolFinished(round, toolCall, result)

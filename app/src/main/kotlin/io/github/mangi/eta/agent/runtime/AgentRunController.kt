@@ -24,6 +24,14 @@ internal class AgentRunController {
     private val pauseCondition = lock.newCondition()
     data class SteeringInput(val text: String, val imagesJson: String = "[]")
     private val steeringMessages = ArrayDeque<SteeringInput>()
+    /**
+     * 子代理完成通知的独立送达队列。
+     *
+     * **刻意不复用 [steeringMessages]**：steering 是用户补充指令通道，其消息会落盘并作为
+     * 用户气泡渲染。子代理结果走这里，只作为运行时 `user` 消息注入模型上下文，
+     * 不产生 UserSupplementReceived 投影事件，因而既不落盘也不出现在会话 UI。
+     */
+    private val childNotices = ArrayDeque<String>()
     private var acceptingSteering = true
     private var stoppedSteering = emptyList<SteeringInput>()
 
@@ -51,6 +59,7 @@ internal class AgentRunController {
             checkpointPaused = false
             acceptingSteering = false
             steeringMessages.clear()
+            childNotices.clear()
             pendingCompact = null
             paused = false
             pauseCondition.signalAll()
@@ -148,12 +157,34 @@ internal class AgentRunController {
         lock.withLock {
             steeringMessages.pollFirst()?.let { return it }
             if (pendingCompact != null) return null
+            childNotices.clear()
             acceptingSteering = false
             null
         }
 
     val hasPendingSteering: Boolean
         get() = lock.withLock { steeringMessages.isNotEmpty() }
+
+    /**
+     * 子代理完成通知入队。
+     *
+     * @return false 表示本 run 已停止接收（已取消或已封存）；调用方无需重试，也不应据此报错。
+     */
+    fun enqueueChildNotice(notice: String): Boolean = lock.withLock {
+        if (notice.isBlank() || cancelled || !acceptingSteering) return false
+        childNotices.addLast(notice.trim())
+        true
+    }
+
+    /** 取出当前全部待注入通知：同一轮合并为一条 user 消息，避免打爆 prompt 缓存。 */
+    fun drainChildNotices(): List<String> = lock.withLock {
+        val drained = childNotices.toList()
+        childNotices.clear()
+        drained
+    }
+
+    val hasPendingChildNotice: Boolean
+        get() = lock.withLock { childNotices.isNotEmpty() }
 
     /**
      * 暂停执行：后续 [throwIfCancelled] 调用会阻塞挂起，直到 [resume] 或 [cancel]。

@@ -278,7 +278,8 @@ class SubAgentCoordinatorTest {
             val id = start(c).getString("task_id")
             val result = get(c, id)
             assertTrue(result.getString("result").length < 16100)
-            assertTrue(result.getBoolean("review_required"))
+            // review_required 现在是按角色语义值：默认 research 子任务不需要合入前复核。
+            assertFalse(result.getBoolean("review_required"))
             assertTrue(c.execute(call("get_task_result", JSONObject().put("task_id", id))).sensitive)
         }
     }
@@ -416,7 +417,7 @@ class SubAgentCoordinatorTest {
                 .put("stdout", JSONObject()
                     .put("ok", true)
                     .put("id", "0123456789abcdef0123456789abcdef")
-                    .put("path", "/workspace/Eta/.agent/worktrees/0123456789abcdef0123456789abcdef")
+                    .put("path", "/workspace/Armilla/.agent/worktrees/0123456789abcdef0123456789abcdef")
                     .put("state", "editing")
                     .toString())
                 .toString())
@@ -433,13 +434,15 @@ class SubAgentCoordinatorTest {
                 .put("task", "edit the project")
                 .put("role", "implementation")
                 .put("agent_id", "exec-agent")
-                .put("project", "/workspace/Eta"))).content)
+                .put("project", "/workspace/Armilla"))).content)
             assertEquals(true, started.getBoolean("ok"))
             assertEquals("0123456789abcdef0123456789abcdef", started.getString("workspace_id"))
             assertTrue(started.getString("workspace_path").contains("worktrees"))
             val finished = get(coordinator, started.getString("task_id"))
             assertEquals("completed", finished.getString("status"))
             assertEquals("edited", finished.getString("result"))
+            // implementation 是唯一会改代码的角色，因此必须由主代理复核后才能合入。
+            assertEquals(true, finished.getBoolean("review_required"))
         }
     }
 

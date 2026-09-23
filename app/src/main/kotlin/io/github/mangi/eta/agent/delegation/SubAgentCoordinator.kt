@@ -31,6 +31,7 @@ internal class SubAgentCoordinator(
     private val modelParallelLimits: List<Int> = List(workers.size) { 1 },
     private val allowTimeoutContinuation: Boolean = false,
     private val diagnostics: SubAgentDiagnostics = SubAgentDiagnostics(),
+    private val onCompleted: (SubAgentCompletion) -> Unit = {},
     private val executeChild: (AgentModelClient.ModelConfig, String, AgentRunController) -> String,
 ) : AutoCloseable {
     init { require(workers.isNotEmpty() && roles.size == workers.size && workerIds.size == workers.size && workerIds.distinct().size == workers.size && workerNames.size == workers.size && workerModelIds.size == workers.size && modelParallelLimits.size == workers.size && modelParallelLimits.all { it >= 0 }) }
@@ -42,6 +43,10 @@ internal class SubAgentCoordinator(
         @Volatile var workspacePath = ""
         @Volatile var executing = false
         @Volatile var continuationCount = 0
+        @Volatile var continuationStartedAt: Long? = null
+        @Volatile var notified = false
+        @Volatile var responseCount = 0
+        @Volatile var compactionCount = 0
         @Volatile var finalizing = false
         val queuedAt = System.nanoTime() / 1_000_000
         @Volatile var startedAt: Long? = null
@@ -179,7 +184,8 @@ internal class SubAgentCoordinator(
                     task.watchdog = timer.scheduleAtFixedRate({
                         val expired = synchronized(task) { if (task.state in setOf("running", "awaiting_decision") && !task.finalizing) task.clock.expired() else null }
                         if (expired != null) {
-                            if (allowTimeoutContinuation && role !in setOf("image_generation", "video_generation") && expired == "SUB_AGENT_TIMEOUT") {
+                            if (allowTimeoutContinuation && role !in setOf("image_generation", "video_generation") &&
+                                expired == "SUB_AGENT_TIMEOUT" && !continuationExhausted(task)) {
                                 synchronized(task) {
                                     if (task.state == "running" && !task.finalizing) {
                                         task.controller.pauseAtCheckpoint()
@@ -191,7 +197,10 @@ internal class SubAgentCoordinator(
                                         diagnostic(task,"execution_budget_wait")
                                     }
                                 }
-                            } else stop(task, "timed_out", expired)
+                            } else {
+                                stop(task, "timed_out",
+                                    if (expired == "SUB_AGENT_TIMEOUT" && continuationExhausted(task)) CONTINUATION_LIMIT_CODE else expired)
+                            }
                         }
                         if (task.state !in setOf("running", "awaiting_decision")) task.watchdog?.cancel(false)
                         val now = System.nanoTime() / 1_000_000
@@ -259,14 +268,14 @@ internal class SubAgentCoordinator(
                         task.controller.throwIfCancelled()
                         val published = synchronized(task) {
                             if (task.state == "running") {
-                                task.result = answer.take(16000) + if (answer.length > 16000) "\n[结果已截断]" else ""
+                                task.result = SubAgentReport.truncate(answer)
                                 task.state = "completed"
                                 diagnostic(task,"completed")
                                 task.context.finish(task.state)
                                 true
                             } else false
                         }
-                        if (published) break
+                        if (published) { notifyCompletion(task); break }
                         if (task.state != "awaiting_decision") task.controller.throwIfCancelled()
                     }
                 } catch (error: Exception) {
@@ -315,6 +324,7 @@ internal class SubAgentCoordinator(
                     task.watchdog?.cancel(false)
                     task.leaseRenewal?.cancel(false)
                     synchronized(task) { publishContext(task.context.finish(task.state)) }
+                    notifyCompletion(task)
                     task.executing = false
                     diagnostic(task,"worker_released")
                 }
@@ -366,7 +376,8 @@ internal class SubAgentCoordinator(
             is io.github.mangi.eta.agent.runtime.AgentEvent.ToolStarted -> diagnostic(task,"tool_started",more=mapOf("round" to event.round),tool=event.name)
             is io.github.mangi.eta.agent.runtime.AgentEvent.ToolFinished -> diagnostic(task,"tool_finished",more=mapOf("round" to event.round,"tool_ok" to if(event.success==true) 1 else if(event.success==false) 0 else -1),tool=event.name)
             is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted -> diagnostic(task,"compaction_started",more=mapOf("round" to event.round))
-            is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompacted -> diagnostic(task,"compaction_finished",more=mapOf("round" to event.round))
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompacted -> { if(event.applied) task.compactionCount++; diagnostic(task,"compaction_finished",more=mapOf("round" to event.round)) }
+            is io.github.mangi.eta.agent.runtime.AgentEvent.UsageReceived -> if(!event.projected) task.responseCount++
             else -> Unit
         }
     }
@@ -399,10 +410,13 @@ internal class SubAgentCoordinator(
         val task = find(args.getString("task_id"))
         synchronized(task) {
             if (task.state != "awaiting_decision") return errorResult("TASK_NOT_AWAITING_DECISION")
+            if (continuationExhausted(task)) return errorResult(CONTINUATION_LIMIT_CODE)
             task.decisionAt?.let { task.decisionWaitMs += System.nanoTime() / 1_000_000 - it }
             task.decisionAt = null
             task.clock.renewExecution()
             task.errorCode = ""
+            val continuedAt = System.nanoTime() / 1_000_000
+            if (task.continuationStartedAt == null) task.continuationStartedAt = continuedAt
             task.continuationCount++
             task.state = "running"
             publishContext(task.context.start())
@@ -416,12 +430,43 @@ internal class SubAgentCoordinator(
             if (task.state !in setOf("queued", "running", "awaiting_decision")) return
             task.state = state
             task.errorCode = errorCode
+            if (errorCode == CONTINUATION_LIMIT_CODE && task.result.isBlank()) task.result = continuationLimitMessage()
             task.watchdog?.cancel(false)
             publishContext(task.context.finish(state))
             diagnostic(task,state)
         }
         task.controller.cancel()
         task.future?.cancel(true)
+        notifyCompletion(task)
+    }
+
+    /** 续跑预算：累计次数与累计墙钟任一超限即不可再续跑。 */
+    private fun continuationExhausted(task: Task): Boolean {
+        if (task.continuationCount >= MAX_CONTINUATIONS) return true
+        val startedAt = task.continuationStartedAt ?: return false
+        return System.nanoTime() / 1_000_000 - startedAt > CONTINUATION_BUDGET_MS
+    }
+
+    private fun continuationLimitMessage(): String =
+        "子代理达到累计续跑上限（最多 $MAX_CONTINUATIONS 次 / 累计 ${CONTINUATION_BUDGET_MS / 60_000} 分钟墙钟）。" +
+            "这里明确停止而不是静默截断；请主代理接手，或重新委派一个新的子任务。"
+
+    /**
+     * 终态出口统一收口：每个子任务只在第一次进入终态时通知一次。
+     *
+     * 刻意在协调器锁之外回调，避免持锁时调用外部通知通道（与既有遥测注释同一条纪律）。
+     */
+    private fun notifyCompletion(task: Task) {
+        val completion = synchronized(task) {
+            if (task.notified) return
+            if (task.state !in setOf("completed", "failed", "cancelled", "timed_out")) return
+            task.notified = true
+            SubAgentCompletion(task.id, workerIds[task.worker], workerNames[task.worker],
+                task.role, task.state, task.errorCode, task.result, task.workspacePath,
+                responseCount = task.responseCount, compactionCount = task.compactionCount,
+                continuationCount = task.continuationCount)
+        }
+        runCatching { onCompleted(completion) }
     }
     private fun snapshot(task: Task): JSONObject = synchronized(task) {
         JSONObject().put("ok", true).put("task_id", task.id).put("worker", task.worker + 1)
@@ -431,9 +476,11 @@ internal class SubAgentCoordinator(
                 isCompacting = task.state in setOf("running", "awaiting_decision") && task.context.value.isCompacting).toJson())
             .put("role", task.role).put("project", task.project).put("error_code", task.errorCode)
             .put("workspace_id", task.workspaceId ?: JSONObject.NULL).put("workspace_path", task.workspacePath)
-            .put("review_required", true)
+            .put("review_required", task.role == "implementation")
             .put("can_continue", task.state == "awaiting_decision")
             .put("continuation_count", task.continuationCount)
+            .put("max_continuations", MAX_CONTINUATIONS)
+            .put("continuation_budget_ms", CONTINUATION_BUDGET_MS)
             .put("parallel_limit", SubAgentModelPools.currentLimit(poolLeases[task.worker]))
             .put("continuation_note", if (task.state == "awaiting_decision") "已请求在安全边界暂停，保留同一任务、上下文与工作树；主代理可 continue_task 或 cancel_task。正在进行的请求/工具不会重放。" else "")
     }
@@ -451,6 +498,9 @@ internal class SubAgentCoordinator(
 
     private companion object {
         const val IMAGE_TIMEOUT_MS = 180_000L
+        const val CONTINUATION_LIMIT_CODE = "SUB_AGENT_CONTINUATION_LIMIT"
+        const val MAX_CONTINUATIONS = 5
+        const val CONTINUATION_BUDGET_MS = 3_600_000L
     }
     override fun close() {
         val owned = synchronized(this) {

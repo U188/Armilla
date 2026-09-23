@@ -62,6 +62,7 @@ internal object SettingsDataStore {
     private val RETIRED_MESSAGES = intPreferencesKey("retired_messages")
     private val RETIRED_HEATMAP_JSON = stringPreferencesKey("retired_heatmap_json")
     private val MODEL_USAGE_JSON = stringPreferencesKey("model_usage_json")
+    val AGENT_COST_METRICS_JSON = stringPreferencesKey("agent_cost_metrics_json")
     private const val SELECTED_MODEL_BY_PROVIDER_PREFIX = "selected_model_id_by_provider."
     private const val LINUX_BACKEND_PREFIX = "linux_backend."
 
@@ -418,6 +419,29 @@ internal object SettingsDataStore {
     suspend fun updateModelUsage(transform: (String) -> String) {
         ensureInitialized()
         dataStore.edit { prefs -> prefs[MODEL_USAGE_JSON] = transform(prefs[MODEL_USAGE_JSON].orEmpty()) }
+    }
+
+    // 子代理成本度量基线（阶段 0）：只读/写这一份计数 JSON，不参与设置备份导出导入。
+    fun agentCostMetricsFlow(): Flow<String> {
+        ensureInitialized()
+        return dataStore.data.map { it[AGENT_COST_METRICS_JSON].orEmpty() }
+    }
+
+    suspend fun agentCostMetricsJson(): String {
+        ensureInitialized()
+        return dataStore.data
+            .catch { cause ->
+                if (cause is IOException) emit(emptyPreferences()) else throw cause
+            }
+            .map { prefs -> prefs[AGENT_COST_METRICS_JSON].orEmpty() }
+            .first()
+    }
+
+    suspend fun updateAgentCostMetrics(transform: (String) -> String) {
+        ensureInitialized()
+        dataStore.edit { prefs ->
+            prefs[AGENT_COST_METRICS_JSON] = transform(prefs[AGENT_COST_METRICS_JSON].orEmpty())
+        }
     }
 
     private fun decodeHeatmap(raw: String?): Map<LocalDate, Int> {

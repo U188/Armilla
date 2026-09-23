@@ -30,6 +30,8 @@ import io.github.mangi.eta.agent.voice.EtaAssistantOverlayService
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import io.github.mangi.eta.data.repository.AgentMemoryRepository
+import io.github.mangi.eta.data.repository.AgentCostMetricKind
+import io.github.mangi.eta.data.repository.AgentCostMetricsRepository
 import io.github.mangi.eta.data.repository.AssistantRepository
 import io.github.mangi.eta.data.repository.LinuxEnvironmentSettingsRepository
 import io.github.mangi.eta.agent.terminal.LinuxDistribution
@@ -214,6 +216,16 @@ internal class AgentRuntimeRunExecutor(
                 }
             } else emptyList()
             val childModels = configuredChildren.map { it.second }
+            // 阶段 0 度量基线：只加计数，绝不影响运行行为或调度决策。
+            fun recordCost(scope: String, kind: AgentCostMetricKind, amount: Int = 1) {
+                AgentCostMetricsRepository.record(
+                    conversationId = request.effectiveModelSessionId,
+                    scope = scope,
+                    atMillis = System.currentTimeMillis(),
+                    kind = kind,
+                    amount = amount,
+                )
+            }
             if (childModels.isNotEmpty()) {
                 val workspace = if (request.config.terminalTools && currentPermissions().terminalTools) SubAgentWorkspace(appContext, executor) else null
                 children = SubAgentCoordinator(childModels,
@@ -239,6 +251,17 @@ internal class AgentRuntimeRunExecutor(
                             appContext, request.effectiveModelSessionId, config, prompt, controller, video = true)
                     },
                     onContext = { stats -> acceptEvent(session, AgentEvent.ChildContextUpdated(stats), archivedEvents, entrySurfaceGuard, checkpointRecorder) },
+                    // 完成即主动推送：走 controller 的独立通知队列（不借用 steering 通道），
+                    // 由 AgentLoop 在回合边界合并成一条 user 消息注入模型上下文。
+                    // 观测仍走 ChildContextUpdated，两条通道互不影响。
+                    onCompleted = { completion ->
+                        // 阶段 0 度量基线：主代理收到一条完成通知；子代理作用域记录它自己的计费响应与压缩次数。
+                        recordCost(AgentCostMetricsRepository.SCOPE_PARENT, AgentCostMetricKind.ChildNotices)
+                        recordCost(AgentCostMetricsRepository.childScope(completion.agentId), AgentCostMetricKind.ModelResponses, completion.responseCount)
+                        recordCost(AgentCostMetricsRepository.childScope(completion.agentId), AgentCostMetricKind.Compactions, completion.compactionCount)
+                        runController.enqueueChildNotice(
+                            io.github.mangi.eta.agent.delegation.SubAgentNotice.text(completion))
+                    },
                     executeObservedChild = { config, prompt, controller, project, id, writable, progress ->
                         if (id != null) {
                             val backend = requireNotNull(workspace)
@@ -281,7 +304,15 @@ internal class AgentRuntimeRunExecutor(
             }
             val delegatedExecutor = AgentModelClient.ToolExecutor { call ->
                 val coordinator = children
-                if (coordinator != null && call.name in SubAgentTools.names) coordinator.execute(call)
+                if (coordinator != null && call.name in SubAgentTools.names) {
+                    // 阶段 0 度量基线：委派与查询次数按实际工具调用累计（含被协调器拒绝的调用）。
+                    when (call.name) {
+                        "delegate_task" -> recordCost(AgentCostMetricsRepository.SCOPE_PARENT, AgentCostMetricKind.Delegations)
+                        "get_task_result" -> recordCost(AgentCostMetricsRepository.SCOPE_PARENT, AgentCostMetricKind.TaskQueries)
+                        else -> Unit
+                    }
+                    coordinator.execute(call)
+                }
                 else routingExecutor.execute(call)
             }
             val compactPolicy = runBlocking { AgentCompressionPolicy.resolve(request.config) }
@@ -329,6 +360,12 @@ internal class AgentRuntimeRunExecutor(
                 compactPolicy = compactPolicy,
                 onEvent = { event ->
                     timing.accept(event)
+                    // 阶段 0 度量基线：只累计计数，不改变任何调度、投影或压缩行为。
+                    when (event) {
+                        is AgentEvent.UsageReceived -> if (!event.projected) recordCost(AgentCostMetricsRepository.SCOPE_PARENT, AgentCostMetricKind.ModelResponses)
+                        is AgentEvent.ContextCompacted -> if (event.applied) recordCost(AgentCostMetricsRepository.SCOPE_PARENT, AgentCostMetricKind.Compactions)
+                        else -> Unit
+                    }
                     acceptEvent(
                         session,
                         event,

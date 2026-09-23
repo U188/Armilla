@@ -42,6 +42,26 @@ class SubAgentContinuationTest {
             assertEquals("cancelled",call(c,"cancel_task",JSONObject().put("task_id",id)).getString("status"))
         }
     }
+
+    @Test fun continuationBudgetStopsInsteadOfLoopingForever() {
+        SubAgentCoordinator(listOf(model),timeoutMs=40,allowTimeoutContinuation=true) { _,_,controller ->
+            while(true) { Thread.sleep(5);controller.throwIfCancelled() }
+            @Suppress("UNREACHABLE_CODE") "never"
+        }.use { c ->
+            val id=start(c)
+            repeat(5) { index ->
+                awaitStatus(c,id,"awaiting_decision")
+                val continued=call(c,"continue_task",JSONObject().put("task_id",id))
+                assertEquals(index+1,continued.getInt("continuation_count"))
+                assertEquals(5,continued.getInt("max_continuations"))
+            }
+            // 预算耗尽后不再暂停：必须明确终止并给出错误码，而不是无限续跑或静默截断。
+            val stopped=awaitStatus(c,id,"timed_out")
+            assertEquals("SUB_AGENT_CONTINUATION_LIMIT",stopped.getString("error_code"))
+            assertTrue(stopped.getString("result").contains("累计续跑上限"))
+            assertEquals("TASK_NOT_AWAITING_DECISION",call(c,"continue_task",JSONObject().put("task_id",id)).getString("code"))
+        }
+    }
     @Test fun duplicateProfilesAndParentsShareLimitButDifferentProvidersDoNot() {
         val entered=CountDownLatch(2);val release=CountDownLatch(1);val calls=AtomicInteger()
         val config=model.copy(providerId="shared-${System.nanoTime()}")

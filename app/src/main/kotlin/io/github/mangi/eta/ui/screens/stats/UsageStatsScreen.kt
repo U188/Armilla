@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mangi.eta.R
+import io.github.mangi.eta.data.repository.AgentCostMetricKind
+import io.github.mangi.eta.data.repository.AgentCostMetricRow
+import io.github.mangi.eta.data.repository.AgentCostMetricsRepository
+import io.github.mangi.eta.data.repository.AgentCostMetricsSnapshot
 import io.github.mangi.eta.data.repository.ModelUsageModelUi
 import io.github.mangi.eta.data.repository.ModelUsageSnapshot
 import io.github.mangi.eta.data.repository.UsageStatsRepository
@@ -58,7 +63,9 @@ import io.github.mangi.eta.data.repository.heatmapQuartiles
 import io.github.mangi.eta.ui.components.MiuixScaffoldPage
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.time.format.TextStyle
@@ -71,13 +78,16 @@ import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private enum class UsageStatsTab { Overview, Models }
+private enum class UsageStatsTab { Overview, Models, Cost }
 
 @Composable
 internal fun UsageStatsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var stats by remember { mutableStateOf(UsageStatsSnapshot(isLoading = true)) }
     var selectedTab by remember { mutableStateOf(UsageStatsTab.Overview) }
+    // 子代理成本基线：只读快照，数据由 AgentCostMetricsRepository 落盘统计，界面不做任何计算。
+    val costMetrics by remember { AgentCostMetricsRepository.snapshotFlow() }
+        .collectAsState(initial = AgentCostMetricsSnapshot(emptyList()))
 
     LaunchedEffect(Unit) {
         stats = withContext(Dispatchers.IO) {
@@ -99,7 +109,14 @@ internal fun UsageStatsScreen(onBack: () -> Unit) {
                     .padding(bottom = 12.dp),
             )
         }
-        if (stats.isLoading) {
+        if (selectedTab == UsageStatsTab.Cost) {
+            item(key = "cost-metrics") {
+                AgentCostMetricsPane(
+                    snapshot = costMetrics,
+                    modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp),
+                )
+            }
+        } else if (stats.isLoading) {
             item(key = "loading") {
                 Box(
                     modifier = Modifier
@@ -181,6 +198,11 @@ private fun UsageStatsTabs(
             label = stringResource(R.string.stats_tab_models),
             selected = selected == UsageStatsTab.Models,
             onClick = { onSelect(UsageStatsTab.Models) },
+        )
+        UsageTabButton(
+            label = stringResource(R.string.cost_metrics_tab),
+            selected = selected == UsageStatsTab.Cost,
+            onClick = { onSelect(UsageStatsTab.Cost) },
         )
     }
 }
@@ -860,3 +882,115 @@ private fun StatCard(
         }
     }
 }
+
+/** 「子代理成本」面板最多展示的行数（按小时倒序取最近的若干行）。 */
+private const val COST_METRICS_MAX_ROWS = 24
+
+/**
+ * 子代理成本基线面板：按 (本地小时, 作用域) 展示 5 个计数维度，只读快照，不做任何计算。
+ * 排序：小时倒序，同一小时 parent（主对话）在前。
+ */
+@Composable
+private fun AgentCostMetricsPane(
+    snapshot: AgentCostMetricsSnapshot,
+    modifier: Modifier = Modifier,
+) {
+    val rows = remember(snapshot.rows) {
+        snapshot.rows
+            .sortedWith(
+                compareByDescending<AgentCostMetricRow> { it.hourEpochMillis }
+                    .thenBy { if (it.scope == AgentCostMetricsRepository.SCOPE_PARENT) 0 else 1 }
+                    .thenBy { it.scope }
+                    .thenBy { it.conversationId },
+            )
+            .take(COST_METRICS_MAX_ROWS)
+    }
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Card {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.cost_metrics_title),
+                    style = MiuixTheme.textStyles.headline1,
+                )
+                Text(
+                    text = stringResource(R.string.cost_metrics_summary),
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+        if (rows.isEmpty()) {
+            Text(
+                text = stringResource(R.string.cost_metrics_empty),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+            )
+        } else {
+            rows.forEach { row -> AgentCostMetricsRowCard(row) }
+        }
+    }
+}
+
+@Composable
+private fun AgentCostMetricsRowCard(row: AgentCostMetricRow) {
+    Card {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = formatCostMetricsHour(row.hourEpochMillis),
+                style = MiuixTheme.textStyles.title3,
+            )
+            Text(
+                text = costMetricsScopeLabel(row.scope),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            ModelMetricRow(
+                label = stringResource(R.string.cost_metrics_responses),
+                value = formatStatCount(costMetricsCount(row, AgentCostMetricKind.ModelResponses)),
+            )
+            ModelMetricRow(
+                label = stringResource(R.string.cost_metrics_delegations),
+                value = formatStatCount(costMetricsCount(row, AgentCostMetricKind.Delegations)),
+            )
+            ModelMetricRow(
+                label = stringResource(R.string.cost_metrics_task_queries),
+                value = formatStatCount(costMetricsCount(row, AgentCostMetricKind.TaskQueries)),
+            )
+            ModelMetricRow(
+                label = stringResource(R.string.cost_metrics_compactions),
+                value = formatStatCount(costMetricsCount(row, AgentCostMetricKind.Compactions)),
+            )
+            ModelMetricRow(
+                label = stringResource(R.string.cost_metrics_child_notices),
+                value = formatStatCount(costMetricsCount(row, AgentCostMetricKind.ChildNotices)),
+            )
+        }
+    }
+}
+
+private fun costMetricsCount(row: AgentCostMetricRow, kind: AgentCostMetricKind): Long =
+    (row.counts[kind] ?: 0).coerceAtLeast(0).toLong()
+
+/** 本地时间展示（分钟恒为 00，因为行按小时聚合）。 */
+private fun formatCostMetricsHour(hourEpochMillis: Long): String =
+    Instant.ofEpochMilli(hourEpochMillis)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.getDefault()))
+
+@Composable
+private fun costMetricsScopeLabel(scope: String): String =
+    if (scope == AgentCostMetricsRepository.SCOPE_PARENT) {
+        stringResource(R.string.cost_metrics_scope_parent)
+    } else {
+        stringResource(R.string.cost_metrics_scope_child, scope.removePrefix("child:"))
+    }

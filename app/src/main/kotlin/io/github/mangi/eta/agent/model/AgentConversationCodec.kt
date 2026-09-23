@@ -8,7 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
-/** Provider JSON 与 Eta 稳定会话 DTO 之间的唯一转换和容量边界。 */
+/** Provider JSON 与 浑仪 稳定会话 DTO 之间的唯一转换和容量边界。 */
 internal object AgentConversationCodec {
     internal const val MAX_DRAIN_TRANSCRIPT_CHARS = 16_000
     internal const val MAX_STORAGE_TRANSCRIPT_CHARS = 1_000_000
@@ -26,8 +26,10 @@ internal object AgentConversationCodec {
     internal const val VIDEO_FILE_TYPE = "video_file"
     private const val SENSITIVE_TOOL_OMITTED_TEXT =
         "[敏感工具参数与原始结果仅供当前回合使用，未写入持久会话]"
+    private const val CHILD_NOTICE_OMITTED_TEXT =
+        "[子代理完成通知只对当前运行期的模型可见，未写入持久会话或跨进程历史]"
     private const val COMPACTION_NOTICE =
-        "[Eta 上下文提示：此前部分 assistant/tool 记录因跨进程或持久化容量上限已压缩，请勿假定缺失步骤未执行。]"
+        "[浑仪 上下文提示：此前部分 assistant/tool 记录因跨进程或持久化容量上限已压缩，请勿假定缺失步骤未执行。]"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -327,6 +329,7 @@ internal object AgentConversationCodec {
         buildList {
             for (index in startIndex until messages.length()) {
                 messages.optJSONObject(index)
+                    ?.let { redactChildNotice(it) }
                     ?.let { redactSensitiveToolData(it, sensitiveToolCallIds) }
                     ?.let(::fromJsonObject)
                     ?.let(::sanitizeMessage)
@@ -344,6 +347,18 @@ internal object AgentConversationCodec {
             0,
             sensitiveToolCallIds,
         )
+    }
+
+    /**
+     * 子代理完成通知是运行时投递的临时 user 消息：它能到模型，但绝不能进入
+     * transcript 的外流路径（IPC 历史传输、异常回传、压缩存档前缀）。
+     * 与 sensitiveToolCallIds 无关，因此不受其空判断的早退影响。
+     */
+    private fun redactChildNotice(source: JSONObject): JSONObject {
+        if (!source.optString("role").equals("user", ignoreCase = true)) return source
+        val content = source.opt("content") as? String ?: return source
+        if (!content.trimStart().startsWith(AgentContextCompactor.CHILD_NOTICE_USER_PREFIX)) return source
+        return JSONObject(source.toString()).put("content", CHILD_NOTICE_OMITTED_TEXT)
     }
 
     private fun redactSensitiveToolData(

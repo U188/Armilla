@@ -476,6 +476,7 @@ internal fun AgentChatInputBar(
 
                         AgentModelPickerButton(
                             conversationId = collaborationConversationId,
+                            reasoningEffort = reasoningEffort,
                             collaborationTaskRunning = isStreaming || isPaused || isCompressingContext,
                             state = modelPickerState,
                             isStreaming = isStreaming,

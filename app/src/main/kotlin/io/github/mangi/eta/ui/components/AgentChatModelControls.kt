@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mangi.eta.R
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 import io.github.mangi.eta.data.repository.ProviderBalanceStore
+import io.github.mangi.eta.data.model.ReasoningEffort
 import io.github.mangi.eta.ui.pages.providers.ProviderBalanceAmount
 import io.github.mangi.eta.ui.model.AgentContextUsageUi
 import io.github.mangi.eta.ui.model.AgentModelOptionUi
@@ -59,6 +60,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun AgentModelPickerButton(
     conversationId: String? = null,
+    reasoningEffort: ReasoningEffort = ReasoningEffort.OFF,
     state: AgentModelPickerUiState,
     isStreaming: Boolean,
     isPaused: Boolean = false,
@@ -69,6 +71,7 @@ internal fun AgentModelPickerButton(
     modifier: Modifier = Modifier,
 ) {
     var showCollaboration by remember { mutableStateOf(false) }
+    var lowEffortHintVisible by remember { mutableStateOf(false) }
     var collaboration by remember(conversationId) {
         mutableStateOf(io.github.mangi.eta.agent.delegation.SubAgentPreferences.enabled(conversationId))
     }
@@ -79,9 +82,15 @@ internal fun AgentModelPickerButton(
         onEnabledChange = {
             collaboration = it
             io.github.mangi.eta.agent.delegation.SubAgentPreferences.setEnabled(conversationId, it)
+            // 开启协同时若主代理思考档过低且本会话未提示过，弹一次说明；不拦截用户操作。
+            if (it && isLowMainReasoningEffort(reasoningEffort) && !lowEffortHintShown(conversationId)) {
+                markLowEffortHintShown(conversationId)
+                lowEffortHintVisible = true
+            }
         },
         onDismiss = { showCollaboration = false },
     )
+    AgentLowEffortHintDialog(show = lowEffortHintVisible, onDismiss = { lowEffortHintVisible = false })
     val menuState = rememberEtaMenuState()
     var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
     val selected = state.selectedModel

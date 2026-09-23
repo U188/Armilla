@@ -253,7 +253,7 @@ internal fun AgentChatBody(
         }
     }
     val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression, childContexts) {
-        visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression || childContexts.any { it.isCompacting }) 1 else 0
+        visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression || childContexts.isNotEmpty()) 1 else 0
     }
     val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = initialBottomItemIndex)
     val currentBrowserMessageId = remember(
@@ -651,8 +651,9 @@ internal fun AgentConversationMessages(
         streamingMarkdownStates.keys.retainAll(activeIds)
     }
     val telemetry = LocalAgentContextTelemetry.current
-    val compressingChildren = telemetry.children.filter { it.isCompacting }
-    val compressingItemCount = if (isCompressingContext || isWaitingForCompression || compressingChildren.isNotEmpty()) 1 else 0
+    // 尾部槽位同时承载主代理压缩指示与每张子任务卡片；保持单条目以沿用下方的底部哨兵索引计算。
+    val subAgentContexts = telemetry.children
+    val compressingItemCount = if (isCompressingContext || isWaitingForCompression || subAgentContexts.isNotEmpty()) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val userMessageTargets = remember(timelineEntries) { timelineEntries.userMessageIndices() }
     val directionThreshold = with(LocalDensity.current) { 12.dp.toPx() }
@@ -1026,9 +1027,9 @@ internal fun AgentConversationMessages(
                                 fadeOutSpec = null,
                             ),
                         )
-                        compressingChildren.forEach { child ->
+                        subAgentContexts.forEach { child ->
                             androidx.compose.runtime.key(child.taskId) {
-                                ContextCompressingIndicator(modelName = child.contextLabel())
+                                SubAgentCard(stats = child)
                             }
                         }
                     }

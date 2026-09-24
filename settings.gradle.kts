@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Eta"
+rootProject.name = "Armilla"
 include(":app")

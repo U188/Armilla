@@ -11,7 +11,7 @@ import android.view.View
 /**
  * 系统数字助理的入口桥接。
  *
- * 系统会为本类创建 TYPE_VOICE_INTERACTION 窗口，但 Eta 的实际界面由自己的
+ * 系统会为本类创建 TYPE_VOICE_INTERACTION 窗口，但 浑仪 的实际界面由自己的
  * TYPE_APPLICATION_OVERLAY 窗口承载，避免把厂商助手动画和输入层级绑定到系统会话窗口。
  */
 internal class EtaVoiceInteractionSession(context: Context) : VoiceInteractionSession(context) {

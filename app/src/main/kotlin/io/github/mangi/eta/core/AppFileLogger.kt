@@ -153,7 +153,7 @@ internal object AppFileLogger {
     private fun writeSessionHeader() {
         val header = debugHeader
         val lines = buildString {
-            appendLine("==== Eta file logging started ====")
+            appendLine("==== Armilla file logging started ====")
             appendLine("time=${timeFormatter.format(Instant.now())}")
             if (header != null) {
                 appendLine("version=${header.versionName} (${header.versionCode})")

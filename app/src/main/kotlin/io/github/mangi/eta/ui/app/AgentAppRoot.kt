@@ -693,7 +693,7 @@ fun AgentAppRoot(
                                                     it.execute(
                                                         "am start --user current -n " +
                                                             "com.oplus.battery/com.oplus.powermanager.fuelgaue.PowerControlActivity " +
-                                                            "--es title Eta --es pkgName io.github.mangi.eta --es drainType APP",
+                                                            "--es title Armilla --es pkgName io.github.mangi.eta --es drainType APP",
                                                     )
                                                 }
                                             }
@@ -1020,7 +1020,7 @@ fun AgentAppRoot(
                     conversationExportConfirmation = false
                     val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
                     val title = conversationExportTitle.replace(Regex("""[\\/:*?"<>|]"""), "_").take(40)
-                    conversationExportLauncher.launch("代鱼-$title-$stamp.zip")
+                    conversationExportLauncher.launch("浑仪-$title-$stamp.zip")
                 },
             )
         }

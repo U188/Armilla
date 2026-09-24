@@ -72,7 +72,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.squircle.LocalSquircleEnabled
 
 /**
- * Eta 数字助理的用户界面窗口。
+ * 浑仪 数字助理的用户界面窗口。
  *
  * 系统助理会话只负责承接电源键入口；这里固定使用全屏 TYPE_APPLICATION_OVERLAY，
  * 让输入法、动画和厂商助手式浮窗拥有同一个窗口生命周期。
@@ -150,7 +150,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
     private fun showEntry() {
         if (!Settings.canDrawOverlays(this)) {
             AndroidAgentLogger.warnThrottled("eta_assistant_overlay_permission_missing") {
-                "Eta assistant overlay permission is missing"
+                "Armilla assistant overlay permission is missing"
             }
             stopSelf()
             return
@@ -208,7 +208,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
                         )
                     }.onFailure { throwable ->
                         AndroidAgentLogger.warn(
-                            "Eta assistant entry screenshot encode failed: " +
+                            "Armilla assistant entry screenshot encode failed: " +
                                 "type=${throwable.javaClass.simpleName}"
                         )
                     }.getOrNull()
@@ -306,7 +306,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         }
         runCatching { wm.addView(view, params) }.onFailure { throwable ->
             AndroidAgentLogger.warnThrottled("eta_assistant_overlay_add_failed") {
-                "Eta assistant overlay addView failed: type=${throwable.javaClass.simpleName}"
+                "Armilla assistant overlay addView failed: type=${throwable.javaClass.simpleName}"
             }
             return
         }
@@ -331,7 +331,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         unregisterSystemBackCallback()
         val dispatcher = view.findOnBackInvokedDispatcher()
         if (dispatcher == null) {
-            AndroidAgentLogger.warn("Eta assistant overlay back dispatcher unavailable")
+            AndroidAgentLogger.warn("Armilla assistant overlay back dispatcher unavailable")
             return
         }
         val callback = OnBackInvokedCallback(::dismissAndStop)
@@ -830,7 +830,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         }.getOrElse { throwable ->
             view.removeOnAttachStateChangeListener(attachListener)
             AndroidAgentLogger.warnThrottled("eta_assistant_overlay_remove_failed") {
-                "Eta assistant overlay removeView failed: type=${throwable.javaClass.simpleName}"
+                "Armilla assistant overlay removeView failed: type=${throwable.javaClass.simpleName}"
             }
             false
         }
@@ -868,7 +868,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
     private fun openConversation() {
         if (handoffInProgress || activeRunId != null || uiState.messages.isEmpty()) return
         handoffInProgress = true
-        AndroidAgentLogger.info("Eta assistant handoff requested")
+        AndroidAgentLogger.info("Armilla assistant handoff requested")
         updateSoftInput(visible = false)
         val intent = Intent(this, MainActivity::class.java)
             .setAction(ACTION_OPEN_CONVERSATION)
@@ -903,13 +903,13 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         runCatching { pendingIntent.send(senderOptions.toBundle()) }
             .onFailure {
                 handoffInProgress = false
-                AndroidAgentLogger.warn("Eta assistant handoff activity launch failed")
+                AndroidAgentLogger.warn("Armilla assistant handoff activity launch failed")
                 return
             }
         scope.launch(Dispatchers.Main.immediate) {
             delay(HANDOFF_TIMEOUT_MS)
             if (handoffInProgress) {
-                AndroidAgentLogger.warn("Eta assistant handoff timed out waiting for chat")
+                AndroidAgentLogger.warn("Armilla assistant handoff timed out waiting for chat")
                 handoffInProgress = false
             }
         }
@@ -918,7 +918,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
     private fun finishHandoff() {
         if (!handoffInProgress) return
         if (handoffExitRequested) return
-        AndroidAgentLogger.info("Eta assistant handoff chat ready")
+        AndroidAgentLogger.info("Armilla assistant handoff chat ready")
         handoffExitRequested = true
         scope.launch(Dispatchers.Main.immediate) {
             delay(HANDOFF_EXIT_DURATION_MS)
@@ -946,7 +946,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         private var activeService: EtaAssistantOverlayService? = null
 
         /**
-         * Eta 自己拥有入口浮层，直接关闭并等待具体 View detach；不能按包名猜测，
+         * 浑仪 自己拥有入口浮层，直接关闭并等待具体 View detach；不能按包名猜测，
          * 因为入口、Runtime 与结果浮层都属于同一个包。
          */
         fun dismissForForegroundOperation(context: Context): Boolean {

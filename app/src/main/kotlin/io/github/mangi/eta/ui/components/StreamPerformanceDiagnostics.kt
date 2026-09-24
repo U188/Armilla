@@ -82,7 +82,7 @@ internal object StreamPerformanceDiagnostics {
     fun <T> measure(stage: String, value: Long = 0, block: () -> T): T {
         val session = active ?: return block()
         val started = System.nanoTime()
-        Trace.beginSection("Eta.$stage")
+        Trace.beginSection("Armilla.$stage")
         try { return block() } finally {
             Trace.endSection()
             session.record(stage, System.nanoTime() - started, value)
@@ -92,7 +92,7 @@ internal object StreamPerformanceDiagnostics {
     fun attach(window: Window): () -> Unit {
         val session = Session()
         active = session
-        val thread = HandlerThread("Eta-StreamDiag").apply { start() }
+        val thread = HandlerThread("Armilla-StreamDiag").apply { start() }
         val handler = Handler(thread.looper)
         fun emit(final: Boolean) {
             runCatching {

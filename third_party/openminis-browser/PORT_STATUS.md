@@ -10,7 +10,7 @@
   cookie/data controls, and idle-tab timeout settings.
 - Browser theme now uses upstream OpenMinis Theme.kt and ChatColors.kt: original
   accent/surface palettes, 12/20/24/28 dp shapes, typography, semantic header colors,
-  compact drag handle and 90% sheet. Only light/dark selection follows Eta.
+  compact drag handle and 90% sheet. Only light/dark selection follows Armilla.
   Settings/history/downloads and their confirmation dialogs inherit the same theme.
   Browser-only resources are namespaced with English, Simplified and Traditional Chinese.
 - AgentBrowserSession now owns the same tab pool as the UI and keeps the original
@@ -20,7 +20,7 @@
   close/reopen races.
 - browser_use adds new_tab/close_tab/list_tabs/tab_id; old actions, paging, coordinate
   inputs, submit, timeout aliases and read_image=false are retained.
-- Eta guest paths, cookie env-file offload, output limits, bounded screenshot allocation,
+- Armilla guest paths, cookie env-file offload, output limits, bounded screenshot allocation,
   download limits and a narrow cache FileProvider path replace upstream-specific wiring.
 - Removed implicit Google-login app launches; no Antigravity model/login code imported.
 - Antigravity removal is included in the branch history.

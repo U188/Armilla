@@ -125,7 +125,7 @@ internal object BreenoHooks {
         { runnable ->
             Thread(
                 runnable,
-                "Eta-AgentBridge-${agentBridgeThreadId.incrementAndGet()}"
+                "Armilla-AgentBridge-${agentBridgeThreadId.incrementAndGet()}"
             ).apply { isDaemon = true }
         },
         ThreadPoolExecutor.AbortPolicy(),
@@ -635,7 +635,7 @@ internal object BreenoHooks {
                         error(injected(
                             context,
                             R.string.injected_breeno_custom_model_disabled,
-                            "Enable Breeno custom models in Eta settings first",
+                            "Enable Breeno custom models in Armilla settings first",
                         ))
                     }
                     context ?: error(injected(

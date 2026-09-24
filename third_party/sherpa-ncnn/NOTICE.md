@@ -2,7 +2,7 @@
 
 - Kotlin JNI binding: k2-fsa/sherpa-ncnn tag v2.1.15,
   `android/SherpaNcnn/app/src/main/java/com/k2fsa/sherpa/ncnn/SherpaNcnn.kt`.
-  Apache-2.0, see LICENSE. Eta keeps JNI package/config fields unchanged, trims demo
+  Apache-2.0, see LICENSE. Armilla keeps JNI package/config fields unchanged, trims demo
   helpers, adds deterministic AutoCloseable cleanup and checks for a null native handle.
 - Native binaries: official v2.1.15 Android release. URL and SHA-256 are pinned in
   `scripts/prepare-speech-runtime.py`. Only explicit ABI/library entries are copied;

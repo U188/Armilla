@@ -301,7 +301,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                                 is AgentRuntimeImageTransfer.ImageTransferException ->
                                     throwable.message ?: "Agent Runtime 无法读取图片"
                                 is RuntimeConfigUnavailableException ->
-                                    "请先在 Eta 中配置可用的模型"
+                                    "请先在 浑仪 中配置可用的模型"
                                 else -> "Agent Runtime 无法准备请求"
                             },
                             replyTo,
@@ -330,7 +330,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         if (!executionHeld && (!allowBoundFallback || AgentExecutionService.backupMaintenance)) {
             session.complete(AgentRuntimeWire.RunResult(
                 runId = request.runId, ok = false, content = "",
-                error = "无法启动后台执行服务，请返回 Eta 后重试",
+                error = "无法启动后台执行服务，请返回 浑仪 后重试",
             )) {}
             return
         }
@@ -963,7 +963,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            title = "Eta Agent Orb"
+            title = "Armilla Agent Orb"
             // 右侧中下，贴近右边缘
             gravity = Gravity.END or Gravity.TOP
             x = dpToPx(8)
@@ -982,7 +982,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            title = "Eta Agent Controls"
+            title = "Armilla Agent Controls"
             // 跟随光球：右侧中下，窗口外触摸穿透
             gravity = Gravity.END or Gravity.TOP
             x = dpToPx(72)
@@ -1001,7 +1001,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            title = "Eta Agent Result"
+            title = "Armilla Agent Result"
             // 半屏底部居中，窗口外触摸穿透
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             x = 0

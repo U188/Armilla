@@ -3,7 +3,7 @@ package io.github.mangi.eta.agent.terminal
 import android.content.Context
 import java.io.File
 
-/** Eta 管理的 Linux 工具环境路径；内部历史包名不参与对外展示。 */
+/** 浑仪 管理的 Linux 工具环境路径；内部历史包名不参与对外展示。 */
 internal object AlpineEnvironmentPaths {
     const val READY_MARKER = LinuxEnvironmentPaths.READY_MARKER
     const val COMMON_TOOLS_MARKER = ".eta-common-tools-ready"

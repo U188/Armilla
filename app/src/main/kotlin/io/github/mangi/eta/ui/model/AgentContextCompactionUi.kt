@@ -84,7 +84,7 @@ internal object AgentContextCompactionUi {
             originalHistory.zip(compressedHistory).all { (before, after) ->
                 before == after || (before.role == "tool" && after.role == "tool" &&
                     before.copy(content = after.content) == after &&
-                    after.content.contains("[Eta tool output pruned;"))
+                    after.content.contains("tool output pruned;"))
             }
     }
 

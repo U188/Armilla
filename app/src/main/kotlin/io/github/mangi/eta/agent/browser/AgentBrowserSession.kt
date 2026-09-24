@@ -85,7 +85,7 @@ internal object AgentBrowserSession {
             BrowserTabPool(app)
         }.also { created ->
             pool = created
-            // Eta historically shares one browser across tool calls and chat sessions.
+            // Armilla historically shares one browser across tool calls and chat sessions.
             created.setSession("eta-shared")
             scope.launch {
                 while (isActive) {

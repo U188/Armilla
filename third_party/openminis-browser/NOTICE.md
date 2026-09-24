@@ -8,7 +8,7 @@ Adapted source is in app/src/main/kotlin/io/github/mangi/eta/agent/browser/porte
 translated resources are in values*/openminis_browser.xml.
 Theme.kt and ChatColors.kt from the same revision are included for browser-scoped
 color, shape, typography and modal design parity.
-Original upstream comments and source attribution retained. Eta-specific adapter code
+Original upstream comments and source attribution retained. Armilla-specific adapter code
 connects this browser to browser_use, paths, cancellation, output limits and UI.
 
 Initially prepared for local use. The repository owner subsequently explicitly

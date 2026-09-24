@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 import org.json.JSONObject
 
-/** Eta Runtime 与小布记忆 Hook 之间的有界内部协议。 */
+/** 浑仪 Runtime 与小布记忆 Hook 之间的有界内部协议。 */
 internal object ColorOsMemoryBridgeProtocol {
     const val PACKAGE_NAME = "com.oplus.aimemory"
     const val PROVIDER_CLASS = "com.oplus.aimemory.provider.DataShareProvider"

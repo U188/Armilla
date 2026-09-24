@@ -9,7 +9,7 @@
 - `packages/compaction/README.md`
 - `docs/subsystems/compaction.md`
 - 对照重点：请求前压力检查、工具配对边界、工具结果修剪、实际缩减后才重试、低优先级摘要检查点、开始/结束与失败记录、选中范围提交校验。
-- 本实现为适配 Eta 的 Kotlin 实现，并非移植整套 TS Harness。运行中手动压缩遵循 Eta 的工具批次边界，不复制上游的空闲会话维护接口。
+- 本实现为适配 浑仪 的 Kotlin 实现，并非移植整套 TS Harness。运行中手动压缩遵循 浑仪 的工具批次边界，不复制上游的空闲会话维护接口。
 
 ## 已落到源码
 

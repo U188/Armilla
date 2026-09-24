@@ -22,7 +22,7 @@ internal data class ConversationArchiveAttachment(
     val sha256: String,
 )
 
-/** Only structured attachment fields, Eta's file-reference block and parsed Markdown destinations. */
+/** Only structured attachment fields, Armilla's file-reference block and parsed Markdown destinations. */
 internal object ConversationArchiveMedia {
     data class Prepared(val document: EtaConversationExport, val files: Map<String, File>)
 

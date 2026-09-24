@@ -1,4 +1,4 @@
-name: Eta Build
+name: Armilla Build
 
 on:
   push:

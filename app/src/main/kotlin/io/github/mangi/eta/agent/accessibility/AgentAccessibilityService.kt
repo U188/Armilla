@@ -979,7 +979,7 @@ open class AgentAccessibilityService : AccessibilityService() {
         }
         val screenBounds = Rect(0, 0, screenW, screenH)
 
-        // 只过滤能确认属于 Eta 的无障碍 overlay；第三方 overlay 必须保留，
+        // 只过滤能确认属于 浑仪 的无障碍 overlay；第三方 overlay 必须保留，
         // 否则截图与实际接收坐标手势的窗口会不一致。
         val windowPackages = allWindows.associate { window ->
             window.id to window.root?.packageName?.toString()
@@ -1101,7 +1101,7 @@ open class AgentAccessibilityService : AccessibilityService() {
                 latch.countDown()
             }
         }
-        // 窗口 ID 已固定并全部提交后即可显示 Eta；后续合并和编码不会再把入口浮层拍进去。
+        // 窗口 ID 已固定并全部提交后即可显示 浑仪；后续合并和编码不会再把入口浮层拍进去。
         signalWindowsSubmitted()
         val completed = try {
             latch.await(2, TimeUnit.SECONDS)

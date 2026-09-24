@@ -353,7 +353,7 @@ class BrowserUseManager(
                 view: WebView,
                 request: WebResourceRequest,
             ): Boolean {
-                // Eta does not automatically open external Google auth or other apps.
+                // Armilla does not automatically open external Google auth or other apps.
                 return io.github.mangi.eta.agent.browser.ported.ui.browser.BrowserExternalSchemeHandler
                     .handle(
                         view.context,

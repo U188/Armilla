@@ -42,15 +42,15 @@ private object ProviderRequestInterceptor : Interceptor {
         val original = chain.request()
         val builder = original.newBuilder()
         if (original.header("User-Agent").isNullOrBlank()) {
-            builder.header("User-Agent", "Eta-Android")
+            builder.header("User-Agent", "Armilla-Android")
         }
         val host = original.url.host
         if (host == "openrouter.ai" || host.endsWith(".openrouter.ai")) {
             if (original.header("X-Title").isNullOrBlank()) {
-                builder.header("X-Title", "Eta")
+                builder.header("X-Title", "Armilla")
             }
             if (original.header("HTTP-Referer").isNullOrBlank()) {
-                builder.header("HTTP-Referer", "https://github.com/y2485871697/Eta")
+                builder.header("HTTP-Referer", "https://github.com/U188/Armilla")
             }
         }
         return chain.proceed(builder.build())

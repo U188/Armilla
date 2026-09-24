@@ -105,7 +105,7 @@ internal object RuntimeConfigRepository {
     ): AgentModelClient.ModelConfig {
         io.github.mangi.eta.data.model.RemovedProviderPolicy.requireSupported(provider)
         val systemPrompt = assistant?.let {
-            io.github.mangi.eta.data.model.AssistantPrompt.build(it.name, it.prompt)
+            io.github.mangi.eta.data.model.AssistantPrompt.build(it)
         }?.ifBlank { BuiltinProviders.DEFAULT_SYSTEM_PROMPT }
             ?: BuiltinProviders.DEFAULT_SYSTEM_PROMPT
         val sourceType = ProviderSourceRegistry.resolve(provider)

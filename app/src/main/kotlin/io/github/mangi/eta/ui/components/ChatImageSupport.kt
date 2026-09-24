@@ -135,8 +135,8 @@ internal object ChatImageBytes {
 }
 
 internal object ChatImageGallery {
-    private const val IMAGE_DIR = "Pictures/Eta"
-    private const val VIDEO_DIR = "Movies/Eta"
+    private const val IMAGE_DIR = "Pictures/Armilla"
+    private const val VIDEO_DIR = "Movies/Armilla"
 
     fun save(context: Context, bytes: ByteArray, mimeType: String): Uri? {
         if (bytes.isEmpty()) return null
@@ -202,7 +202,7 @@ internal object ChatImageGallery {
 
 internal fun chatVideoFileName(mimeType: String, displayName: String = ""): String {
     val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-    return "Eta-$stamp.${AgentVideoCodec.extensionForMime(mimeType, displayName)}"
+    return "Armilla-$stamp.${AgentVideoCodec.extensionForMime(mimeType, displayName)}"
 }
 
 internal fun markdownImageDestination(content: String, node: ASTNode): String? {
@@ -278,7 +278,7 @@ internal fun chatImageFileExtension(mimeType: String): String = when (mimeType.l
 
 internal fun chatImageFileName(mimeType: String): String {
     val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-    return "Eta-$stamp.${chatImageFileExtension(mimeType)}"
+    return "Armilla-$stamp.${chatImageFileExtension(mimeType)}"
 }
 
 internal fun sniffMimeType(bytes: ByteArray): String {

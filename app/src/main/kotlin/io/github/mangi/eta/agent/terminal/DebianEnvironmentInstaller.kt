@@ -54,7 +54,7 @@ internal sealed interface DebianInstallResult {
     data class Failed(val stage: DebianInstallStage, val code: String? = null, val message: String? = null) : DebianInstallResult
 }
 
-/** 下载固定版本的 Debian glibc rootfs；Android 内核、挂载和会话仍由 Eta 复用。 */
+/** 下载固定版本的 Debian glibc rootfs；Android 内核、挂载和会话仍由 浑仪 复用。 */
 internal class DebianEnvironmentInstaller(
     private val context: Context,
     httpClient: OkHttpClient = VerifiedArtifactDownloader.defaultHttpClient(),

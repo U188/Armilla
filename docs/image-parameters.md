@@ -119,7 +119,7 @@ ZIP 限制压缩/解压总量、单项大小、条目数与图片数，不把服
 
 参考仓库 `lzhhhhc/imagine`，检查提交 `dc6d5bef11aba94323112f5429ffb3d83ac6e341`。
 重点参考 ApiModels、ImageRepository、CreativePresets、NaiNativeClient 的协议组织。
-Eta 独立实现，不移植其 UI、角色工作台、自动重试、合图与缩放裁剪逻辑。
+浑仪 独立实现，不移植其 UI、角色工作台、自动重试、合图与缩放裁剪逻辑。
 参考项目保留放大选项且默认关闭，不能把“有 ensureResolution”说成默认会改图。
 来源说明和 MIT 许可见 `third_party/imagine-reference/`。
 

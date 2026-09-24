@@ -50,7 +50,7 @@ $result"""
                 if (identity.call != call.id || identity.name != call.name) return@identityLoop
                 if (sensitive) { redacted += id; return@identityLoop }
                 // A compacted placeholder is not original evidence; look in the verified archive instead.
-                if (message.content.contains("[Eta tool output pruned;") || message.content.isEmpty()) return@identityLoop
+                if (message.content.contains("tool output pruned;") || message.content.isEmpty()) return@identityLoop
                 val original = Original(call.argumentsJson, message.content, source)
                 val list = candidates.getOrPut(id) { mutableListOf() }
                 if (list.none { it.turn == message.turnId && it.original.arguments == original.arguments && it.original.result == original.result }) {

@@ -35,5 +35,5 @@
 - 分层合并、无进展退出、最大层数退出、最终合并失败不提交、普通输入单次请求。
 
 已执行 git diff --check 和修改文件的词法括号检查；尚未执行 Kotlin 编译、单元测试或实机复测。
-本地基于 feat/tts 的 0bf32e5；保留已交付 TTS 改动，未混入 /workspace/Eta 未提交代码。
+本地基于 feat/tts 的 0bf32e5；保留已交付 TTS 改动，未混入 /workspace/浑仪 未提交代码。
 本次未提交、推送或触发 GitHub Actions，版本号不变。

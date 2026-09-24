@@ -8,7 +8,7 @@ internal object DoubaoAsrProtocol {
     const val URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
     val resources = listOf("volc.seedasr.sauc.duration", "volc.seedasr.sauc.concurrent", "volc.bigasr.sauc.duration", "volc.bigasr.sauc.concurrent")
     fun config(): ByteArray = frame(1, JSONObject()
-        .put("user", JSONObject().put("uid", "daiyu"))
+        .put("user", JSONObject().put("uid", "armilla"))
         .put("audio", JSONObject().put("format", "pcm").put("codec", "raw").put("rate", 16000).put("bits", 16).put("channel", 1))
         .put("request", JSONObject().put("model_name", "bigmodel").put("enable_nonstream", true)
             .put("enable_itn", true).put("enable_punc", true).put("show_utterances", true)

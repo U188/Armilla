@@ -72,7 +72,7 @@ internal object XiaoAiHooks {
         { runnable ->
             Thread(
                 runnable,
-                "Eta-XiaoAiBridge-${bridgeThreadId.incrementAndGet()}",
+                "Armilla-XiaoAiBridge-${bridgeThreadId.incrementAndGet()}",
             ).apply { isDaemon = true }
         },
         ThreadPoolExecutor.AbortPolicy(),

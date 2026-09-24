@@ -1,4 +1,4 @@
-# Eta 发布流程
+# 浑仪 发布流程
 
 ## 配置签名 Secrets
 
@@ -33,7 +33,7 @@ gh secret set ETA_RELEASE_KEY_PASSWORD
 
 - 向 `main` 推送提交
 - 推送 `v*` 标签
-- 在 GitHub 的 `Actions > Eta Build` 中手动运行
+- 在 GitHub 的 `Actions > Armilla Build` 中手动运行
 
 工作流不会创建、修改或发布 GitHub Release。
 
@@ -45,7 +45,7 @@ git tag v2.2.2
 git push origin v2.2.2
 ```
 
-标签推送后，等待 `Eta Build` 工作流完成，然后：
+标签推送后，等待 `Armilla Build` 工作流完成，然后：
 
 1. 从该次工作流的 `Artifacts` 下载 `app-release.apk`。
 2. 在仓库的 `Releases > Draft a new release` 中选择已有标签。

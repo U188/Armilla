@@ -64,7 +64,7 @@ internal object DoubaoSpeech {
 
     fun unidirectionalBody(text: String, speaker: String): String =
         JSONObject()
-            .put("user", JSONObject().put("uid", "daiyu"))
+            .put("user", JSONObject().put("uid", "armilla"))
             .put(
                 "req_params",
                 JSONObject()

@@ -69,11 +69,6 @@ internal object AssistantRepository {
         require(profiles.map { io.github.mangi.eta.data.model.AssistantStorage.id(it.id) }.toSet().size == profiles.size) { "助手 ID 重复" }
     }
 
-    fun systemPrompt(): String {
-        val assistant = if (::applicationContext.isInitialized) active() else defaultProfile()
-        return AssistantPrompt.build(assistant.name, assistant.prompt)
-    }
-
     fun avatarFile(fileName: String?): File? {
         if (!::applicationContext.isInitialized || fileName.isNullOrBlank()) return null
         val file = File(avatarsDirectory(), fileName)
@@ -304,15 +299,19 @@ internal object AssistantRepository {
         createdAt = createdAt,
     )
 
+    /** 旧版内置助手的默认名；升级后统一换成 [AssistantPrompt.DEFAULT_NAME]。 */
+    private val LEGACY_DEFAULT_NAMES = setOf("Eta", "代鱼")
+
     private fun migrateDefaultPrompt(snapshot: Snapshot): Snapshot {
         val profiles = snapshot.profiles.map { profile ->
             if (profile.id != AssistantPrompt.DEFAULT_ID) return@map profile
             var next = profile
+            if (next.name in LEGACY_DEFAULT_NAMES) {
+                next = next.copy(name = AssistantPrompt.DEFAULT_NAME)
+            }
+            // 旧版内置默认文案（非用户内容）会与固定人格重复，清空即可；用户自己写的补充内容保留。
             if (next.prompt == AssistantPrompt.DEFAULT_BODY) {
                 next = next.copy(prompt = "")
-            }
-            if (next.name == "Eta") {
-                next = next.copy(name = AssistantPrompt.DEFAULT_NAME)
             }
             next
         }

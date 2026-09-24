@@ -1,14 +1,15 @@
-# 代鱼
+# 浑仪
 
 **简体中文** | [English](README_EN.md)
 
-<p><a href="https://github.com/y2485871697/Eta/releases"><img src="https://img.shields.io/github/downloads/y2485871697/Eta/total?logo=github&amp;label=%E4%B8%8B%E8%BD%BD%E9%87%8F&amp;color=1677FF" alt="GitHub Releases 累计下载量"></a> <img src="https://img.shields.io/badge/minSdk-34-3DDC84?logo=android&amp;logoColor=white" alt="minSdk 34"> <img src="https://img.shields.io/badge/Kotlin-2.4.10-7F52FF?logo=kotlin&amp;logoColor=white" alt="Kotlin 2.4.10"> <img src="https://img.shields.io/badge/AGP-9.3.2-3DDC84?logo=android&amp;logoColor=white" alt="AGP 9.3.2"> <img src="https://img.shields.io/badge/Assistant%20Integrations-ColorOS%20%26%20HyperOS-1677FF" alt="Assistant integrations for ColorOS and HyperOS"></p>
+<p><img src="https://img.shields.io/badge/minSdk-34-3DDC84?logo=android&amp;logoColor=white" alt="minSdk 34"> <img src="https://img.shields.io/badge/Kotlin-2.4.10-7F52FF?logo=kotlin&amp;logoColor=white" alt="Kotlin 2.4.10"> <img src="https://img.shields.io/badge/AGP-9.3.2-3DDC84?logo=android&amp;logoColor=white" alt="AGP 9.3.2"> <img src="https://img.shields.io/badge/Assistant%20Integrations-ColorOS%20%26%20HyperOS-1677FF" alt="Assistant integrations for ColorOS and HyperOS"></p>
 
 **越过沙盒的 Android 系统级 AI 助手**
+名字取自浑天仪——古代观测天象的仪器，把看不见的运行变成可测、可控的对象。
 
-代鱼不只是聊天框。把你自己的模型接到手机上：它可以调系统 API、看屏幕、跑终端、读写文件，也可以检索通知、日程、相册这些本机信息。同一轮对话里，问清楚和做完事可以连在一起。
+浑仪 不只是聊天框。把你自己的模型接到手机上：它可以调系统 API、看屏幕、跑终端、读写文件，也可以检索通知、日程、相册这些本机信息。同一轮对话里，问清楚和做完事可以连在一起。
 
-它基于 [Eta](https://github.com/Mangi-11/Eta)。上游把 Agent Runtime、系统入口和工具层搭好了；代鱼继续改日常使用：压缩策略、备份还原、打开方式、视觉模型、浏览器和 Linux 环境。模型与服务商由你选，**需要自备 API Key（BYOK）**。
+浑仪 把 Agent Runtime、系统入口和工具层放在一起，并持续打磨日常使用：压缩策略、备份还原、打开方式、视觉模型、浏览器和 Linux 环境。模型与服务商由你选，**需要自备 API Key（BYOK）**。
 
 **它实际能碰到什么**：
 
@@ -16,17 +17,17 @@
 - **屏幕**：无障碍 GUI Agent，点击、滚动、输入；你可以随时停止或接手。
 - **终端**：Android Shell 和 Alpine / Debian Linux，文件、脚本、守护任务都能跑。
 - **本机数据**：通知、相册、日历、短信等；部分来源需要 Root，以及对应 ROM 与应用。
-- **系统入口**：有 LSPosed 时，可接管电源键、小布和超级小爱，从原来的助手入口把任务交给代鱼。
+- **系统入口**：有 LSPosed 时，可接管电源键、小布和超级小爱，从原来的助手入口把任务交给 浑仪。
 
 支持 **Android 14 及以上**。App 本体不限品牌，基础功能不用 Root。Root 和 LSPosed 能再打开系统访问与助手入口，具体取决于授权和 ROM。
 
-[下载 APK](https://github.com/y2485871697/Eta/releases/latest) · [快速开始](#快速开始) · [QQ 群](https://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=QZmmrmSQqSAyI8Mo5NHAMc9l6TejcBrw&authKey=mQrh5avqMDc09GunNdtCmuN5tk9UynOekkjHxfuKPjhN4ELWBMJN5edaYw51UXbQ&noverify=0&group_code=735910197) · [Telegram](https://t.me/+6JhB2iRjjDExYWM1)
+[下载 APK](https://github.com/U188/Armilla/releases/latest) · [快速开始](#快速开始)
 
 ## 界面预览
 
 | GUI Agent | 小布助手 BYOK |
 | :-------: | :-----------: |
-| <img src="docs/Screenshots/demo_gui_agent.gif" width="320" alt="代鱼 GUI Agent 执行演示"> | <img src="docs/Screenshots/demo_tools.gif" width="320" alt="从小布助手入口发起代鱼任务"> |
+| <img src="docs/Screenshots/demo_gui_agent.gif" width="320" alt="浑仪 GUI Agent 执行演示"> | <img src="docs/Screenshots/demo_tools.gif" width="320" alt="从小布助手入口发起 浑仪 任务"> |
 
 更多界面：聊天、设备工具与设置
 
@@ -59,35 +60,35 @@
 
 ### Agent Runtime
 
-Agent Runtime 运行在代鱼 App 内，来自聊天页面和系统助手的请求共用同一个 Agent Loop。模型通过 Tool Calling 选择工具，执行结果回到上下文，再决定下一步。工具调用按 JSON Schema 校验，并在执行前检查权限；Hook 进程只负责入口与结果回传。
+Agent Runtime 运行在 浑仪 App 内，来自聊天页面和系统助手的请求共用同一个 Agent Loop。模型通过 Tool Calling 选择工具，执行结果回到上下文，再决定下一步。工具调用按 JSON Schema 校验，并在执行前检查权限；Hook 进程只负责入口与结果回传。
 
 Runtime 同时管理流式事件、steering、取消和增量 transcript。追加指令在当前 turn 完成后进入下一轮，会话与结果在本机归档；中断后尝试恢复已有记录，不自动重放操作。详细设计见 [Agent Runtime](docs/AGENT_RUNTIME.md)。
 
 ## 为移动设备重新设计的终端
 
-代鱼的终端可以由 Agent 调用，也可以由你直接操作。多个会话各自保留工作目录与环境；简洁模式按命令展示输入输出，PTY 控制台支持 TUI、快捷键与 ANSI 渲染。异步命令和守护任务都可以查看日志、主动停止。
+浑仪 的终端可以由 Agent 调用，也可以由你直接操作。多个会话各自保留工作目录与环境；简洁模式按命令展示输入输出，PTY 控制台支持 TUI、快捷键与 ANSI 渲染。异步命令和守护任务都可以查看日志、主动停止。
 
 - **Linux 环境**：可选 Alpine 或 Debian，普通设备使用 PRoot，Root 设备还可选择 chroot。两种后端独立安装，不自动迁移数据；PRoot 中的模拟 root 不提供 Android 系统权限。
 - **开发工具**：Python、Node.js、SSH、APK 分析与 Kimi Code 按需安装。
 - **文件管理**：私有工作区支持导入、导出；已授权的 Android 目录可共享到 Linux 的 `/workspace/mounts/`，也可在 App 内浏览 Linux 文件。
 
-代鱼本体可以读取项目、修改代码、运行命令并验证结果。如果想在手机上持续进行编程工作，[Kimi Code](https://github.com/MoonshotAI/kimi-code) 的 **Kimi Web** 提供了更适合移动端的 Web UI，可以在浏览器中持续对话、查看代码修改与执行结果，享受完整的 Coding Agent 工作体验，随时随地 Vibe Coding。
+浑仪 本体可以读取项目、修改代码、运行命令并验证结果。如果想在手机上持续进行编程工作，[Kimi Code](https://github.com/MoonshotAI/kimi-code) 的 **Kimi Web** 提供了更适合移动端的 Web UI，可以在浏览器中持续对话、查看代码修改与执行结果，享受完整的 Coding Agent 工作体验，随时随地 Vibe Coding。
 
-在代鱼中安装 Linux、Node.js 与 Kimi Code 后，即可从首页一键启动 Kimi Web，也可以在终端运行 `kimi`。Kimi 使用独立的模型配置与会话，需单独完成登录或配置；离开页面后可返回继续使用，也可从代鱼主动停止。
+在 浑仪 中安装 Linux、Node.js 与 Kimi Code 后，即可从首页一键启动 Kimi Web，也可以在终端运行 `kimi`。Kimi 使用独立的模型配置与会话，需单独完成登录或配置；离开页面后可返回继续使用，也可从 浑仪 主动停止。
 
 ## 模型与 BYOK
 
-使用代鱼的 AI 功能需要自备模型服务的 **API Key**。可添加 OpenAI-compatible、Anthropic Messages 等自定义服务，也可拉取或手动添加模型。没有内置提供商，密钥和配置都在你自己的备份里。
+使用 浑仪 的 AI 功能需要自备模型服务的 **API Key**。可添加 OpenAI-compatible、Anthropic Messages 等自定义服务，也可拉取或手动添加模型。没有内置提供商，密钥和配置都在你自己的备份里。
 
 Provider 层支持 OpenAI-compatible Chat Completions、Responses API 和 Anthropic Messages，包括 SSE、Tool Calling、图片输入、视频封面帧与推理内容。你可以自定义服务地址、请求头和请求体，调整上下文长度与思考档位。视觉能力按模型 ID 自动判断，也可以在编辑模型时手动覆盖；文本模型默认不发图。
 
-提供商配置中的“自定义请求头”默认折叠，可添加、编辑和删除名称/值，保存后用于模型列表与对话请求；“测试连接”会使用尚未保存的配置。支持覆盖 `User-Agent`，认证和传输请求头仍由代鱼管理。连接 OpenCode 官方端点时，代鱼自动发送每段对话稳定的 `x-opencode-session`，无需手动填写；默认客户端标识仍为 `Eta`。
+提供商配置中的“自定义请求头”默认折叠，可添加、编辑和删除名称/值，保存后用于模型列表与对话请求；“测试连接”会使用尚未保存的配置。支持覆盖 `User-Agent`，认证和传输请求头仍由 浑仪 管理。连接 OpenCode 官方端点时，浑仪 自动发送每段对话稳定的 `x-opencode-session`，无需手动填写；默认客户端标识为 `浑仪-Android`。
 
 ## 系统助手入口
 
-- **长按电源键**：选择唤起系统默认助手、Gemini 或代鱼。
-- **代鱼系统助手**：从电源键入口打开代鱼文字对话面板，支持屏幕上下文与连续追问。
-- **小布 / 超级小爱接管**：保留厂商助手的电源键入口，将请求交给代鱼，使用自己配置的模型。
+- **长按电源键**：选择唤起系统默认助手、Gemini 或 浑仪。
+- **浑仪 系统助手**：从电源键入口打开 浑仪 文字对话面板，支持屏幕上下文与连续追问。
+- **小布 / 超级小爱接管**：保留厂商助手的电源键入口，将请求交给 浑仪，使用自己配置的模型。
 
 电源键接管需要 LSPosed 与对应系统支持。
 
@@ -109,7 +110,7 @@ Provider 层支持 OpenAI-compatible Chat Completions、Responses API 和 Anthro
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/y2485871697/Eta/releases/latest) 下载 APK，安装后在“模型提供商”中填写 API Key 并选择模型。执行任务需要 Tool Calling，理解图片还需模型支持图片输入。
+1. 从 [Releases](https://github.com/U188/Armilla/releases/latest) 下载 APK，安装后在“模型提供商”中填写 API Key 并选择模型。执行任务需要 Tool Calling，理解图片还需模型支持图片输入。
 2. 按任务需要配置工具开关与权限：GUI Agent 需要无障碍服务；通知、应用使用情况分别授权；位置工具需要“始终允许”。工具页可查看当前设备的可用能力。
 3. 开始对话。需要 Linux 时，在“Linux 工具环境”中安装发行版、基础工具及所需开发工具；需要系统入口时，参见[系统助手入口](#系统助手入口)。
 
@@ -118,54 +119,6 @@ Provider 层支持 OpenAI-compatible Chat Completions、Responses API 和 Anthro
 - **LSPosed 与适配 ROM**：开放厂商助手接管、系统快捷入口及 Google 能力增强；部分功能另需 Root。
 
 联系人、短信、日历等专用检索目前仍需要 Root。完整条件与验证范围见[设备支持说明](docs/ROOTLESS_SUPPORT.md)。
-
-## 关于上游
-
-代鱼是 [Eta](https://github.com/Mangi-11/Eta) 的衍生版本。下面这篇是上游作者写的设计说明，解释 Eta 为什么做成现在这样；不是代鱼自己的产品故事。
-
-### 从不好用的手机助手开始
-
-做 Eta 的起点很直接：我觉得很多手机厂商的 AI 助手不好用。回答不够准确，稍复杂的需求就需要自己接着操作。我最早想解决的只是屏幕问答：刷到一个陌生概念，就在当前屏幕上问清楚，让模型结合内容搜索、解释，省去复制文字、切换应用和重新描述背景的过程。
-
-这样的体验很依赖模型能力。模型迭代很快，我希望手机助手也能及时用上更好的模型。因此，我把自选模型作为 Eta 的基础能力，让用户保留熟悉的手机入口，用自己选择的模型问答和执行任务。
-
-### 桌面 Agent 百花齐放，手机 AI 却处处碰壁
-
-桌面端有完整的 Shell 环境、成熟的命令行工具和开放的文件系统。模型在用户权限范围内，可以读写文件、安装依赖、执行程序，把现有工具组合起来完成各种任务。这给了 Agent 充分的发挥空间，也是 Coding Agent 能在桌面端百花齐放的重要原因。
-
-Android 虽然也有 Shell，但普通 App 能访问的目录、系统能力和执行环境都受到较多限制。补上一套 Linux 环境可以解决命令与依赖，手机里的应用和数据却仍然隔着一道墙。许多服务封闭在各自的 App 中，没有供 Agent 直接调用的接口，系统助手也很难把它们串起来。
-
-这也是我对手机 AI 最不满意的地方。大模型已经迭代了几年，桌面端的工作方式不断变化，手机上的很多 AI 体验却依然停留在问答、摘要和几个预设场景里。功能越来越多，真正改变使用方式的产品却不多；一到跨应用、跨服务的任务，用户还是要自己接着做。
-
-豆包手机助手让我看到了不同的可能。它以豆包 App 为基础，与手机厂商在操作系统层面合作，让 AI 理解屏幕并执行跨应用任务。但这样的尝试很快碰到了生态边界：2025 年 12 月，部分用户遇到微信异常退出和登录限制，豆包随后下线了操作微信的能力；同期还有淘宝人机验证、银行 App 要求关闭屏幕共享的反馈。微信方面当时表示，可能触发了原有安全风控。
-
-同月，豆包还宣布限制刷激励、金融应用和部分游戏场景。在我看来，这些事件说明，即使拿到系统级权限，也很难独自打通应用生态。App 将账号、数据、服务和交易留在自己的闭环里，手机厂商也有各自的设备与服务生态。Agent 改变了用户入口和服务分发方式，接口能否开放，同时涉及技术、安全和商业选择。
-
-我能理解手机厂商在商业合作和生态之间的顾虑，但这不该成为 AI 助手不好用的借口。跨应用能力暂时受限，至少也应该提供一个理解到位、回答可靠的模型，或者让用户接入自己选择的模型。
-
-### 把 Agent 装进手机之后
-
-把 OpenClaw（“龙虾”）或桌面 Coding Agent 搬进手机的 Linux 环境，可以让它继续处理文件、运行脚本。但如果接不到手机的系统能力和个人上下文，它仍是一只困在沙盒里的龙虾。运行环境迁移之后，手机上的应用、数据和系统入口仍要逐一接通。
-
-我既是第三方开发者，也是 Android 玩机用户，没有预装合作和自有生态的商业包袱，所以愿意在系统适配上做得更激进一些，尽可能把手机已有的能力开放给用户自己选择的模型。
-
-Eta 在这一层做适配：通过 Xposed 接管小布、超级小爱和电源键入口，直接调用 Android 系统 API，并检索小布记忆、便签、录音摘要等已适配的数据源。Shell 与 Linux 提供计算环境，GUI Agent 覆盖缺少接口的应用操作。这些能力共用同一套 Agent Runtime，让模型既能了解手机上的事情，也有工具把事情做下去。
-
-我也不认为每件事都值得交给 AI。几次点击就能完成的操作，如果要多花时间、支付调用费用，还得盯着模型纠错，我宁愿自己动手。我更期待它帮我处理需要结合本机信息、跨应用重复操作，或不方便手动完成的任务。手机 Agent 的价值取决于对系统能力、本机数据和移动交互的理解与适配，功能数量本身不足以说明产品是否好用。
-
-### 对 AI 手机与 Agentic OS 的展望
-
-> 以下是长期愿景，部分能力尚未实现。
-
-GUI 是为人设计的，通过层层菜单把模糊需求变成具体操作。对模型而言，直接调用 API、CLI、MCP 等接口更友好，能减少截图、控件识别和页面变化带来的开销与错误。GUI Agent 用来补齐没有开放接口的场景。
-
-我期待的 Agentic OS 中，操作系统会成为用户表达需求的第一入口。用户说出目标，系统结合当前情境理解意图，通过 Agent Runtime 选择模型、调用工具、检查结果。过去由用户在不同应用和菜单之间串起的步骤，可以交给系统组织。
-
-App 在其中的角色也会改变：它们继续提供专业功能和服务，同时成为 Agent 可以调用的资源。一次任务可以组合多个应用的能力，结果由系统统一呈现，用户在需要时进入具体界面查看或接管。这样的变化也涉及入口和服务分发，需要应用生态共同开放。
-
-个人上下文、记忆和任务状态则应随用户跨设备延续。例如，在手机上规划好出行，上车后车机就能理解目的并接续导航，无需重新交代背景。手机、电脑、汽车和眼镜可以共享同一个个人 Agent 的记忆，利用各自的感知与执行能力协作。语音、视觉和动作进一步拓展交互方式，让设备在合适的时机主动响应，逐步把 Agent 的能力延伸到物理世界。
-
-Eta 先从现有 Android 上的模型、上下文与工具做起。真正落地到手机上的 Agentic OS，还需要手机厂商、Android 应用开发者、模型服务商与硬件生态共同推进；技术要成熟，接口要开放，各方利益也要协调，完整形态仍然遥遥无期。
 
 ## 深入了解
 
@@ -177,19 +130,15 @@ Eta 先从现有 Android 上的模型、上下文与工具做起。真正落地�
 
 ## 参考与致谢
 
-- [Eta](https://github.com/Mangi-11/Eta)：代鱼基于的上游项目。
 - [Pi Coding Agent](https://github.com/earendil-works/pi)：Agent Runtime 的核心参考，包括 Agent Loop、Tool Calling、steering 与 transcript 状态管理。
 - [OmniBot](https://github.com/omnimind-ai/OmniBot)：Android AI Agent 方向的参考项目。
 - [libxposed API](https://github.com/libxposed/api)：现代 Xposed API。
 - [Miuix](https://github.com/compose-miuix-ui/miuix)：UI 组件库。
 
-## 社区
+## 源码与发版
 
-- QQ 群：[735910197](https://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=QZmmrmSQqSAyI8Mo5NHAMc9l6TejcBrw&authKey=mQrh5avqMDc09GunNdtCmuN5tk9UynOekkjHxfuKPjhN4ELWBMJN5edaYw51UXbQ&noverify=0&group_code=735910197)
-- Telegram：[频道](https://t.me/+6JhB2iRjjDExYWM1)
-- 反馈问题：[GitHub Issues](https://github.com/y2485871697/Eta/issues)
-- 源码与发版：[y2485871697/Eta](https://github.com/y2485871697/Eta)
+- 源码与 Releases：[U188/Armilla](https://github.com/U188/Armilla)
 
 ## 许可证
 
-代鱼与上游 Eta 一样采用 [PolyForm Noncommercial License 1.0.0](LICENSE)。未经[原作者](https://github.com/Mangi-11)书面授权，禁止贩卖、收费代装及其他商业使用。
+本项目采用 [PolyForm Noncommercial License 1.0.0](LICENSE)。禁止贩卖、收费代装及其他商业使用。

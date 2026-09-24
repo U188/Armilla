@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
  * 进程内共享的 Runtime Binder 连接。
  *
  * 活跃调用共享同一连接，最后一个调用结束后短暂保活，以覆盖连续对话和结果确认；
- * 空闲超时后主动解绑，避免入口进程长期拉住 Eta。
+ * 空闲超时后主动解绑，避免入口进程长期拉住 浑仪。
  */
 internal object AgentRuntimeConnection {
     class Lease internal constructor(

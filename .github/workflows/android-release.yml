@@ -37,8 +37,16 @@ jobs:
       - name: 配置 Android SDK 工具
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
-      - name: 安装 Android SDK 37
-        run: sdkmanager --channel=3 "platforms;android-37.0"
+      - name: 接受许可并安装 Android SDK 37
+        run: |
+          set -euo pipefail
+          sdkmanager="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          if [[ -z "$sdkmanager" ]]; then
+            echo "::error::未找到 sdkmanager"
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" --channel=3 "platforms;android-37.0" || true
 
       - name: 还原发布证书
         env:

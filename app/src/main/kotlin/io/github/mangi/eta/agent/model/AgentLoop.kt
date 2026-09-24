@@ -658,6 +658,11 @@ internal class AgentLoop(
     private fun appendPendingChildNotice(): Boolean {
         val notices = runController.drainChildNotices()
         if (notices.isEmpty()) return false
+        // 这些子任务已到终态：解除轮询门禁对它们的限制，避免误伤后续结果取回。
+        notices.forEach { notice ->
+            val id = notice.substringAfter(AgentChildNotice.TASK_ID_PREFIX, "").substringBefore(' ')
+            if (id.isNotBlank()) subAgentPollGuard.release(id)
+        }
         messages.put(
             AgentConversationCodec.userTextMessage(
                 AgentContextCompactor.childNoticeUserContent(AgentChildNotice.merge(notices)),
@@ -667,6 +672,8 @@ internal class AgentLoop(
     }
 
     private fun appendPendingSteeringOrSeal(): Boolean {
+        // 封存前必须先投递已完成的子代理通知，否则它们会被静默丢弃。
+        if (appendPendingChildNotice()) return true
         val supplement = runController.pollSteeringInputOrSeal() ?: return false
         supplementStartsNewBlock = true
         messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))

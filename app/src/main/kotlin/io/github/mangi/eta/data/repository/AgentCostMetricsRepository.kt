@@ -139,6 +139,26 @@ object AgentCostMetricsRepository {
         return AgentCostMetricsSnapshot(rows.sortedWith(rowOrder))
     }
 
+    private val asyncWriter: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "agent-cost-metrics").apply { isDaemon = true }
+        }
+
+    /**
+     * 关键路径（watchdog 线程、子代理 worker、取消路径）专用：绝不阻塞调用线程。
+     * 度量写入是旁路观测，慢一点没关系，但绝不能顺延心跳、租约续期或任务启动。
+     */
+    fun recordAsync(
+        conversationId: String,
+        scope: String,
+        atMillis: Long,
+        kind: AgentCostMetricKind,
+        amount: Int = 1,
+    ) {
+        if (amount <= 0) return
+        runCatching { asyncWriter.execute { record(conversationId, scope, atMillis, kind, amount) } }
+    }
+
     private fun scopeRank(scope: String): Int = if (scope == SCOPE_PARENT) 0 else 1
 }
 

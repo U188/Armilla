@@ -25,12 +25,14 @@ internal data class SubAgentCompletion(
 internal object SubAgentReport {
     const val LIMIT = 16_000
     private const val HEAD_CHARS = 9_600
-    private const val OMITTED_MARKER = "\n[结果中段已省略；需要完整正文时用 get_task_result 按 task_id 取回]\n"
+    private const val OMITTED_MARKER = "\n[结果中段已省略，仅保留开头与结尾]\n"
 
+    /** 保头 + 保尾，且标记计入总预算，保证输出不超过 [LIMIT]。 */
     fun truncate(text: String): String {
         if (text.length <= LIMIT) return text
+        val tailChars = (LIMIT - HEAD_CHARS - OMITTED_MARKER.length).coerceAtLeast(1)
         val head = text.substring(0, HEAD_CHARS)
-        val tail = text.substring(text.length - (LIMIT - HEAD_CHARS))
+        val tail = text.substring(text.length - tailChars)
         return head + OMITTED_MARKER + tail
     }
 }

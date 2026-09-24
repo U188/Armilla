@@ -216,9 +216,10 @@ internal class AgentRuntimeRunExecutor(
                 }
             } else emptyList()
             val childModels = configuredChildren.map { it.second }
-            // 阶段 0 度量基线：只加计数，绝不影响运行行为或调度决策。
+            // 阶段 0 度量基线：旁路观测，只加计数，绝不影响运行行为或调度决策；
+            // 用 recordAsync 保证 watchdog / worker / 取消路径都不会被磁盘写入阻塞。
             fun recordCost(scope: String, kind: AgentCostMetricKind, amount: Int = 1) {
-                AgentCostMetricsRepository.record(
+                AgentCostMetricsRepository.recordAsync(
                     conversationId = request.effectiveModelSessionId,
                     scope = scope,
                     atMillis = System.currentTimeMillis(),

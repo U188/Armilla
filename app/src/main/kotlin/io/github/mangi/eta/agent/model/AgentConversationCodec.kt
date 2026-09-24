@@ -26,8 +26,7 @@ internal object AgentConversationCodec {
     internal const val VIDEO_FILE_TYPE = "video_file"
     private const val SENSITIVE_TOOL_OMITTED_TEXT =
         "[敏感工具参数与原始结果仅供当前回合使用，未写入持久会话]"
-    private const val CHILD_NOTICE_OMITTED_TEXT =
-        "[子代理完成通知只对当前运行期的模型可见，未写入持久会话或跨进程历史]"
+
     private const val COMPACTION_NOTICE =
         "[浑仪 上下文提示：此前部分 assistant/tool 记录因跨进程或持久化容量上限已压缩，请勿假定缺失步骤未执行。]"
 
@@ -328,12 +327,14 @@ internal object AgentConversationCodec {
     ): List<AgentModelClient.ConversationMessage> =
         buildList {
             for (index in startIndex until messages.length()) {
-                messages.optJSONObject(index)
-                    ?.let { redactChildNotice(it) }
-                    ?.let { redactSensitiveToolData(it, sensitiveToolCallIds) }
-                    ?.let(::fromJsonObject)
-                    ?.let(::sanitizeMessage)
-                    ?.let(::add)
+                val source = messages.optJSONObject(index) ?: continue
+                // 直接剔除通知而不是替换成占位文本：任何占位消息都会被持久化并再次回传模型，
+                // 既污染会话历史，也会在后续运行里被当成用户轮次计数。
+                if (isChildNotice(source)) continue
+                redactSensitiveToolData(source, sensitiveToolCallIds)
+                    .let(::fromJsonObject)
+                    .let(::sanitizeMessage)
+                    .let(::add)
             }
         }
 
@@ -341,7 +342,10 @@ internal object AgentConversationCodec {
         messages: List<AgentModelClient.ConversationMessage>,
         sensitiveToolCallIds: Set<String>,
     ): List<AgentModelClient.ConversationMessage> {
-        if (sensitiveToolCallIds.isEmpty()) return messages
+        // 没有敏感工具标记时也必须剔除通知，因此这里不能早退。
+        if (sensitiveToolCallIds.isEmpty()) {
+            return messages.filterNot(AgentContextCompactor::isChildNoticeUserMessage)
+        }
         return transcript(
             JSONArray().also { array -> messages.forEach { array.put(toJsonObject(it)) } },
             0,
@@ -350,15 +354,13 @@ internal object AgentConversationCodec {
     }
 
     /**
-     * 子代理完成通知是运行时投递的临时 user 消息：它能到模型，但绝不能进入
-     * transcript 的外流路径（IPC 历史传输、异常回传、压缩存档前缀）。
-     * 与 sensitiveToolCallIds 无关，因此不受其空判断的早退影响。
+     * 子代理完成通知是运行时投递的临时 user 消息：它能到模型，但**绝不**进入
+     * 持久会话、IPC 历史、异常回传或压缩存档。判定与 sensitiveToolCallIds 无关。
      */
-    private fun redactChildNotice(source: JSONObject): JSONObject {
-        if (!source.optString("role").equals("user", ignoreCase = true)) return source
-        val content = source.opt("content") as? String ?: return source
-        if (!content.trimStart().startsWith(AgentContextCompactor.CHILD_NOTICE_USER_PREFIX)) return source
-        return JSONObject(source.toString()).put("content", CHILD_NOTICE_OMITTED_TEXT)
+    private fun isChildNotice(source: JSONObject): Boolean {
+        if (!source.optString("role").equals("user", ignoreCase = true)) return false
+        val content = source.opt("content") as? String ?: return false
+        return content.trimStart().startsWith(AgentContextCompactor.CHILD_NOTICE_USER_PREFIX)
     }
 
     private fun redactSensitiveToolData(

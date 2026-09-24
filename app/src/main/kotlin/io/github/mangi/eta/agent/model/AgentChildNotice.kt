@@ -9,6 +9,8 @@ package io.github.mangi.eta.agent.model
 internal object AgentChildNotice {
     const val BUDGET_CHARS = 8_000
     private const val MORE_HINT = "[还有 %d 条子任务通知未注入；需要时用 get_task_result 按 task_id 取回]"
+    /** 通知文本的任务标识前缀；注入侧据此解除对应任务的轮询限制。 */
+    const val TASK_ID_PREFIX = "task_id="
 
     fun merge(notices: List<String>): String {
         val kept = mutableListOf<String>()

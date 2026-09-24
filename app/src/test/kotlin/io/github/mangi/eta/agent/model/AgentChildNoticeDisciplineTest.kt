@@ -42,18 +42,19 @@ class AgentChildNoticeDisciplineTest {
             .put(JSONObject().put("role", "user").put("content", "普通用户消息"))
             .put(JSONObject().put("role", "assistant").put("content", "reply"))
 
-        // 关键：sensitiveToolCallIds 为空也必须脱敏。通知的临时性不依赖工具敏感标记，
-        // 因此不能落在 redactSensitiveToolData 的空集早退里。
+        // 关键：sensitiveToolCallIds 为空也必须剔除通知。通知的临时性不依赖工具敏感标记，
+        // 因此不能落在早退分支里；而且必须整条剔除，不能替换成占位文本（占位消息会被持久化并回传模型）。
         val transcript = AgentConversationCodec.transcript(messages, 0, emptySet())
         val encoded = transcript.joinToString { it.content }
         assertFalse(encoded.contains("子代理敏感正文"))
-        assertTrue(encoded.contains("未写入持久会话或跨进程历史"))
+        assertEquals(2, transcript.size)
+        assertFalse(transcript.any { it.content.contains(AgentContextCompactor.CHILD_NOTICE_USER_PREFIX) })
         assertTrue(transcript.any { it.content == "普通用户消息" })
 
-        // 压缩存档前缀走同一条路径（redactSensitiveMessages -> transcript）。
+        // 压缩存档前缀走同一条路径（redactSensitiveMessages），空敏感集时也必须剔除。
         val durablePrefix = AgentConversationCodec.redactSensitiveMessages(
             listOf(AgentModelClient.ConversationMessage("user", notice(body))), emptySet())
-        assertFalse(durablePrefix.first().content.contains("子代理敏感正文"))
+        assertTrue(durablePrefix.isEmpty())
     }
 
     @Test

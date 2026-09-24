@@ -182,7 +182,13 @@ internal class SubAgentCoordinator(
                 var ownsWorkspaceLease = false
                 try {
                     task.watchdog = timer.scheduleAtFixedRate({
-                        val expired = synchronized(task) { if (task.state in setOf("running", "awaiting_decision") && !task.finalizing) task.clock.expired() else null }
+                        val expired = synchronized(task) {
+                            if (task.finalizing || task.state !in setOf("running", "awaiting_decision")) null
+                            // 续跑预算耗尽时，即便执行时钟已暂停也必须终止；
+                            // 否则任务会永远停在 awaiting_decision，而 continue_task 又永远被拒。
+                            else if (task.state == "awaiting_decision" && continuationExhausted(task)) CONTINUATION_LIMIT_CODE
+                            else task.clock.expired()
+                        }
                         if (expired != null) {
                             if (allowTimeoutContinuation && role !in setOf("image_generation", "video_generation") &&
                                 expired == "SUB_AGENT_TIMEOUT" && !continuationExhausted(task)) {

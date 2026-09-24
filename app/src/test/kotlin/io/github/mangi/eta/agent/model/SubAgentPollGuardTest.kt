@@ -30,7 +30,7 @@ class SubAgentPollGuardTest {
         assertNotNull(rejection)
         assertEquals(SubAgentPollGuard.CODE, rejection!!.code)
         assertEquals(50_000L, rejection.nextPollAfterMs)
-        assertTrue(rejection.message.contains("50_000"))
+        assertTrue(rejection.message.contains(rejection.nextPollAfterMs.toString()))
         // 被拒一次后所需间隔升到下一档（1 分钟 -> 2 分钟）；放行本身不重置档位。
         clock = 130_000
         assertNull(guard.reject(call("t1")))

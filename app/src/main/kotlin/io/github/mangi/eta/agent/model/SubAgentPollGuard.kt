@@ -16,10 +16,11 @@ import org.json.JSONObject
  * - **不做长阻塞**：不改变 `wait_ms ≤ 10000` 的既有上限。这是与参考文章的刻意偏离：
  *   手机端不能让用户等待 16 分钟。
  *
- * 可用性开关：`Prefs` 的 `agent_subagent_poll_guard`（默认开启，设为 `false` 整体回退为纯轮询）。
+ * 可用性开关：`Prefs` 的 `agent_subagent_poll_guard`。**默认关闭**（B 类能力），
+ * 需在子代理设置页显式开启；阶段 0 的度量数据显示轮询确实频繁时才值得打开。
  */
 internal class SubAgentPollGuard(
-    private val enabled: Boolean = true,
+    private val enabled: Boolean = false,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private class Entry(
@@ -99,17 +100,24 @@ internal class SubAgentPollGuard(
             "或改为继续做其它工作；子任务完成时会主动通知，不需要空转查询。" +
             "终态任务与不带 task_id 的列表查询不受此限制。"
 
+    /** 任务进入终态时解除限制：门禁只约束仍在运行的子任务，绝不阻断结果取回。 */
+    fun release(taskId: String) {
+        if (taskId.isNotBlank()) entries.remove(taskId)
+    }
+
     companion object {
         const val TOOL = "get_task_result"
         const val CODE = "POLLING_TOO_FREQUENT"
         const val PREF_KEY = "agent_subagent_poll_guard"
         const val MAX_STRIKES = 3
         const val REMOVE_FOR_MS = 60_000L
-
+        /**
+         * B 类能力：默认关闭，必须在设置页显式开启。
+         * 只有阶段 0 的度量数据显示主代理确实频繁空转查询时才值得打开。
+         */
+        fun enabled(): Boolean =
+            runCatching { Prefs.getString(PREF_KEY, "false") == "true" }.getOrDefault(false)
         /** 1 → 2 → 4 → 8 → 16 分钟，到顶保持。 */
         val LEVELS = longArrayOf(60_000L, 120_000L, 240_000L, 480_000L, 960_000L)
-
-        fun enabled(): Boolean =
-            runCatching { Prefs.getString(PREF_KEY, "true") != "false" }.getOrDefault(true)
     }
 }

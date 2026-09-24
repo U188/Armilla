@@ -30,6 +30,8 @@ import io.github.mangi.eta.agent.delegation.SubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.R
+import io.github.mangi.eta.config.Prefs
+import io.github.mangi.eta.agent.model.SubAgentPollGuard
 import io.github.mangi.eta.ui.components.SubAgentDropdownMenu
 import io.github.mangi.eta.ui.components.SubAgentProfileRow
 import io.github.mangi.eta.ui.components.WithoutPressRipple
@@ -46,6 +48,8 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
     var name by remember { mutableStateOf("") }
     val logging by remember { io.github.mangi.eta.data.datastore.SettingsDataStore.fileLoggingEnabledFlow() }.collectAsState(initial = io.github.mangi.eta.core.AppFileLogger.isEnabled())
     val settingsScope = rememberCoroutineScope()
+    // 轮询退避门禁是 B 类能力：默认关闭，需用户显式开启（阶段 0 数据显示轮询确实频繁时才值得开）。
+    var pollGuard by remember { mutableStateOf(Prefs.getString(SubAgentPollGuard.PREF_KEY, "false") == "true") }
     val view = LocalView.current
     // Material widgets use their own ripple provider, separate from foundation LocalIndication.
     CompositionLocalProvider(LocalRippleConfiguration provides null) {
@@ -88,6 +92,18 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 8.dp))
+                    }
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("轮询退避门禁", style = MaterialTheme.typography.bodyLarge)
+                                Text("开启后，对仍在运行的子任务连续查询会被拒绝并返回建议等待时间；终态任务与列表查询始终放行。默认关闭，只有实测到主代理频繁空转查询时才值得开启。", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Switch(checked = pollGuard, onCheckedChange = { value ->
+                                pollGuard = value
+                                Prefs.putString(SubAgentPollGuard.PREF_KEY, value.toString())
+                            })
+                        }
                     }
                     item {
                         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -37,14 +37,14 @@ class AgentMemoryStoreTest {
     @Test
     fun supportsPagingCaseInsensitiveSearchAndLineMetadata() {
         val store = store()
-        store.replaceAll("# 核心记忆\n喜欢 Kotlin\n## 项目\nEta Agent\n其他")
+        store.replaceAll("# 核心记忆\n喜欢 Kotlin\n## 项目\nArmilla Agent\n其他")
 
         val page = store.read(startLine = 3, maxChars = 20)
         assertEquals(3, page.startLine)
         assertTrue(page.content.startsWith("3: ## 项目"))
         assertTrue(page.hasMore)
 
-        val search = store.read(query = "eta agent", maxChars = 200)
+        val search = store.read(query = "armilla agent", maxChars = 200)
         assertEquals(1, search.matchedLines)
         assertTrue(search.content.contains("4: Armilla Agent"))
         assertTrue(search.content.contains("3: ## 项目"))

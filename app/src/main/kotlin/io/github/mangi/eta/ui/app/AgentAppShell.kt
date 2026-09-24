@@ -42,6 +42,7 @@ import io.github.mangi.eta.ui.navigation.AppRoute
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
@@ -112,9 +113,12 @@ internal fun AgentAppShell(
     val scrollBehavior = MiuixScrollBehavior()
     val backdrop = rememberTopBarBackdrop()
     val topBarColor = topBarContainerColor(backdrop)
+    val appearance = LocalAppearanceSettings.current
     val pageContent: @Composable () -> Unit = {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
+            // 启用背景图时容器透明，让底层背景图透出；否则用主题默认 surface。
+            containerColor = if (appearance.backgroundImageEnabled) Color.Transparent else MiuixTheme.colorScheme.surface,
             contentWindowInsets = WindowInsets.safeDrawing.only(
                 WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
             ),

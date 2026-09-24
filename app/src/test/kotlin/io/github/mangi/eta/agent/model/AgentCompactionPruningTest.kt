@@ -43,7 +43,7 @@ class AgentCompactionPruningTest {
         val cut = AgentCompressionBoundary.selectStart(source, 20_000)
         assertEquals(4, cut)
         val working = AgentContextCompactor.pruneOversizedToolResults(source, archive, cut)
-        assertTrue(working[2].content.contains("[Eta tool output pruned;"))
+        assertTrue(working[2].content.contains("[Armilla tool output pruned;"))
         assertEquals(source.drop(cut), working.drop(cut))
         val result = AgentContextCompactor.compress(working,
             AgentContextCompactor.Config(1, model(), provider {}, archive), keepStartOverride = cut)

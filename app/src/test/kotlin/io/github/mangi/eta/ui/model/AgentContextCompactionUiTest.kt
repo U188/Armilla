@@ -51,7 +51,7 @@ class AgentContextCompactionUiTest {
             AgentModelClient.ConversationMessage("tool", "long tool output", toolCallId = "call"),
         )
         val compressed = original.dropLast(1) + original.last().copy(
-            content = "head [Eta tool output pruned; original: context-checkpoint:test] tail")
+            content = "head [Armilla tool output pruned; original: context-checkpoint:test] tail")
         val updated = AgentContextCompactionUi.applyMarker(
             messages = listOf(UserMessageUi("u", "task")),
             originalHistory = original, compressedHistory = compressed,
@@ -243,7 +243,7 @@ class AgentContextCompactionUiTest {
     fun maintenanceWithOldSummaryDoesNotAnnounceSuccess() {
         val original = listOf(msg("user", "${AgentContextCompactor.SUMMARY_PREFIX_ZH}\nold"),
             msg("tool", "long"))
-        val pruned = original.dropLast(1) + msg("tool", "[Eta tool output pruned; archive]")
+        val pruned = original.dropLast(1) + msg("tool", "[Armilla tool output pruned; archive]")
         assertEquals(0, AgentContextCompactionUi.completedMessageCount(original, pruned))
         assertEquals(0, AgentContextCompactionUi.completedMessageCount(original,
             pruned + msg("tool", "new"), "工具输出预算修剪（原文可回读）"))

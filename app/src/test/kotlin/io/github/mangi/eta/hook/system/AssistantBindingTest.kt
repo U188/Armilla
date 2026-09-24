@@ -21,7 +21,7 @@ class AssistantBindingTest {
     }
 
     @Test
-    fun `Gemini and Eta use their own packages and components`() {
+    fun `Gemini and Armilla use their own packages and components`() {
         val gemini = requireNotNull(assistantBindingFor(PowerAssistantTarget.GEMINI))
         val eta = requireNotNull(assistantBindingFor(PowerAssistantTarget.ETA))
 

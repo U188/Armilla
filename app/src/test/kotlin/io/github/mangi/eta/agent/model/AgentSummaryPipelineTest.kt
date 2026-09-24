@@ -382,7 +382,7 @@ class AgentSummaryPipelineTest {
 ## 关键技术概念
 - compaction
 ## 文件与代码
-- /workspace/Eta
+- /workspace/Armilla
 ## 错误与修复
 - 存档 failed
 ## 待办工作

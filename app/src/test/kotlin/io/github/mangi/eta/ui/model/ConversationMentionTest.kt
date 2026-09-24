@@ -69,16 +69,16 @@ class ConversationMentionTest {
             id = "t",
             toolName = "read_file",
             status = ToolActivityStatusUi.Success,
-            argumentsSummary = "path=/workspace/Eta/README.md",
+            argumentsSummary = "path=/workspace/Armilla/README.md",
             command = "cat README.md",
-            resultSummary = "# Eta",
+            resultSummary = "# Armilla",
             imageCount = 2,
         )))
         assertTrue(text.contains("read_file"))
         assertTrue(text.contains("Success"))
-        assertTrue(text.contains("path=/workspace/Eta/README.md"))
+        assertTrue(text.contains("path=/workspace/Armilla/README.md"))
         assertTrue(text.contains("cat README.md"))
-        assertTrue(text.contains("# Eta"))
+        assertTrue(text.contains("# Armilla"))
         assertTrue(text.contains("Images: 2"))
         assertFalse(text.contains("不含原始参数或结果"))
     }
@@ -93,9 +93,9 @@ class ConversationMentionTest {
                 id = "tool-1",
                 toolName = "read_file",
                 status = ToolActivityStatusUi.Success,
-                argumentsSummary = "path=/workspace/Eta/README.md",
+                argumentsSummary = "path=/workspace/Armilla/README.md",
                 command = "cat README.md",
-                resultSummary = "# Eta",
+                resultSummary = "# Armilla",
             )),
             filesDir = filesDir,
             conversationId = "conv-a",
@@ -104,13 +104,13 @@ class ConversationMentionTest {
         assertTrue(text.contains("conv-a"))
         assertTrue(text.contains("快照缓存/tools"))
         assertTrue(text.contains("read_file"))
-        assertFalse(text.contains("path=/workspace/Eta/README.md"))
+        assertFalse(text.contains("path=/workspace/Armilla/README.md"))
         val file = File(text.substringAfter("Details file: ").substringBefore('\n'))
         assertTrue(file.isFile)
         val details = file.readText()
-        assertTrue(details.contains("path=/workspace/Eta/README.md"))
+        assertTrue(details.contains("path=/workspace/Armilla/README.md"))
         assertTrue(details.contains("cat README.md"))
-        assertTrue(details.contains("# Eta"))
+        assertTrue(details.contains("# Armilla"))
         filesDir.deleteRecursively()
     }
 

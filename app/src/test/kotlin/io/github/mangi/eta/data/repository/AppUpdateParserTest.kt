@@ -6,14 +6,14 @@ import org.junit.Test
 
 class AppUpdateParserTest {
     @Test
-    fun parsesGithubReleaseAndPrefersDaiyuApk() {
+    fun parsesGithubReleaseAndPrefersEtaWfApk() {
         val offer = AppUpdateParser.parseLatestRelease(
             """
             {
               "tag_name":"v5.2.3",
               "name":"5.2.3",
               "body":"bug fixes",
-              "html_url":"https://github.com/y2485871697/Eta/releases/tag/v5.2.3",
+              "html_url":"https://github.com/U188/Armilla/releases/tag/v5.2.3",
               "draft":false,
               "prerelease":false,
               "assets":[
@@ -23,11 +23,11 @@ class AppUpdateParserTest {
                 },
                 {
                   "name":"app-release.apk",
-                  "browser_download_url":"https://github.com/y2485871697/Eta/releases/download/v5.2.3/app-release.apk"
+                  "browser_download_url":"https://github.com/U188/Armilla/releases/download/v5.2.3/app-release.apk"
                 },
                 {
-                  "name":"daiyu-5.2.3.apk",
-                  "browser_download_url":"https://github.com/y2485871697/Eta/releases/download/v5.2.3/daiyu-5.2.3.apk"
+                  "name":"armilla-5.2.3.apk",
+                  "browser_download_url":"https://github.com/U188/Armilla/releases/download/v5.2.3/armilla-5.2.3.apk"
                 }
               ]
             }
@@ -37,9 +37,9 @@ class AppUpdateParserTest {
         assertEquals("5.2.3", offer.versionName)
         assertEquals("v5.2.3", offer.tagName)
         assertEquals("bug fixes", offer.notes)
-        assertEquals("daiyu-5.2.3.apk", offer.apkName)
+        assertEquals("armilla-5.2.3.apk", offer.apkName)
         assertEquals(
-            "https://github.com/y2485871697/Eta/releases/download/v5.2.3/daiyu-5.2.3.apk",
+            "https://github.com/U188/Armilla/releases/download/v5.2.3/armilla-5.2.3.apk",
             offer.apkUrl,
         )
     }

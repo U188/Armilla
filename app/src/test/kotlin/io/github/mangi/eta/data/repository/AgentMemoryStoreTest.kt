@@ -46,7 +46,7 @@ class AgentMemoryStoreTest {
 
         val search = store.read(query = "eta agent", maxChars = 200)
         assertEquals(1, search.matchedLines)
-        assertTrue(search.content.contains("4: Eta Agent"))
+        assertTrue(search.content.contains("4: Armilla Agent"))
         assertTrue(search.content.contains("3: ## 项目"))
         assertTrue(search.content.contains("5: 其他"))
         assertFalse(search.hasMore)

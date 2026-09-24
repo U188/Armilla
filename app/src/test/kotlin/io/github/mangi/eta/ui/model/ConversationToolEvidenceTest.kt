@@ -91,7 +91,7 @@ class ConversationToolEvidenceTest {
     @Test fun prunedHistoryFallsBackToVerifiedSourceArchiveOnly() {
         val message = tool()
         val evidence = ConversationToolEvidence(listOf(message)).apply {
-            add(history("head [Eta tool output pruned; checkpoint] tail"), "history")
+            add(history("head [Armilla tool output pruned; checkpoint] tail"), "history")
         }
         val archive = AgentCompactionArchive(temp.root, "a")
         archive.save(history("original"))

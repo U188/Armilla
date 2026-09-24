@@ -8,7 +8,7 @@ import org.junit.Test
 
 class ToolArgumentsTest {
     @Test fun terminalMissingOrNullFieldsAreNotRevived() {
-        val streamed = """{"task":"edit","role":"implementation","project":"/workspace/Eta","agent_id":"worker-1"}"""
+        val streamed = """{"task":"edit","role":"implementation","project":"/workspace/Armilla","agent_id":"worker-1"}"""
         val terminal = """{"task":"edit"}"""
         assertEquals(terminal, ToolArguments.merge(streamed, terminal))
         val parsedTerminal = JSONObject(ToolArguments.merge(streamed, JSONObject().put("task", "edit")))

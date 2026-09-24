@@ -6,7 +6,7 @@ import org.junit.Test
 class MessageHistorySearchTest {
     private val roles = MessageSearchRoleLabels(
         user = "You",
-        assistant = "Eta",
+        assistant = "Armilla",
         thinking = "Thinking",
         tool = "Tool",
     )

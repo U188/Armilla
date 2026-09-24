@@ -30,7 +30,7 @@ class AgentToolCallValidatorTest {
             )
         )
 
-        assertNull(validator.validate(call("""{"query":"Eta"}""")))
+        assertNull(validator.validate(call("""{"query":"Armilla"}""")))
         assertNull(validator.validate(call("""{"filter":{}}""")))
         assertNotNull(validator.validate(call("{}")))
         assertNotNull(validator.validate(call("""{"query":""}""")))

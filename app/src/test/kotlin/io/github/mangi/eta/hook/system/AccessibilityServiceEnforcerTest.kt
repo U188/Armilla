@@ -50,7 +50,7 @@ class AccessibilityServiceEnforcerTest {
     }
 
     @Test
-    fun `repair removes only Eta and keeps service order`() {
+    fun `repair removes only Armilla and keeps service order`() {
         val existing = "example.reader/.ReaderService:$component:example.switch/.SwitchService"
 
         assertEquals(
@@ -140,7 +140,7 @@ class AccessibilityServiceEnforcerTest {
     }
 
     @Test
-    fun `control accepts only ordered versioned request from Eta uid`() {
+    fun `control accepts only ordered versioned request from Armilla uid`() {
         assertTrue(
             isAccessibilityControlRequestValid(
                 ordered = true,

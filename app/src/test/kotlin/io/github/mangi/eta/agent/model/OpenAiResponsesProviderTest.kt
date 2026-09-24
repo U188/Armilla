@@ -605,12 +605,12 @@ class OpenAiResponsesProviderTest {
         val done = """{"task":"inspect"}"""
         assertEquals(done, toolArgumentsFromStream(done, terminalOutput = false))
         assertEquals("null", toolArgumentsFromStream(JSONObject.NULL, terminalOutput = false))
-        val completeStream = """{"task":"edit","role":"implementation","agent_id":"exec-agent","project":"/workspace/Eta"}"""
+        val completeStream = """{"task":"edit","role":"implementation","agent_id":"exec-agent","project":"/workspace/Armilla"}"""
         assertEquals(completeStream, toolArgumentsFromStream(null, terminalOutput = false))
     }
 
     private fun toolArgumentsFromStream(arguments: Any?, terminalOutput: Boolean): String {
-        val streamed = """{"task":"edit","role":"implementation","agent_id":"exec-agent","project":"/workspace/Eta"}"""
+        val streamed = """{"task":"edit","role":"implementation","agent_id":"exec-agent","project":"/workspace/Armilla"}"""
         fun item(): JSONObject = JSONObject().put("id", "fc_role").put("type", "function_call")
             .put("call_id", "call_role").put("name", "delegate_task")
         val doneItem = item().also { if (arguments != null) it.put("arguments", arguments) }

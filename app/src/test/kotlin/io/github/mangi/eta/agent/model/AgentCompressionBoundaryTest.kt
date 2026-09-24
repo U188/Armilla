@@ -219,7 +219,7 @@ class AgentCompressionBoundaryTest {
             compactionArchive = AgentCompactionArchive(temporary.root, "same-run"),
             compactHistory = { history, _ ->
                 summaries++
-                assertTrue(history[2].content.contains("[Eta tool output pruned;"))
+                assertTrue(history[2].content.contains("[Armilla tool output pruned;"))
                 assertEquals(tail, history.last().content)
                 val cut = AgentCompressionBoundary.selectStart(history, 20_000)
                 assertEquals(3, cut)

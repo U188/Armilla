@@ -455,6 +455,15 @@
 ### 10.3 仍需真机验证
 
 - 通知注入是否会额外增加模型响应轮次（可能反噬收益）——需按 §9 对照度量。
- - 轮询在真实会话中的实际频次：门禁已改为**默认关闭**，只有阶段 0 数据显示轮询确实频繁时才在设置页开启。
+- 轮询在真实会话中的实际频次：门禁已改为**默认关闭**，只有阶段 0 数据显示轮询确实频繁时才在设置页开启。
 - 子任务卡片的视觉与折叠交互需真实界面确认。
 - `delegate_task` 描述瘦身后的实际长度与 prompt 缓存收益。
+
+### 10.4 验证记录（GitHub Actions）
+
+本机没有 Android SDK / JDK 25，无法本地编译，因此验证在 GitHub Actions 上运行临时工作流 `.github/workflows/verify-subagent-cost.yml`（不依赖仓库 Secrets），分支 `feat/sub-agent-cost-optimization`：
+
+- **编译通过**：`compileDebugKotlin` 与 `compileDebugUnitTestKotlin` 均成功，无 unresolved reference。
+- **单元测试**：`2124 tests completed, 1 failed`。
+- 唯一失败是仓库既有、与本改动无关的用例 `AgentMemoryStoreTest.supportsPagingCaseInsensitiveSearchAndLineMetadata`（`AgentMemoryStoreTest.kt:49`）：该测试第 40 行写入 `Eta Agent`，第 49 行却断言 `4: Armilla Agent`，属工作区改名重构未收尾的自相矛盾；本方案未触碰记忆存储。
+- 本方案新增/修改的用例全部通过：`SubAgentCompletionNoticeTest`、`SubAgentPollGuardTest`、`AgentChildNoticeDisciplineTest`、`AgentCostMetricsLedgerTest`、`SubAgentCoordinatorTest`、`SubAgentContinuationTest`、`AgentPromptBuilderTest`、`SubAgentToolsTest`、`AgentSensitiveTranscriptTest` 等。

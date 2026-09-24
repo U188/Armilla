@@ -357,4 +357,36 @@ class AgentRunControllerTest {
         assertTrue(controller.steer("还能追加"))
         assertEquals("还能追加", controller.pollSteeringMessage())
     }
+
+    @Test fun atomicSealDrainsNoticesBeforeSteeringThenSealsAndRejectsLateNotice() {
+        val controller = AgentRunController()
+        // 子代理通知优先于 steering 被带走。
+        assertTrue(controller.enqueueChildNotice("task_id=t1 status=completed 结论A"))
+        assertTrue(controller.steer("补充指令"))
+        val first = controller.drainChildNoticesOrPollSteeringOrSeal()
+        assertTrue(first is AgentRunController.SealOutcome.Notices)
+        assertEquals(listOf("task_id=t1 status=completed 结论A"),
+            (first as AgentRunController.SealOutcome.Notices).notices)
+        // 通知取尽后轮到 steering。
+        val second = controller.drainChildNoticesOrPollSteeringOrSeal()
+        assertTrue(second is AgentRunController.SealOutcome.Steering)
+        assertEquals("补充指令", (second as AgentRunController.SealOutcome.Steering).input.text)
+        // 队列空 -> 封存；封存后迟到的通知/steering 均被拒绝，且不再计数。
+        assertEquals(AgentRunController.SealOutcome.Sealed,
+            controller.drainChildNoticesOrPollSteeringOrSeal())
+        assertFalse(controller.enqueueChildNotice("task_id=t2 status=completed 迟到"))
+        assertFalse(controller.steer("迟到指令"))
+        assertFalse(controller.hasPendingChildNotice)
+    }
+
+    @Test fun atomicSealDoesNotSealWhileCompactionPending() {
+        val controller = AgentRunController()
+        assertTrue(controller.requestCompact())
+        // 有压缩待处理时不封存，交回上层先消费压缩队列。
+        assertEquals(AgentRunController.SealOutcome.PendingCompact,
+            controller.drainChildNoticesOrPollSteeringOrSeal())
+        // 未封存，仍可接收后续补充指令与通知。
+        assertTrue(controller.steer("压缩后仍可追加"))
+        assertTrue(controller.enqueueChildNotice("task_id=t1 status=completed 正文"))
+    }
 }

@@ -38,7 +38,7 @@ internal object AgentFileReferencePolicy {
     ): String = request.ifBlank { references.firstOrNull()?.displayName.orEmpty() }
 }
 
-/** 生成并解析 浑仪 自己写入用户消息的本地路径上下文。 */
+/** 生成并解析 浑天 自己写入用户消息的本地路径上下文。 */
 internal object AgentFileReferencePromptCodec {
     internal const val MAX_ENVELOPE_CHARS = 480_000
     private const val FILES_HEADER = "# Files mentioned by the user:"

@@ -45,8 +45,8 @@ internal class SubAgentCoordinator(
         @Volatile var continuationCount = 0
         @Volatile var continuationStartedAt: Long? = null
         @Volatile var notified = false
-        @Volatile var responseCount = 0
-        @Volatile var compactionCount = 0
+        val responseCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val compactionCount = java.util.concurrent.atomic.AtomicInteger(0)
         @Volatile var finalizing = false
         val queuedAt = System.nanoTime() / 1_000_000
         @Volatile var startedAt: Long? = null
@@ -382,8 +382,8 @@ internal class SubAgentCoordinator(
             is io.github.mangi.eta.agent.runtime.AgentEvent.ToolStarted -> diagnostic(task,"tool_started",more=mapOf("round" to event.round),tool=event.name)
             is io.github.mangi.eta.agent.runtime.AgentEvent.ToolFinished -> diagnostic(task,"tool_finished",more=mapOf("round" to event.round,"tool_ok" to if(event.success==true) 1 else if(event.success==false) 0 else -1),tool=event.name)
             is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted -> diagnostic(task,"compaction_started",more=mapOf("round" to event.round))
-            is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompacted -> { if(event.applied) task.compactionCount++; diagnostic(task,"compaction_finished",more=mapOf("round" to event.round)) }
-            is io.github.mangi.eta.agent.runtime.AgentEvent.UsageReceived -> if(!event.projected) task.responseCount++
+            is io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompacted -> { if(event.applied) task.compactionCount.incrementAndGet(); diagnostic(task,"compaction_finished",more=mapOf("round" to event.round)) }
+            is io.github.mangi.eta.agent.runtime.AgentEvent.UsageReceived -> if(!event.projected) task.responseCount.incrementAndGet()
             else -> Unit
         }
     }
@@ -469,7 +469,7 @@ internal class SubAgentCoordinator(
             task.notified = true
             SubAgentCompletion(task.id, workerIds[task.worker], workerNames[task.worker],
                 task.role, task.state, task.errorCode, task.result, task.workspacePath,
-                responseCount = task.responseCount, compactionCount = task.compactionCount,
+                responseCount = task.responseCount.get(), compactionCount = task.compactionCount.get(),
                 continuationCount = task.continuationCount)
         }
         runCatching { onCompleted(completion) }

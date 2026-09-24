@@ -23,6 +23,18 @@ internal class AgentRunController {
     private val lock = ReentrantLock()
     private val pauseCondition = lock.newCondition()
     data class SteeringInput(val text: String, val imagesJson: String = "[]")
+
+    /** [drainChildNoticesOrPollSteeringOrSeal] 的原子收尾结果。 */
+    sealed interface SealOutcome {
+        /** 本次带走的一批子代理完成通知（合并为一条 user 消息注入）。 */
+        data class Notices(val notices: List<String>) : SealOutcome
+        /** 本次消费的一条 steering 补充指令。 */
+        data class Steering(val input: SteeringInput) : SealOutcome
+        /** 有压缩待处理，未封存；上层应先消费压缩队列再回到本边界重试。 */
+        data object PendingCompact : SealOutcome
+        /** 队列为空，已永久关闭本 run 的接收入口。 */
+        data object Sealed : SealOutcome
+    }
     private val steeringMessages = ArrayDeque<SteeringInput>()
     /**
      * 子代理完成通知的独立送达队列。
@@ -148,8 +160,7 @@ internal class AgentRunController {
     fun pollSteeringInput(): SteeringInput? = lock.withLock { steeringMessages.pollFirst() }
 
     /**
-     * 自然结束前原子地消费最后一条 steering；若队列为空则永久关闭本 run 的接收入口。
-     * 这样 Service 不会在 loop 已返回后仍把补充指令误报为已接收。
+     * 只取当前 steering 队首（不封存），供正文回合结束后逐条注入。
      */
     fun pollSteeringOrSeal(): String? = pollSteeringInputOrSeal()?.text
 
@@ -160,6 +171,31 @@ internal class AgentRunController {
             childNotices.clear()
             acceptingSteering = false
             null
+        }
+
+    /**
+     * 自然结束边界的**原子**收尾：在同一把锁内依次决定注入子代理通知、注入 steering，
+     * 或封存本 run 的接收入口。
+     *
+     * 这解决了「先排空通知、再单独封存」两段加锁之间的竞态：
+     * 若子任务在两步之间完成，[enqueueChildNotice] 会看到 `acceptingSteering` 仍为 true 从而计数成功，
+     * 但紧接着的 `childNotices.clear()` 会把它清掉——通知被计数却从未注入。合并为单次持锁后，
+     * 完成通知要么在本方法取走通知**之前**入队（于是被本次 [SealOutcome.Notices] 带走），
+     * 要么在封存**之后**到达（此时 `acceptingSteering` 已为 false，[enqueueChildNotice] 返回 false 不再计数）。
+     */
+    fun drainChildNoticesOrPollSteeringOrSeal(): SealOutcome =
+        lock.withLock {
+            // 与既有顺序一致：子代理通知优先于 steering。
+            val notices = childNotices.toList()
+            if (notices.isNotEmpty()) {
+                childNotices.clear()
+                return SealOutcome.Notices(notices)
+            }
+            steeringMessages.pollFirst()?.let { return SealOutcome.Steering(it) }
+            // 压缩待处理时不封存：交回上层先消费压缩队列，再回到本边界重试。
+            if (pendingCompact != null) return SealOutcome.PendingCompact
+            acceptingSteering = false
+            SealOutcome.Sealed
         }
 
     val hasPendingSteering: Boolean

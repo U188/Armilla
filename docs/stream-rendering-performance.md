@@ -11,7 +11,7 @@
 
 ## RikkaHub 对照
 
-本地 `/workspace/rikkahub-source` 中 MarkdownBlock 使用后台 mapLatest 解析，ChatList 使用 itemsIndexed 和稳定消息 key。浑仪 已有后台解析、合并与解析会话，区别不只是解析线程；浑仪 还维护工具过程、逐字显现和自动跟底。源码对照不能证明所有设备和会话都同样流畅。
+本地 `/workspace/rikkahub-source` 中 MarkdownBlock 使用后台 mapLatest 解析，ChatList 使用 itemsIndexed 和稳定消息 key。浑天 已有后台解析、合并与解析会话，区别不只是解析线程；浑天 还维护工具过程、逐字显现和自动跟底。源码对照不能证明所有设备和会话都同样流畅。
 
 ## 验证边界
 

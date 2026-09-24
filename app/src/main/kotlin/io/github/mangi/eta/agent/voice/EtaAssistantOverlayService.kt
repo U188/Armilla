@@ -72,7 +72,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.squircle.LocalSquircleEnabled
 
 /**
- * 浑仪 数字助理的用户界面窗口。
+ * 浑天 数字助理的用户界面窗口。
  *
  * 系统助理会话只负责承接电源键入口；这里固定使用全屏 TYPE_APPLICATION_OVERLAY，
  * 让输入法、动画和厂商助手式浮窗拥有同一个窗口生命周期。
@@ -946,7 +946,7 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
         private var activeService: EtaAssistantOverlayService? = null
 
         /**
-         * 浑仪 自己拥有入口浮层，直接关闭并等待具体 View detach；不能按包名猜测，
+         * 浑天 自己拥有入口浮层，直接关闭并等待具体 View detach；不能按包名猜测，
          * 因为入口、Runtime 与结果浮层都属于同一个包。
          */
         fun dismissForForegroundOperation(context: Context): Boolean {

@@ -123,6 +123,74 @@ class EtaBackupRepositoryTest {
         assertEquals(ModelSource.CATALOG, ProviderRepository.providerById(provider.id)?.models?.first()?.source)
     }
 
+    @Test
+    fun selectiveExportSkipsUnselectedCategoriesAndImportLeavesThemUntouched() = runBlocking {
+        val provider = ProviderRepository.addProvider(
+            io.github.mangi.eta.data.model.OpenAiCompatibleProviderSetting(
+                id = "sel-provider",
+                name = "Sel",
+                baseUrl = "https://api.example.com/v1",
+                models = listOf(
+                    io.github.mangi.eta.data.model.Model(
+                        id = "sel-model",
+                        modelId = "model-1",
+                        displayName = "Model 1",
+                        source = ModelSource.CATALOG,
+                    ),
+                ),
+            ),
+        ).withApiKey("sk-sel")
+        ProviderRepository.updateProvider(provider)
+        val conversation = ConversationEntity(
+            id = "conversation-sel",
+            title = "仅对话",
+            thinkingEnabled = true,
+            createdAt = 1L,
+            updatedAt = 2L,
+            providerId = provider.id,
+            modelId = provider.models.first().id,
+        )
+        EtaDatabase.get(context).conversationDao().replaceAll(
+            conversations = listOf(conversation),
+            messages = listOf(
+                ConversationMessageEntity(
+                    id = "message-sel",
+                    conversationId = conversation.id,
+                    sortIndex = 0,
+                    type = "user",
+                    content = "会话内容",
+                ),
+            ),
+            contextCheckpoints = emptyList(),
+            state = ConversationStateEntity(selectedConversationId = conversation.id),
+        )
+        AgentMemoryRepository.replaceAll("# 记忆\n保留我")
+
+        // 只备份对话，不含助手/记忆。
+        val output = ByteArrayOutputStream()
+        val exported = EtaBackupRepository.export(
+            context,
+            output,
+            EtaBackupExportOptions(includeAssistants = false, includeSkills = false, includeMcp = false),
+        )
+        assertEquals(1, exported.conversationCount)
+
+        // 导入前把对话清掉、改掉记忆；导入仅对话的备份后，对话应恢复，记忆不应被触碰。
+        EtaDatabase.get(context).conversationDao().replaceAll(
+            conversations = emptyList(), messages = emptyList(), contextCheckpoints = emptyList(), state = null,
+        )
+        AgentMemoryRepository.replaceAll("# 记忆\n新的记忆不该被覆盖")
+        val memoryBeforeImport = AgentMemoryRepository.snapshot().content
+        EtaBackupRepository.import(context, ByteArrayInputStream(output.toByteArray()))
+
+        assertEquals(
+            "会话内容",
+            EtaDatabase.get(context).conversationDao().messages().single().content,
+        )
+        // 未被备份的助手记忆保持导入前的现值，没有被空集或备份内容覆盖。
+        assertEquals(memoryBeforeImport, AgentMemoryRepository.snapshot().content)
+    }
+
     @Test(expected = EtaBackupException::class)
     fun rejectsUnknownBackupFormatBeforeChangingData(): Unit = runBlocking {
         EtaBackupRepository.inspect(

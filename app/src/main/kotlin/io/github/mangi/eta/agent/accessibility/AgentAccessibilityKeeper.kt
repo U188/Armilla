@@ -6,7 +6,7 @@ import io.github.mangi.eta.EtaApp
 import io.github.mangi.eta.core.AndroidAgentLogger
 
 /**
- * 在 GUI 工具执行前确认 浑仪 无障碍服务已经真实连接。
+ * 在 GUI 工具执行前确认 浑天 无障碍服务已经真实连接。
  *
  * 持久保护、Secure Settings 写入与断连重绑均由 system_server 后端负责。这里不申请
  * Root，也不直接改系统设置；保护关闭或后端不可用时 fail closed。
@@ -54,7 +54,7 @@ object AgentAccessibilityKeeper {
         if (!protectionAvailable() || !protectionEnabled()) {
             return AccessibilityEnableResult.failure(
                 code = "ACCESSIBILITY_UNAVAILABLE",
-                message = "浑仪 无障碍服务未连接；请在系统设置中开启 浑仪 无障碍服务",
+                message = "浑天 无障碍服务未连接；请在系统设置中开启 浑天 无障碍服务",
                 recoveryRequested = false,
             )
         }
@@ -68,7 +68,7 @@ object AgentAccessibilityKeeper {
         if (!awaitServiceBinding()) {
             return AccessibilityEnableResult.failure(
                 code = "ACCESSIBILITY_REPAIR_TIMEOUT",
-                message = "浑仪 无障碍服务未在恢复时限内连接；本次 GUI 操作未执行",
+                message = "浑天 无障碍服务未在恢复时限内连接；本次 GUI 操作未执行",
                 recoveryRequested = true,
             )
         }

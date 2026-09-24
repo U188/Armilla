@@ -39,9 +39,9 @@ object SkillCompatibilityChecker {
             containsAny(haystack, APPLE_RUNTIME) ->
                 SkillCompatibilityResult(available = false, reason = "不支持 Apple 专属运行时")
             containsAny(haystack, MINIS_ANDROID_CLI) ->
-                SkillCompatibilityResult(available = false, reason = "依赖 MiniS 专属 Android CLI，浑仪 无法运行")
+                SkillCompatibilityResult(available = false, reason = "依赖 MiniS 专属 Android CLI，浑天 无法运行")
             containsAny(haystack, MINIS_IOS_RUNTIME) ->
-                SkillCompatibilityResult(available = false, reason = "依赖 MiniS / iSH 的 iOS 沙箱，浑仪 无法运行")
+                SkillCompatibilityResult(available = false, reason = "依赖 MiniS / iSH 的 iOS 沙箱，浑天 无法运行")
             mentionsIosOnly(haystack) ->
                 SkillCompatibilityResult(available = false, reason = "该 Skill 标注为 iOS 专属")
             else -> SkillCompatibilityResult(available = true)

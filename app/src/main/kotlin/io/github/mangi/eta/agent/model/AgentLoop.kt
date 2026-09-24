@@ -658,6 +658,12 @@ internal class AgentLoop(
     private fun appendPendingChildNotice(): Boolean {
         val notices = runController.drainChildNotices()
         if (notices.isEmpty()) return false
+        injectChildNotices(notices)
+        return true
+    }
+
+    /** 将一批子代理完成通知合并为一条 user 消息注入，并解除轮询门禁对它们的限制。 */
+    private fun injectChildNotices(notices: List<String>) {
         // 这些子任务已到终态：解除轮询门禁对它们的限制，避免误伤后续结果取回。
         notices.forEach { notice ->
             val id = notice.substringAfter(AgentChildNotice.TASK_ID_PREFIX, "").substringBefore(' ')
@@ -668,16 +674,32 @@ internal class AgentLoop(
                 AgentContextCompactor.childNoticeUserContent(AgentChildNotice.merge(notices)),
             ).put(AgentTurnIdentity.JSON_KEY, turnId),
         )
-        return true
     }
 
+    /**
+     * 自然结束边界的原子收尾：在 [AgentRunController] 的单次持锁内决定注入子代理通知、
+     * 注入 steering、还是封存。这消除了「先排空通知再单独封存」两段加锁之间的竞态
+     * （通知被计数却被清掉从未注入）。
+     *
+     * @return true 表示注入了通知或 steering，应继续下一轮；false 表示已封存或压缩待处理。
+     */
     private fun appendPendingSteeringOrSeal(): Boolean {
-        // 封存前必须先投递已完成的子代理通知，否则它们会被静默丢弃。
-        if (appendPendingChildNotice()) return true
-        val supplement = runController.pollSteeringInputOrSeal() ?: return false
-        supplementStartsNewBlock = true
-        messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
-        return true
+        return when (val outcome = runController.drainChildNoticesOrPollSteeringOrSeal()) {
+            is AgentRunController.SealOutcome.Notices -> {
+                injectChildNotices(outcome.notices)
+                true
+            }
+            is AgentRunController.SealOutcome.Steering -> {
+                supplementStartsNewBlock = true
+                messages.put(
+                    AgentSupplementMedia.userMessage(steeringPrompt(outcome.input.text), outcome.input.imagesJson)
+                        .put(AgentTurnIdentity.JSON_KEY, turnId),
+                )
+                true
+            }
+            AgentRunController.SealOutcome.PendingCompact -> false
+            AgentRunController.SealOutcome.Sealed -> false
+        }
     }
 
     private fun steeringPrompt(supplement: String): String =

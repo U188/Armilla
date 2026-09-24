@@ -7,7 +7,7 @@ import io.github.mangi.eta.core.ModuleConfig
 import java.util.Locale
 
 /**
- * 目标进程只读 浑仪 的安装包资源。缓存不保存翻译结果，系统语言变化后会重建配置 Context。
+ * 目标进程只读 浑天 的安装包资源。缓存不保存翻译结果，系统语言变化后会重建配置 Context。
  * 任何解析失败都回退英文，不能让资源问题影响厂商助手原有进程。
  */
 internal object EtaInjectedStrings {

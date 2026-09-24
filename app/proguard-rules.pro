@@ -38,7 +38,7 @@
 # 配置 key 是字符串常量并通过静态调用访问，不需要保留类名或成员名。
 
 # ── Release 日志策略 ────────────────────────────────────────────────────────
-# 仅删除 浑仪 自有代码中的 Android VERBOSE/DEBUG 调用；INFO/WARN/ERROR 必须保留，
+# 仅删除 浑天 自有代码中的 Android VERBOSE/DEBUG 调用；INFO/WARN/ERROR 必须保留，
 # 第三方依赖的日志策略由依赖自身决定。
 -maximumremovedandroidloglevel 3 class io.github.mangi.eta.** { *; }
 

@@ -111,7 +111,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * 模块配置界面。
  *
- * 开关默认值由 [Prefs.Keys.BOOLEAN_DEFAULTS] 统一定义。浑仪 Runtime 自己消费的开关写入
+ * 开关默认值由 [Prefs.Keys.BOOLEAN_DEFAULTS] 统一定义。浑天 Runtime 自己消费的开关写入
  * App 本地配置；仅 Hook 消费的开关通过 RemotePreferences 提交到 LSPosed。
  */
 @Composable
@@ -1121,7 +1121,7 @@ private fun isAgentAccessibilityEnabled(context: Context): Boolean {
 }
 
 private fun defaultDiagnosticLogFileName(): String =
-    "浑仪-诊断日志-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}.zip"
+    "浑天-诊断日志-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}.zip"
 
 private fun isEtaAssistantActive(context: Context): Boolean =
     VoiceInteractionService.isActiveService(

@@ -31,7 +31,7 @@ class SubAgentPollGuardTest {
         assertEquals(SubAgentPollGuard.CODE, rejection!!.code)
         assertEquals(50_000L, rejection.nextPollAfterMs)
         assertTrue(rejection.message.contains(rejection.nextPollAfterMs.toString()))
-        // 被拒一次后所需间隔升到下一档（1 分钟 -> 2 分钟）；放行本身不重置档位。
+        // 已到达建议时刻后放行（当前 clock 已越过下一次允许查询的时刻）。
         clock = 130_000
         assertNull(guard.reject(call("t1")))
         // 终态永久放行，并清掉节奏与违规计数。
@@ -69,5 +69,22 @@ class SubAgentPollGuardTest {
         clock = 1
         assertNull(guard.reject(call("t1")))
         assertFalse(guard.suspended)
+    }
+
+    @Test fun callerThatWaitsTheSuggestedDelayIsNeverSuspended() {
+        val guard = guard()
+        guard.observe(call("t1"), result("running"))
+        // 首次窗口 60s。反复「等到建议时刻再查」，绝不应触发连续违规摘除。
+        repeat(SubAgentPollGuard.MAX_STRIKES + 2) {
+            clock += 30_000
+            val rejection = guard.reject(call("t1"))
+            assertNotNull(rejection)
+            // 等满被拒时返回的剩余时间后再查，应被放行。
+            clock += rejection!!.nextPollAfterMs
+            assertNull(guard.reject(call("t1")))
+            // 放行后必须再观察一次真实结果，刷新下一次允许查询的时刻。
+            guard.observe(call("t1"), result("running"))
+            assertFalse(guard.suspended)
+        }
     }
 }

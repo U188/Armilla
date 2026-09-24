@@ -48,7 +48,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** 浑仪用户数据备份。schema 1 只有对话、提供商和记忆；schema 2 补上助手、技能、MCP、设置、附件和可选 Linux 环境。 */
+/** 浑天用户数据备份。schema 1 只有对话、提供商和记忆；schema 2 补上助手、技能、MCP、设置、附件和可选 Linux 环境。 */
 @Serializable
 internal data class EtaBackupDocument(
     val format: String = FORMAT,
@@ -76,6 +76,12 @@ internal data class EtaBackupDocument(
     val attachmentCount: Int = 0,
     val importedFileCount: Int = 0,
     val agentPreferences: Map<String, String> = emptyMap(),
+    // 记录本次备份实际包含哪些内容；导入时只恢复存在的部分，避免用空集覆盖（清空）未选择的类别。
+    // 旧备份没有这些字段，默认全部为 true，保持既有整包恢复语义。
+    val hasConversations: Boolean = true,
+    val hasAssistants: Boolean = true,
+    val hasSkills: Boolean = true,
+    val hasMcp: Boolean = true,
 ) {
     companion object {
         const val FORMAT = "eta-backup"
@@ -123,6 +129,15 @@ internal data class EtaBackupSummary(
 )
 
 internal data class EtaBackupExportOptions(
+    /** 对话、检查点、文件夹与聊天/导入附件。 */
+    val includeConversations: Boolean = true,
+    /** 助手档案、头像与助手记忆。 */
+    val includeAssistants: Boolean = true,
+    /** 用户技能文件与技能注册表。 */
+    val includeSkills: Boolean = true,
+    /** MCP 服务器及其令牌。 */
+    val includeMcp: Boolean = true,
+    /** 完整 Linux 环境（体积大，默认关闭）。 */
     val includeLinuxEnvironment: Boolean = false,
 )
 
@@ -131,6 +146,8 @@ internal class EtaBackupException(message: String, cause: Throwable? = null) :
 
 internal object EtaBackupRepository {
     private val operationMutex = Mutex()
+    /** 分页批大小：足够摊薄单个 CursorWindow 压力，同时不引入过多小批查询开销。 */
+    private const val MESSAGE_PAGE_SIZE = 200
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -166,16 +183,18 @@ internal object EtaBackupRepository {
                     val manifest = json.encodeToString(document)
                     require(manifest.toByteArray().size <= BackupArchiveSafety.MANIFEST_LIMIT) { "备份清单超过大小限制" }
                     writer.text(EtaBackupDocument.MANIFEST_NAME, manifest)
-                    writer.directory("attachments/chat-images/", File(appContext.cacheDir, AgentChatImageCache.CACHE_DIRECTORY))
-                    writer.directory(
-                        "attachments/imports/",
-                        File(TerminalPrivateStorage.workspace(appContext.filesDir), "imports"),
-                    )
-                    writer.directory(
-                        "linux/workspace/",
-                        TerminalPrivateStorage.workspace(appContext.filesDir),
-                        skipNames = setOf("imports", "mounts"),
-                    )
+                    if (options.includeConversations) {
+                        writer.directory("attachments/chat-images/", File(appContext.cacheDir, AgentChatImageCache.CACHE_DIRECTORY))
+                        writer.directory(
+                            "attachments/imports/",
+                            File(TerminalPrivateStorage.workspace(appContext.filesDir), "imports"),
+                        )
+                        writer.directory(
+                            "linux/workspace/",
+                            TerminalPrivateStorage.workspace(appContext.filesDir),
+                            skipNames = setOf("imports", "mounts"),
+                        )
+                    }
                     if (options.includeLinuxEnvironment) {
                         exportLinuxEnvironments(appContext, writer)
                     }
@@ -328,7 +347,7 @@ internal object EtaBackupRepository {
                                 planned.forEach { (target, source) -> journal.replace(target, source) }
                                 if (document != null) {
                                     restoreMetadata(appContext, document)
-                                    rewriteRestoredPaths(appContext, document)
+                                    if (document.hasConversations) rewriteRestoredPaths(appContext, document)
                                 }
                             }
                             if (document?.includeLinuxEnvironment == true) {
@@ -444,36 +463,66 @@ internal object EtaBackupRepository {
         val providers = database.providerDao().providers().map { provider ->
             EtaBackupProvider(provider = provider.provider, models = provider.models)
         }
-        val conversations = database.conversationDao()
+        val conversationsDao = database.conversationDao()
         val settings = SettingsDataStore.backupSnapshot()
-        val mcpServers = database.mcpServerDao().servers()
+        val mcpServers = if (options.includeMcp) database.mcpServerDao().servers() else emptyList()
         val chatImages = File(context.cacheDir, AgentChatImageCache.CACHE_DIRECTORY)
         val imports = File(TerminalPrivateStorage.workspace(context.filesDir), "imports")
+        // 分页读取消息：一次性 SELECT * 会把整批塞进单个 CursorWindow（约 2MB/窗口），
+        // 大会话时会触发 Row too big / NO_MEMORY，导出在写 ZIP 前就崩，只留 0KB 空文件。
+        val conversationEntities = if (options.includeConversations) conversationsDao.conversationEntities() else emptyList()
+        val messages = if (options.includeConversations) readMessagesByConversation(conversationsDao, conversationEntities) else emptyList()
         return EtaBackupDocument(
             exportedAt = System.currentTimeMillis(),
             providers = providers,
             selectedProviderId = settings.selectedProviderId,
             selectedModelId = settings.selectedModelId,
-            conversations = conversations.conversationEntities(),
-            messages = conversations.messages(),
-            contextCheckpoints = conversations.contextCheckpoints(),
-            conversationState = conversations.state(),
-            folders = conversations.folders(),
-            memoryMd = AgentMemoryRepository.snapshot(AssistantPrompt.DEFAULT_ID).content,
-            assistantMemories = AgentMemoryRepository.exportAll(),
-            assistants = if (AssistantRepository.isReady()) AssistantRepository.exportSnapshot() else null,
-            assistantAvatars = if (AssistantRepository.isReady()) encodeFiles(AssistantRepository.exportAvatars()) else emptyMap(),
-            skillRegistry = database.skillDao().registryEntries(),
-            skillFiles = encodeFiles(SkillRuntime.exportUserSkills(context)),
+            conversations = conversationEntities,
+            messages = messages,
+            contextCheckpoints = if (options.includeConversations) conversationsDao.contextCheckpoints() else emptyList(),
+            conversationState = if (options.includeConversations) conversationsDao.state() else null,
+            folders = if (options.includeConversations) conversationsDao.folders() else emptyList(),
+            memoryMd = if (options.includeAssistants) AgentMemoryRepository.snapshot(AssistantPrompt.DEFAULT_ID).content else "",
+            assistantMemories = if (options.includeAssistants) AgentMemoryRepository.exportAll() else emptyMap(),
+            assistants = if (options.includeAssistants && AssistantRepository.isReady()) AssistantRepository.exportSnapshot() else null,
+            assistantAvatars = if (options.includeAssistants && AssistantRepository.isReady()) encodeFiles(AssistantRepository.exportAvatars()) else emptyMap(),
+            skillRegistry = if (options.includeSkills) database.skillDao().registryEntries() else emptyList(),
+            skillFiles = if (options.includeSkills) encodeFiles(SkillRuntime.exportUserSkills(context)) else emptyMap(),
             mcpServers = mcpServers,
-            mcpTokens = McpSecretStore(context).exportTokens(mcpServers.map { it.id }),
+            mcpTokens = if (options.includeMcp) McpSecretStore(context).exportTokens(mcpServers.map { it.id }) else emptyMap(),
             settings = settings,
             includeLinuxEnvironment = options.includeLinuxEnvironment,
-            linuxWorkspaceIncluded = true,
-            attachmentCount = countFiles(chatImages),
-            importedFileCount = countFiles(imports),
+            linuxWorkspaceIncluded = options.includeConversations,
+            attachmentCount = if (options.includeConversations) countFiles(chatImages) else 0,
+            importedFileCount = if (options.includeConversations) countFiles(imports) else 0,
             agentPreferences = Prefs.exportAgentPreferences(),
+            hasConversations = options.includeConversations,
+            hasAssistants = options.includeAssistants,
+            hasSkills = options.includeSkills,
+            hasMcp = options.includeMcp,
         )
+    }
+
+    /**
+     * 逐会话分页读取消息，避免一次 `SELECT *` 把整库消息塞进单个 CursorWindow。
+     * 仍按 (conversation_id, sort_index) 稳定排序，与既有全表查询结果等价。
+     */
+    private suspend fun readMessagesByConversation(
+        dao: io.github.mangi.eta.data.db.ConversationDao,
+        conversations: List<ConversationEntity>,
+    ): List<ConversationMessageEntity> {
+        val all = ArrayList<ConversationMessageEntity>()
+        conversations.sortedBy { it.id }.forEach { conversation ->
+            var offset = 0
+            while (true) {
+                val page = dao.messagesPage(conversation.id, MESSAGE_PAGE_SIZE, offset)
+                if (page.isEmpty()) break
+                all += page
+                if (page.size < MESSAGE_PAGE_SIZE) break
+                offset += page.size
+            }
+        }
+        return all
     }
 
     private suspend fun conversationSnapshot(
@@ -485,7 +534,7 @@ internal object EtaBackupRepository {
         val dao = database.conversationDao()
         val conversation = dao.conversationEntity(conversationId)
             ?: throw EtaBackupException("会话不存在")
-        val messages = dao.messagesForConversation(conversationId)
+        val messages = readMessagesByConversation(dao, listOf(conversation))
         val checkpoint = dao.contextCheckpoint(conversationId)
         return EtaConversationExport(
             exportedAt = System.currentTimeMillis(),
@@ -504,26 +553,31 @@ internal object EtaBackupRepository {
                     ProviderWithModelsSeed(provider = provider.provider, models = provider.models)
                 },
             )
-            database.conversationDao().replaceAll(
-                conversations = document.conversations,
-                messages = document.messages,
-                contextCheckpoints = document.contextCheckpoints,
-                state = document.conversationState,
-            )
-            database.conversationDao().replaceFolders(document.folders)
+            // 只恢复本次备份实际包含的类别；未包含时保持现有数据不动，避免被空集覆盖清空。
+            if (document.hasConversations) {
+                database.conversationDao().replaceAll(
+                    conversations = document.conversations,
+                    messages = document.messages,
+                    contextCheckpoints = document.contextCheckpoints,
+                    state = document.conversationState,
+                )
+                database.conversationDao().replaceFolders(document.folders)
+            }
             if (document.schemaVersion >= 2) {
-                database.mcpServerDao().replaceAll(document.mcpServers)
-                database.skillDao().replaceRegistry(document.skillRegistry)
+                if (document.hasMcp) database.mcpServerDao().replaceAll(document.mcpServers)
+                if (document.hasSkills) database.skillDao().replaceRegistry(document.skillRegistry)
             }
         }
-        AgentMemoryRepository.importAll(document.assistantMemories, document.memoryMd)
+        if (document.hasAssistants) {
+            AgentMemoryRepository.importAll(document.assistantMemories, document.memoryMd)
+        }
         if (document.schemaVersion >= 2) {
-            if (AssistantRepository.isReady()) {
+            if (document.hasAssistants && AssistantRepository.isReady()) {
                 document.assistants?.let(AssistantRepository::importSnapshot)
                 AssistantRepository.importAvatars(decodeFiles(document.assistantAvatars))
             }
-            SkillRuntime.importUserSkills(context, decodeFiles(document.skillFiles))
-            McpSecretStore(context).replaceAll(document.mcpTokens)
+            if (document.hasSkills) SkillRuntime.importUserSkills(context, decodeFiles(document.skillFiles))
+            if (document.hasMcp) McpSecretStore(context).replaceAll(document.mcpTokens)
             document.settings?.let { SettingsDataStore.restoreBackup(it) }
                 ?: SettingsDataStore.setSelection(document.selectedProviderId, document.selectedModelId)
             if (document.agentPreferences.isNotEmpty()) {
@@ -569,7 +623,7 @@ internal object EtaBackupRepository {
             throw EtaBackupException("会话备份文件格式无效", failure)
         }
         if (exported.format != EtaConversationExport.FORMAT) {
-            throw EtaBackupException("这不是 浑仪 会话备份")
+            throw EtaBackupException("这不是 浑天 会话备份")
         }
         require(exported.schemaVersion in 1..EtaConversationExport.SCHEMA_VERSION) { "不支持的会话备份版本" }
         require(exported.messages.all { it.conversationId == exported.conversation.id }) { "会话消息引用无效" }
@@ -585,10 +639,10 @@ internal object EtaBackupRepository {
 
     private fun validate(document: EtaBackupDocument) {
         if (document.format != EtaBackupDocument.FORMAT) {
-            throw EtaBackupException("这不是 浑仪 备份文件")
+            throw EtaBackupException("这不是 浑天 备份文件")
         }
         if (document.schemaVersion !in EtaBackupDocument.MIN_SUPPORTED_SCHEMA..EtaBackupDocument.SCHEMA_VERSION) {
-            throw EtaBackupException("不支持的 浑仪 备份版本：${document.schemaVersion}")
+            throw EtaBackupException("不支持的 浑天 备份版本：${document.schemaVersion}")
         }
         listOf(document.skillFiles, document.assistantAvatars).forEach { files ->
             require(files.size <= 10_000) { "备份嵌入文件过多" }

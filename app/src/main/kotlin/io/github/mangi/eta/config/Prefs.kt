@@ -10,7 +10,7 @@ import io.github.libxposed.service.XposedService
  * - Hook 进程（system_server / SystemUI / Google / 系统助手等）在模块加载时调用
  *   [attachRemote]，缓存框架提供的只读 [SharedPreferences]；之后所有拦截回调用 [isEnabled]
  *   读取当前进程持有的 remote preferences。
- * - 浑仪 Runtime 自己消费的开关保存在 App 私有配置中，不依赖 Xposed Service。
+ * - 浑天 Runtime 自己消费的开关保存在 App 私有配置中，不依赖 Xposed Service。
  * - Hook 消费的开关通过 [remotePreferencesForUi] 写入 RemotePreferences；
  *   XposedService 未就绪时不提供本地假 fallback。
  *
@@ -87,7 +87,7 @@ internal object Prefs {
             HAPTIC_MESSAGE_GENERATION to true,
         )
 
-        /** 由 浑仪 Runtime 最终裁决、不要求 Xposed 框架在线的开关。 */
+        /** 由 浑天 Runtime 最终裁决、不要求 Xposed 框架在线的开关。 */
         val LOCAL_AGENT_KEYS: Set<String> = setOf(
             AGENT_TERMINAL_TOOLS,
             AGENT_BROWSER_TOOLS,
@@ -196,7 +196,7 @@ internal object Prefs {
     fun remotePreferencesForUi(service: XposedService?): SharedPreferences? =
         runCatching { service?.getRemotePreferences(GROUP) }.getOrNull()
 
-    /** 浑仪 设置页与 Runtime 使用的本地 Agent 配置，不依赖 LSPosed。 */
+    /** 浑天 设置页与 Runtime 使用的本地 Agent 配置，不依赖 LSPosed。 */
     fun localAgentPreferences(): SharedPreferences? = localAgent
 
     fun exportAgentPreferences(): Map<String, String> {

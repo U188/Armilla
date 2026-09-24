@@ -7,6 +7,7 @@
 **A system-level Android AI assistant that steps past the sandbox**
 Armilla takes its name from the armillary sphere, the ancient instrument that turned the sky into something measurable and steerable.
 
+> **Fork notice:** This is a community second-party fork derived from the upstream [Eta](https://github.com/Mangi-11/Eta). Main changes on top of upstream: sub-agent cost optimization (completion push, poll backoff, continuation limit, head-and-tail report truncation, a cost-metrics panel), selective data backup by content (conversations / assistants / skills / MCP) plus a fix for large conversations exporting as 0 KB, a custom background image import, dark-theme fixes for several invisible-text cases, and brand/localization changes. For learning and personal use only, not for commercial use.
 Armilla is more than a chat box. Point your own model at the phone: it can call system APIs, see the screen, run a terminal, read and write files, and look up notifications, calendars, photos, and other local data. Asking and doing can happen in the same conversation.
 
 Armilla brings the agent runtime, system entry points, and tool layer together, and keeps iterating on daily use: compression, backup and restore, share-to-open, vision models, the browser, and the Linux environment. **You supply your own API key (BYOK)** and choose the model.

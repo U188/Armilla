@@ -8,7 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
-/** Provider JSON 与 浑仪 稳定会话 DTO 之间的唯一转换和容量边界。 */
+/** Provider JSON 与 浑天 稳定会话 DTO 之间的唯一转换和容量边界。 */
 internal object AgentConversationCodec {
     internal const val MAX_DRAIN_TRANSCRIPT_CHARS = 16_000
     internal const val MAX_STORAGE_TRANSCRIPT_CHARS = 1_000_000
@@ -28,7 +28,7 @@ internal object AgentConversationCodec {
         "[敏感工具参数与原始结果仅供当前回合使用，未写入持久会话]"
 
     private const val COMPACTION_NOTICE =
-        "[浑仪 上下文提示：此前部分 assistant/tool 记录因跨进程或持久化容量上限已压缩，请勿假定缺失步骤未执行。]"
+        "[浑天 上下文提示：此前部分 assistant/tool 记录因跨进程或持久化容量上限已压缩，请勿假定缺失步骤未执行。]"
 
     private val json = Json {
         ignoreUnknownKeys = true

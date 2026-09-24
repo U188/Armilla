@@ -58,7 +58,7 @@ research / review 可以 `read_file` 和 `list_directory`，但不能执行 shel
 
 ## 一项目一目录
 
-项目任务必须明确指定 /workspace/<项目名>，不默认 浑仪，不允许使用 /workspace 或 mounts。
+项目任务必须明确指定 /workspace/<项目名>，不默认 浑天，不允许使用 /workspace 或 mounts。
 项目需已初始化 Git 且至少有一个提交，创建实现工作树前必须没有未提交源码改动。
 换项目传新 project，旧项目的工作区 ID 不能在新项目使用。
 

@@ -166,7 +166,7 @@ internal class XiaoAiStreamRenderer(
                 ?.invoke(player, text)
         } catch (exception: Exception) {
             logger.warnThrottled("xiaoai_tts_failed") {
-                "超级小爱 浑仪 结果朗读失败: type=${exception.safeLogType()}"
+                "超级小爱 浑天 结果朗读失败: type=${exception.safeLogType()}"
             }
         }
     }

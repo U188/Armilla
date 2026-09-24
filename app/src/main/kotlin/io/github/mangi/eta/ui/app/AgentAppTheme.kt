@@ -61,14 +61,15 @@ fun AgentAppTheme(
         )
     }
     val colors = controller.currentColors()
-    val themedColors = remember(colors, isDark, appearance.pureBlackEnabled) {
-        if (appearance.pureBlackEnabled && isDark) {
-            colors.copy(
+    val themedColors = remember(colors, isDark, appearance.pureBlackEnabled, appearance.backgroundImageEnabled) {
+        when {
+            // 启用背景图时，把主题背景设为透明，让底层背景图透出；卡片等 surface 保持不变以保证可读。
+            appearance.backgroundImageEnabled -> colors.copy(background = Color.Transparent)
+            appearance.pureBlackEnabled && isDark -> colors.copy(
                 background = Color.Black,
                 surface = Color.Black,
             )
-        } else {
-            colors
+            else -> colors
         }
     }
 
@@ -159,7 +160,9 @@ fun AgentAppTheme(
                 colorScheme = materialColors,
             ) {
                 ApplyTouchHapticFeedbackEnabled()
-                content()
+                AppearanceBackground {
+                    content()
+                }
             }
         }
     }

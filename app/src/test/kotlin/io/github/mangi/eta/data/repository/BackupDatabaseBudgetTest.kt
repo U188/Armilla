@@ -50,4 +50,20 @@ class BackupDatabaseBudgetTest {
             }
         }
     }
+
+    @Test fun oversizedSingleRowFailsBudgetWithReadableMessage() {
+        database().use { helper ->
+            val db = helper.writableDatabase
+            db.execSQL("INSERT INTO conversations VALUES ('c', '[]')")
+            // 单行超过 CursorWindow 承载上限：总量校验（8MB）之外，单行体检必须拦下。
+            db.execSQL(
+                "INSERT INTO conversation_messages VALUES ('c', ?)",
+                arrayOf<Any>("x".repeat((BackupDatabaseBudget.MAX_ROW_BYTES + 1).toInt())),
+            )
+            // 用会话作用域校验，只扫 conversation_* 表（fixture 未建其余表）。单行体检应命中并给出可读提示。
+            val failure = runCatching { BackupDatabaseBudget.validate(db, "c") }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(failure!!.message!!.contains("单条记录"))
+        }
+    }
 }

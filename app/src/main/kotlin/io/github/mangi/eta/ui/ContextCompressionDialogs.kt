@@ -39,10 +39,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -92,6 +94,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 
 private val CompressDialogChrome = 200.dp
@@ -553,6 +556,9 @@ internal fun CompressModelPickerDialog(
         title = title ?: stringResource(R.string.ui_compress_model_title),
         onDismissRequest = onDismiss,
     ) {
+        // Miuix WindowDialog 不像 Material Surface 注入 LocalContentColor，内部 material3.Text 会退回黑色，
+        // 深色主题下不可见。统一按主题前景色提供默认值。
+        CompositionLocalProvider(LocalContentColor provides MiuixTheme.colorScheme.onSurface) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -632,6 +638,7 @@ internal fun CompressModelPickerDialog(
                     }
                 }
             }
+        }
         }
     }
 }

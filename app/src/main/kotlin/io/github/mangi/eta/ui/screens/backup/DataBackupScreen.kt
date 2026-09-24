@@ -63,6 +63,10 @@ internal fun DataBackupScreen(
     var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
     var showImportDialog by remember { mutableStateOf(false) }
     var includeLinuxEnvironment by remember { mutableStateOf(false) }
+    var includeConversations by remember { mutableStateOf(true) }
+    var includeAssistants by remember { mutableStateOf(true) }
+    var includeSkills by remember { mutableStateOf(true) }
+    var includeMcp by remember { mutableStateOf(true) }
     var linuxBytes by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) {
         linuxBytes = withContext(Dispatchers.IO) {
@@ -89,7 +93,18 @@ internal fun DataBackupScreen(
             try {
                 val output = context.contentResolver.openOutputStream(uri)
                     ?: error(context.getString(R.string.data_backup_file_open_failed))
-                val summary = output.use { onExport(it, EtaBackupExportOptions(includeLinuxEnvironment = includeLinuxEnvironment)) }
+                val summary = output.use {
+                    onExport(
+                        it,
+                        EtaBackupExportOptions(
+                            includeConversations = includeConversations,
+                            includeAssistants = includeAssistants,
+                            includeSkills = includeSkills,
+                            includeMcp = includeMcp,
+                            includeLinuxEnvironment = includeLinuxEnvironment,
+                        ),
+                    )
+                }
                 Toast.makeText(
                     context,
                     context.getString(
@@ -126,6 +141,41 @@ internal fun DataBackupScreen(
                 BasicComponent(
                     title = stringResource(R.string.data_backup_warning_title),
                     summary = stringResource(R.string.data_backup_warning_summary),
+                )
+            }
+        }
+        item(key = "content-title") {
+            SmallTitle(stringResource(R.string.data_backup_content))
+        }
+        item(key = "content-card") {
+            Card(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                SwitchPreference(
+                    title = stringResource(R.string.data_backup_include_conversations),
+                    summary = stringResource(R.string.data_backup_include_conversations_summary),
+                    checked = includeConversations,
+                    onCheckedChange = { includeConversations = it },
+                    enabled = !busy,
+                )
+                SwitchPreference(
+                    title = stringResource(R.string.data_backup_include_assistants),
+                    summary = stringResource(R.string.data_backup_include_assistants_summary),
+                    checked = includeAssistants,
+                    onCheckedChange = { includeAssistants = it },
+                    enabled = !busy,
+                )
+                SwitchPreference(
+                    title = stringResource(R.string.data_backup_include_skills),
+                    summary = stringResource(R.string.data_backup_include_skills_summary),
+                    checked = includeSkills,
+                    onCheckedChange = { includeSkills = it },
+                    enabled = !busy,
+                )
+                SwitchPreference(
+                    title = stringResource(R.string.data_backup_include_mcp),
+                    summary = stringResource(R.string.data_backup_include_mcp_summary),
+                    checked = includeMcp,
+                    onCheckedChange = { includeMcp = it },
+                    enabled = !busy,
                 )
             }
         }
@@ -266,4 +316,4 @@ private fun BackupIcon(icon: ImageVector, loading: Boolean) {
 }
 
 private fun defaultBackupFileName(): String =
-    "浑仪-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}-备份.zip"
+    "浑天-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())}-备份.zip"

@@ -24,7 +24,8 @@ internal class SubAgentPollGuard(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private class Entry(
-        var lastAt: Long,
+        /** 允许下一次查询的最早时刻；在此之前查询判为过于频繁。 */
+        var nextAllowedAt: Long,
         var level: Int = 0,
         var strikes: Int = 0,
         var running: Boolean = false,
@@ -60,15 +61,16 @@ internal class SubAgentPollGuard(
         val taskId = taskId(call) ?: return null
         val entry = entries[taskId] ?: return null
         if (!entry.running) return null
-        val wait = LEVELS[entry.level.coerceIn(0, LEVELS.lastIndex)]
-        val elapsed = (now() - entry.lastAt).coerceAtLeast(0)
-        if (elapsed >= wait) return null
-        val remaining = wait - elapsed
+        val current = now()
+        // 已到达（或越过）建议的下一次查询时刻：放行。守规矩地等到建议时间的调用方永远能通过。
+        if (current >= entry.nextAllowedAt) return null
+        val remaining = entry.nextAllowedAt - current
         entry.strikes += 1
         rejections += 1
+        // 只抬高档位，不推后本次窗口：抬高只在下一次真正执行的查询后生效，扩大后续查询间隔。
         entry.level = (entry.level + 1).coerceAtMost(LEVELS.lastIndex)
-        // 连续违规才短时摘除工具，给主代理一个不再空转的明确信号；到点自动恢复。
-        if (entry.strikes >= MAX_STRIKES) suspendedUntil = now() + REMOVE_FOR_MS
+        // 连续违规（中间没有一次守规矩的查询）才短时摘除工具；到点自动恢复。
+        if (entry.strikes >= MAX_STRIKES) suspendedUntil = current + REMOVE_FOR_MS
         return Rejection(CODE, message(remaining), remaining)
     }
 
@@ -83,12 +85,17 @@ internal class SubAgentPollGuard(
         }
         val status = parsed?.optString("status").orEmpty()
         val entry = entries.getOrPut(taskId) { Entry(now()) }
-        entry.lastAt = now()
         entry.running = status == "running" || status == "queued"
-        if (!entry.running) {
+        if (entry.running) {
+            // 本次查询已被放行执行，说明调用方守规矩；重置连续违规计数，只惩罚连续过早查询。
+            entry.strikes = 0
+            // 按当前档位安排下一次允许查询的时刻；档位随违规增长，从而拉长后续查询间隔。
+            entry.nextAllowedAt = now() + LEVELS[entry.level.coerceIn(0, LEVELS.lastIndex)]
+        } else {
             // 终态放行：清掉节奏与违规计数，避免过时状态继续限制后续查询。
             entry.level = 0
             entry.strikes = 0
+            entry.nextAllowedAt = 0
         }
     }
 

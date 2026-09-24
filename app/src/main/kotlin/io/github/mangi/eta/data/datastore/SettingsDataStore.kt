@@ -17,6 +17,7 @@ import io.github.mangi.eta.data.model.AppearancePaletteStyle
 import io.github.mangi.eta.data.model.AppearanceSettings
 import io.github.mangi.eta.data.model.AppearanceThemeMode
 import io.github.mangi.eta.data.model.AppearanceTopBarBlurStyle
+import io.github.mangi.eta.data.model.DEFAULT_BACKGROUND_SCRIM
 import io.github.mangi.eta.data.model.Settings
 import java.io.IOException
 import java.time.LocalDate
@@ -52,6 +53,12 @@ internal object SettingsDataStore {
         booleanPreferencesKey("appearance_morph_loading_before_response")
     private val APPEARANCE_MESSAGE_TIMESTAMPS_ENABLED =
         booleanPreferencesKey("appearance_message_timestamps_enabled")
+    private val APPEARANCE_BACKGROUND_IMAGE_ENABLED =
+        booleanPreferencesKey("appearance_background_image_enabled")
+    private val APPEARANCE_BACKGROUND_IMAGE_PATH =
+        stringPreferencesKey("appearance_background_image_path")
+    private val APPEARANCE_BACKGROUND_IMAGE_SCRIM =
+        floatPreferencesKey("appearance_background_image_scrim")
     private val APP_LAUNCH_COUNT = intPreferencesKey("app_launch_count")
     private val UPDATE_DISMISSED_VERSION = stringPreferencesKey("update_dismissed_version")
     private val UPDATE_LAST_CHECK_AT = longPreferencesKey("update_last_check_at")
@@ -514,6 +521,9 @@ internal object SettingsDataStore {
             morphLoadingIndicator = this[APPEARANCE_MORPH_LOADING_INDICATOR] ?: true,
             morphLoadingBeforeResponseOnly = this[APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE] ?: false,
             messageTimestampsEnabled = this[APPEARANCE_MESSAGE_TIMESTAMPS_ENABLED] ?: false,
+            backgroundImageEnabled = this[APPEARANCE_BACKGROUND_IMAGE_ENABLED] ?: false,
+            backgroundImagePath = this[APPEARANCE_BACKGROUND_IMAGE_PATH].orEmpty(),
+            backgroundImageScrim = this[APPEARANCE_BACKGROUND_IMAGE_SCRIM] ?: DEFAULT_BACKGROUND_SCRIM,
         ).normalized(),
     )
 
@@ -531,6 +541,9 @@ internal object SettingsDataStore {
         this[APPEARANCE_MORPH_LOADING_INDICATOR] = settings.morphLoadingIndicator
         this[APPEARANCE_MORPH_LOADING_BEFORE_RESPONSE] = settings.morphLoadingBeforeResponseOnly
         this[APPEARANCE_MESSAGE_TIMESTAMPS_ENABLED] = settings.messageTimestampsEnabled
+        this[APPEARANCE_BACKGROUND_IMAGE_ENABLED] = settings.backgroundImageEnabled
+        this[APPEARANCE_BACKGROUND_IMAGE_PATH] = settings.backgroundImagePath
+        this[APPEARANCE_BACKGROUND_IMAGE_SCRIM] = settings.backgroundImageScrim
     }
 }
 

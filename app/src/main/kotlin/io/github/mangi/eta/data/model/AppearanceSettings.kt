@@ -5,6 +5,9 @@ import kotlinx.serialization.Serializable
 const val MIN_INTERFACE_SCALE = 0.8f
 const val MAX_INTERFACE_SCALE = 1.1f
 const val DEFAULT_INTERFACE_SCALE = 1f
+const val MIN_BACKGROUND_SCRIM = 0f
+const val MAX_BACKGROUND_SCRIM = 0.85f
+const val DEFAULT_BACKGROUND_SCRIM = 0.35f
 
 @Serializable
 data class AppearanceSettings(
@@ -21,10 +24,19 @@ data class AppearanceSettings(
     val morphLoadingIndicator: Boolean = true,
     val morphLoadingBeforeResponseOnly: Boolean = false,
     val messageTimestampsEnabled: Boolean = false,
+    /** 是否启用自定义背景图；关闭时使用纯主题背景。 */
+    val backgroundImageEnabled: Boolean = false,
+    /** 背景图在应用私有目录中的绝对路径；空表示未导入。 */
+    val backgroundImagePath: String = "",
+    /** 背景图之上的遮罩透明度（0f–1f），保证前景文字可读。 */
+    val backgroundImageScrim: Float = DEFAULT_BACKGROUND_SCRIM,
 ) {
     fun normalized(): AppearanceSettings = copy(
         monetEnabled = true,
         interfaceScale = normalizeInterfaceScale(interfaceScale),
+        backgroundImageScrim = normalizeBackgroundScrim(backgroundImageScrim),
+        // 路径为空时强制关闭，避免残留启用态却无图。
+        backgroundImageEnabled = backgroundImageEnabled && backgroundImagePath.isNotBlank(),
     )
 }
 
@@ -92,4 +104,11 @@ fun normalizeInterfaceScale(value: Float): Float =
         value.coerceIn(MIN_INTERFACE_SCALE, MAX_INTERFACE_SCALE)
     } else {
         DEFAULT_INTERFACE_SCALE
+    }
+
+fun normalizeBackgroundScrim(value: Float): Float =
+    if (value.isFinite()) {
+        value.coerceIn(MIN_BACKGROUND_SCRIM, MAX_BACKGROUND_SCRIM)
+    } else {
+        DEFAULT_BACKGROUND_SCRIM
     }

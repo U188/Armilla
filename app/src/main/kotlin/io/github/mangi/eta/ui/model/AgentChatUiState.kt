@@ -73,7 +73,7 @@ enum class SystemNoticeCode(val wireValue: String) {
     }
 }
 
-/** 浑仪 自己生成的消息只保存稳定状态码，展示时再按当前语言解析。 */
+/** 浑天 自己生成的消息只保存稳定状态码，展示时再按当前语言解析。 */
 @Immutable
 data class SystemNoticeMessageUi(
     override val id: String,

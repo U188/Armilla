@@ -10,6 +10,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -35,6 +40,9 @@ import io.github.mangi.eta.data.model.AppearanceTopBarBlurStyle
 import io.github.mangi.eta.data.model.MAX_INTERFACE_SCALE
 import io.github.mangi.eta.data.model.MIN_INTERFACE_SCALE
 import io.github.mangi.eta.data.model.normalizeInterfaceScale
+import io.github.mangi.eta.data.model.MAX_BACKGROUND_SCRIM
+import io.github.mangi.eta.data.model.MIN_BACKGROUND_SCRIM
+import io.github.mangi.eta.data.model.normalizeBackgroundScrim
 import io.github.mangi.eta.data.repository.AppearanceSettingsRepository
 import io.github.mangi.eta.ui.app.LocalAppearanceSettings
 import io.github.mangi.eta.ui.components.MiuixDialogActions
@@ -68,6 +76,22 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
     var scaleInput by remember { mutableStateOf("") }
     var morphLoadingExpanded by remember { mutableStateOf(false) }
     val blurSupported = isRuntimeShaderSupported()
+    val context = LocalContext.current
+    val backgroundPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            runCatching { AppearanceSettingsRepository.importBackgroundImage(context, uri) }
+                .onFailure { failure ->
+                    Toast.makeText(
+                        context,
+                        failure.message ?: context.getString(R.string.appearance_background_import_failed),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+        }
+    }
 
     fun update(transform: (AppearanceSettings) -> AppearanceSettings) {
         coroutineScope.launch {
@@ -174,6 +198,82 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
             }
         }
 
+        item(key = "appearance_background_title") {
+            SmallTitle(text = stringResource(R.string.appearance_group_background))
+        }
+        item(key = "appearance_background_card") {
+            Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+                SwitchPreference(
+                    title = stringResource(R.string.appearance_background_enabled),
+                    summary = stringResource(R.string.appearance_background_enabled_summary),
+                    checked = appearance.backgroundImageEnabled,
+                    onCheckedChange = { enabled ->
+                        if (enabled && appearance.backgroundImagePath.isBlank()) {
+                            backgroundPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        } else {
+                            update { current -> current.copy(backgroundImageEnabled = enabled) }
+                        }
+                    },
+                )
+                ArrowPreference(
+                    title = stringResource(
+                        if (appearance.backgroundImagePath.isBlank()) {
+                            R.string.appearance_background_pick
+                        } else {
+                            R.string.appearance_background_replace
+                        },
+                    ),
+                    summary = stringResource(R.string.appearance_background_pick_summary),
+                    onClick = {
+                        backgroundPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                )
+                AnimatedVisibility(
+                    visible = appearance.backgroundImagePath.isNotBlank(),
+                    enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                    exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+                ) {
+                    Column {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Text(
+                                text = stringResource(R.string.appearance_background_scrim),
+                                style = MiuixTheme.textStyles.body1,
+                            )
+                            Text(
+                                text = "${(appearance.backgroundImageScrim * 100).roundToInt()}%",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Slider(
+                                value = appearance.backgroundImageScrim.coerceIn(
+                                    MIN_BACKGROUND_SCRIM,
+                                    MAX_BACKGROUND_SCRIM,
+                                ),
+                                onValueChange = { value ->
+                                    update { current ->
+                                        current.copy(backgroundImageScrim = normalizeBackgroundScrim(value))
+                                    }
+                                },
+                                valueRange = MIN_BACKGROUND_SCRIM..MAX_BACKGROUND_SCRIM,
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            )
+                        }
+                        ArrowPreference(
+                            title = stringResource(R.string.appearance_background_remove),
+                            onClick = {
+                                coroutineScope.launch {
+                                    AppearanceSettingsRepository.clearBackgroundImage(context)
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
         item(key = "appearance_interface_title") {
             SmallTitle(text = stringResource(R.string.appearance_group_interface))
         }

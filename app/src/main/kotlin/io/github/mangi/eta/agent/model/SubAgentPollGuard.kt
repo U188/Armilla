@@ -9,7 +9,7 @@ import org.json.JSONObject
  *
  * 设计要点（与既有 `AgentDelegationArgumentRepair` 同形状，但不复制其永久失效语义）：
  * - `reject()` 只拒绝，不执行工具，也不伪造结果；拒绝时返回明确的错误码与建议等待毫秒。
- * - **终态永久放行**：只有上一次观测到的状态是 `running` 才计数，避免阻断结果获取。
+ * - **终态永久放行**：只有上一次观测到的状态是 `running`（含排队）才计数，避免阻断结果获取。
  * - 不带 `task_id` 的列表查询、`cancel_task` / `continue_task` 完全不受影响。
  * - `disabled` 语义改为**有时限的挂起**（[REMOVE_FOR_MS]）：摘除工具只是让主代理冷静一下，
  *   到点自动恢复，绝不会永久挡住结果取回。

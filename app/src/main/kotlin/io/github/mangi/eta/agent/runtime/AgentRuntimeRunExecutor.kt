@@ -256,12 +256,14 @@ internal class AgentRuntimeRunExecutor(
                     // 由 AgentLoop 在回合边界合并成一条 user 消息注入模型上下文。
                     // 观测仍走 ChildContextUpdated，两条通道互不影响。
                     onCompleted = { completion ->
-                        // 阶段 0 度量基线：主代理收到一条完成通知；子代理作用域记录它自己的计费响应与压缩次数。
-                        recordCost(AgentCostMetricsRepository.SCOPE_PARENT, AgentCostMetricKind.ChildNotices)
+                        // 阶段 0 度量基线：子代理作用域记录它自己的计费响应与压缩次数（真实用量，无论通知是否被接受都计入）。
                         recordCost(AgentCostMetricsRepository.childScope(completion.agentId), AgentCostMetricKind.ModelResponses, completion.responseCount)
                         recordCost(AgentCostMetricsRepository.childScope(completion.agentId), AgentCostMetricKind.Compactions, completion.compactionCount)
-                        runController.enqueueChildNotice(
-                            io.github.mangi.eta.agent.delegation.SubAgentNotice.text(completion))
+                        // 主代理「收到通知」的口径只在实际入队成功时计入；run 已封存时通知被丢弃，不应虚增。
+                        if (runController.enqueueChildNotice(
+                                io.github.mangi.eta.agent.delegation.SubAgentNotice.text(completion))) {
+                            recordCost(AgentCostMetricsRepository.SCOPE_PARENT, AgentCostMetricKind.ChildNotices)
+                        }
                     },
                     executeObservedChild = { config, prompt, controller, project, id, writable, progress ->
                         if (id != null) {

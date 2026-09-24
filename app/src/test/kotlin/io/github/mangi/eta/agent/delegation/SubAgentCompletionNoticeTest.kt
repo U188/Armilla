@@ -50,10 +50,10 @@ class SubAgentCompletionNoticeTest {
     @Test fun cancellationNotifiesOnceWithTerminalStatus() {
         val completions = CopyOnWriteArrayList<SubAgentCompletion>()
         val entered = CountDownLatch(1)
+        val block = CountDownLatch(1)
         SubAgentCoordinator(listOf(model), onCompleted = { completions += it }) { _, _, controller ->
             entered.countDown()
-            controller.throwIfCancelled()
-            Thread.sleep(50)
+            try { block.await() } catch (_: InterruptedException) { }
             controller.throwIfCancelled()
             "late"
         }.use { c ->
@@ -61,6 +61,7 @@ class SubAgentCompletionNoticeTest {
             assertTrue(entered.await(2, TimeUnit.SECONDS))
             JSONObject(c.execute(call("cancel_task", JSONObject().put("task_id", id))).content)
             assertEquals("cancelled", get(c, id, 0).getString("status"))
+            // worker 被 future.cancel 打断后走 cancelled 出口；通知必须恰好一次，绝不能报成 failed。
             assertEquals(1, completions.size)
             assertEquals("cancelled", completions.first().status)
         }

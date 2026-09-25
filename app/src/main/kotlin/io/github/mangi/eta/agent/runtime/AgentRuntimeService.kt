@@ -95,6 +95,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private val orbPhase = derivedStateOf { state.value.phase }
     private val collapsed = mutableStateOf(true)
     private var hasExecutedForegroundTool = false
+    // 状态球模式：用户在设置里开启后，任意 run 全程显示光球反映运行状态。
+    // 按 runId 隔离快照（run 启动时读一次 Prefs），避免多 run 并发时开关状态互相串。
+    private val statusOrbByRunId = linkedMapOf<String, Boolean>()
     private val supplementsLock = Any()
     private val supplementsByRunId = linkedMapOf<String, RunSupplements>()
     @Volatile
@@ -352,6 +355,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         if (overlayRunId == null || overlayRunId == request.runId) {
             hasExecutedForegroundTool = false
         }
+        // 每个 run 启动时快照状态球开关，按 runId 存储，避免运行途中改开关或多 run 并发导致行为漂移。
+        statusOrbByRunId[request.runId] = Prefs.isEnabled(Prefs.Keys.AGENT_STATUS_ORB_ENABLED)
         synchronized(supplementsLock) {
             val extras = RunSupplements()
             if (request.handoff?.source == AgentRuntimeWire.AGENT_UI_HANDOFF_SOURCE) {
@@ -391,7 +396,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         postTerminalOverlay(
             session = session,
             result = outcome.result,
-            entrySurfaceGuard = outcome.entrySurfaceGuard,
             completedContext = outcome.response?.let { completedResponse ->
                 outcome.completedRequest?.let { completedRequest ->
                     CompletedRunContext(
@@ -409,6 +413,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         entrySurfaceGuard: EntrySurfaceGuard?,
     ) {
         if (!sessions.contains(session)) return
+        // 前台驱动工具浮层（原有默认）或状态球模式（用户开启后 run 全程显示）。
+        val statusOrbReveal = (statusOrbByRunId[session.runId] == true) &&
+            AgentOverlayVisibilityPolicy.shouldRevealForStatusOrb(event)
         val revealsForegroundOperation = AgentOverlayVisibilityPolicy.shouldRevealFor(event)
         val requiresEntrySurfaceDismissal =
             AgentOverlayVisibilityPolicy.shouldDismissEntrySurfaceFor(event)
@@ -429,11 +436,12 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             }
             if (session.isTerminal) return@post
             runCatching {
-                val ownsOverlay = claimOverlay(session, revealsForegroundOperation && entrySurfaceReady)
+                val wantsOverlay = (revealsForegroundOperation && entrySurfaceReady) || statusOrbReveal
+                val ownsOverlay = claimOverlay(session, wantsOverlay)
                 if (ownsOverlay) {
                     state.value = state.value.applyEvent(event)
                 }
-                if (revealsForegroundOperation && entrySurfaceReady && ownsOverlay) {
+                if (wantsOverlay && ownsOverlay) {
                     if (orbView == null) {
                         AgentHapticFeedback.perform(
                             this,
@@ -468,7 +476,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private fun postTerminalOverlay(
         session: AgentRuntimeSession,
         result: AgentRuntimeWire.RunResult,
-        entrySurfaceGuard: EntrySurfaceGuard?,
         completedContext: CompletedRunContext? = null,
     ) {
         mainHandler.post {
@@ -491,7 +498,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                             status = AgentOverlayStatus.ResultReady,
                             detailText = result.content.trim().ifBlank { state.value.detailText },
                         ),
-                        keepVisible = entrySurfaceGuard?.wasTriggered == true,
                     )
                 } else {
                     enterFinalState(
@@ -504,7 +510,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                             },
                             detailText = result.error.orEmpty(),
                         ),
-                        keepVisible = entrySurfaceGuard?.wasTriggered == true,
                     )
                 }
             }.onFailure { throwable ->
@@ -853,6 +858,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             AgentOverlayOrb(
                 phase = orbPhase.value,
                 onToggleCollapse = ::toggleCollapse,
+                onDrag = ::handleDrag,
             )
         }
         val orbLp = orbLayoutParams()
@@ -942,13 +948,17 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             }
         }
 
-    @Suppress("unused")
     private fun handleDrag(dx: Float, dy: Float) {
         val lp = orbParams ?: return
         val wm = windowManager ?: return
         val view = orbView ?: return
-        lp.x += dx.toInt()
-        lp.y += dy.toInt()
+        // 光球用 END|TOP 定位：x 是距右边缘的偏移，故向右拖(dx>0)应减小 x；y 向下为正。
+        // 上下限都 clamp，避免拖出屏幕后无法取回（配合 FLAG_LAYOUT_NO_LIMITS）。
+        val orbSize = view.width.takeIf { it > 0 } ?: dpToPx(56)
+        val maxX = (resources.displayMetrics.widthPixels - orbSize).coerceAtLeast(0)
+        val maxY = (resources.displayMetrics.heightPixels - orbSize).coerceAtLeast(0)
+        lp.x = (lp.x - dx.toInt()).coerceIn(0, maxX)
+        lp.y = (lp.y + dy.toInt()).coerceIn(0, maxY)
         runCatching { wm.updateViewLayout(view, lp) }
     }
 
@@ -1044,7 +1054,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private fun dpToPx(dp: Int): Int =
         (dp * resources.displayMetrics.density).toInt()
 
-    private fun enterFinalState(finalState: AgentOverlayState, keepVisible: Boolean = false) {
+    private fun enterFinalState(finalState: AgentOverlayState) {
         state.value = finalState
 
         if (hasExecutedForegroundTool) {
@@ -1053,6 +1063,20 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             removeAmbientWindows()
             windowManager?.let(::showResultCard)
             mainHandler.removeCallbacksAndMessages(hideToken)
+        } else if (statusOrbByRunId[overlayRunId] == true && orbView != null) {
+            // 状态球模式（方案 B）：终态先让光球短暂显示完成绿/失败红，再自动淡出。
+            // 失败保留更久便于用户注意到；期间点击光球仍可展开查看。
+            collapsed.value = true
+            bubbleView?.let { view -> runCatching { windowManager?.removeView(view) } }
+            bubbleView = null
+            bubbleParams = null
+            mainHandler.removeCallbacksAndMessages(hideToken)
+            val delay = if (finalState.phase == AgentOverlayPhase.FAILED) {
+                STATUS_ORB_FAILED_LINGER_MS
+            } else {
+                STATUS_ORB_FINISHED_LINGER_MS
+            }
+            mainHandler.postDelayed({ dismissAndStop() }, hideToken, delay)
         } else {
             dismissAndStop()
         }
@@ -1080,6 +1104,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         windowManager = null
         overlayRunId = null
         hasExecutedForegroundTool = false
+        statusOrbByRunId.clear()
         if (sessions.isEmpty() && pendingStartRequests.isEmpty()) {
             stopSelf()
         }
@@ -1149,8 +1174,10 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
 
     private companion object {
         const val ACTION_KEEP_ALIVE = "io.github.mangi.eta.agent.runtime.KEEP_ALIVE"
-        const val HIDE_DELAY_MS = 2_500L
-        const val RESULT_REVIEW_DELAY_MS = 120_000L
+        // 状态球模式终态停留时长：完成后短暂显示绿球再淡出，失败红球停留更久。
+        // 状态球模式终态停留时长：完成后短暂显示绿球再淡出，失败红球停留更久。
+        const val STATUS_ORB_FINISHED_LINGER_MS = 3_000L
+        const val STATUS_ORB_FAILED_LINGER_MS = 8_000L
         const val RESULT_CARD_HEIGHT_RATIO = 0.5f
         const val MAX_ARCHIVED_USER_IMAGE_PREVIEWS = 4
     }

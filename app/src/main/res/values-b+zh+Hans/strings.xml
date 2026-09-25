@@ -237,6 +237,7 @@
   <string name="appearance_background_replace">更换图片</string>
   <string name="appearance_background_pick_summary">从相册选择一张图片（不超过 8 MB）</string>
   <string name="appearance_background_scrim">遮罩深度</string>
+  <string name="appearance_background_card_alpha">卡片不透明度</string>
   <string name="appearance_background_remove">移除背景图片</string>
   <string name="appearance_background_import_failed">导入背景图片失败</string>
   <string name="appearance_blur">模糊效果</string>
@@ -539,6 +540,8 @@
   <string name="ui_reset_browser_session_791b36">重置浏览器会话</string>
   <string name="ui_lock_screen_evokes_automatic_voice_input_1cde18">锁屏唤起自动语音输入</string>
   <string name="ui_deep_thinking_enabled_by_default_c032d6">默认启用推理</string>
+  <string name="settings_status_orb_title">后台状态悬浮球</string>
+  <string name="settings_status_orb_summary">任务在后台运行时显示悬浮球：运行中为绿色，失败为红色，完成后自动隐藏。需要悬浮窗权限。</string>
   <string name="tool_tap_area">点击区域</string>
   <string name="tool_current_context">时间与位置</string>
   <string name="tool_memory_get">读取记忆</string>

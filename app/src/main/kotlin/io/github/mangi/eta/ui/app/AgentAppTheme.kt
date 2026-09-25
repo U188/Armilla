@@ -61,10 +61,22 @@ fun AgentAppTheme(
         )
     }
     val colors = controller.currentColors()
-    val themedColors = remember(colors, isDark, appearance.pureBlackEnabled, appearance.backgroundImageEnabled) {
+    val themedColors = remember(colors, isDark, appearance.pureBlackEnabled, appearance.backgroundImageEnabled, appearance.backgroundCardAlpha) {
         when {
-            // 启用背景图时，把主题背景设为透明，让底层背景图透出；卡片等 surface 保持不变以保证可读。
-            appearance.backgroundImageEnabled -> colors.copy(background = Color.Transparent)
+            // 启用背景图时：主题背景透明露出底图；同时把各级 surface 容器色改为可调节的半透明，
+            // 让聊天气泡、输入栏、卡片等所有用 surface 的组件都通透，背景图透上来。
+            // 不透明度由用户在外观设置里调节（backgroundCardAlpha）。
+            appearance.backgroundImageEnabled -> {
+                val cardAlpha = appearance.backgroundCardAlpha.coerceIn(0f, 1f)
+                colors.copy(
+                    background = Color.Transparent,
+                    surface = colors.surface.copy(alpha = cardAlpha),
+                    surfaceVariant = colors.surfaceVariant.copy(alpha = cardAlpha),
+                    surfaceContainer = colors.surfaceContainer.copy(alpha = cardAlpha),
+                    surfaceContainerHigh = colors.surfaceContainerHigh.copy(alpha = cardAlpha),
+                    surfaceContainerHighest = colors.surfaceContainerHighest.copy(alpha = cardAlpha),
+                )
+            }
             appearance.pureBlackEnabled && isDark -> colors.copy(
                 background = Color.Black,
                 surface = Color.Black,

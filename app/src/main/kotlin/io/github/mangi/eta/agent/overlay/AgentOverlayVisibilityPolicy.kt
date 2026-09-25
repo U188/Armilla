@@ -11,6 +11,10 @@ import io.github.mangi.eta.agent.runtime.AgentEvent
  * interface.
  */
 internal object AgentOverlayVisibilityPolicy {
+    /**
+     * 是否因“前台驱动类工具”而需要显示操作浮层。这是原有的默认行为：
+     * 仅当 agent 主动点击/滑动/看屏幕等驱动前台界面时才现身。
+     */
     fun shouldRevealFor(event: AgentEvent): Boolean = when (event) {
         is AgentEvent.AssistantBlockStart ->
             event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL &&
@@ -24,6 +28,12 @@ internal object AgentOverlayVisibilityPolicy {
         is AgentEvent.ToolImagesAttached -> event.toolName.isForegroundOperationTool()
         else -> false
     }
+
+    /**
+     * 状态球模式：用户显式开启后，任意 run 一开始（RunStarted）就显示光球，
+     * 全程反映运行状态（绿/暂停/完成/失败），不再局限于前台驱动工具。
+     */
+    fun shouldRevealForStatusOrb(event: AgentEvent): Boolean = event is AgentEvent.RunStarted
 
     fun shouldDismissEntrySurfaceFor(event: AgentEvent): Boolean = when (event) {
         is AgentEvent.AssistantBlockStart ->

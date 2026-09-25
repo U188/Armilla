@@ -45,6 +45,7 @@ internal object Prefs {
         const val AGENT_THINKING_ENABLED = "agent_thinking_enabled"
         const val AGENT_RUNTIME_CONFIG_JSON = "agent_runtime_config_json"
         const val AGENT_AUTO_COMPRESS_ENABLED = "agent_auto_compress_enabled"
+        const val AGENT_STATUS_ORB_ENABLED = "agent_status_orb_enabled"
         const val AGENT_COMPRESS_MODEL_PROVIDER_ID = "agent_compress_model_provider_id"
         const val AGENT_COMPRESS_MODEL_ID = "agent_compress_model_id"
         const val AGENT_COMPRESS_CUSTOM_MODEL_ENABLED = "agent_compress_custom_model_enabled"
@@ -81,7 +82,8 @@ internal object Prefs {
             AGENT_DEVICE_SENSITIVE_READ_TOOLS to true,
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS to true,
             AGENT_THINKING_ENABLED to true,
-            AGENT_AUTO_COMPRESS_ENABLED to false,
+            AGENT_AUTO_COMPRESS_ENABLED to true,
+            AGENT_STATUS_ORB_ENABLED to false,
             AGENT_COMPRESS_CUSTOM_MODEL_ENABLED to false,
             HAPTIC_TOUCH_FEEDBACK to true,
             HAPTIC_MESSAGE_GENERATION to true,
@@ -96,6 +98,7 @@ internal object Prefs {
             AGENT_DEVICE_SENSITIVE_ACTION_TOOLS,
             AGENT_THINKING_ENABLED,
             AGENT_AUTO_COMPRESS_ENABLED,
+            AGENT_STATUS_ORB_ENABLED,
             AGENT_COMPRESS_CUSTOM_MODEL_ENABLED,
             HAPTIC_TOUCH_FEEDBACK,
             HAPTIC_MESSAGE_GENERATION,

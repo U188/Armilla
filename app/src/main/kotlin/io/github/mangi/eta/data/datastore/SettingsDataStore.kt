@@ -17,6 +17,7 @@ import io.github.mangi.eta.data.model.AppearancePaletteStyle
 import io.github.mangi.eta.data.model.AppearanceSettings
 import io.github.mangi.eta.data.model.AppearanceThemeMode
 import io.github.mangi.eta.data.model.AppearanceTopBarBlurStyle
+import io.github.mangi.eta.data.model.DEFAULT_BACKGROUND_CARD_ALPHA
 import io.github.mangi.eta.data.model.DEFAULT_BACKGROUND_SCRIM
 import io.github.mangi.eta.data.model.Settings
 import java.io.IOException
@@ -59,6 +60,8 @@ internal object SettingsDataStore {
         stringPreferencesKey("appearance_background_image_path")
     private val APPEARANCE_BACKGROUND_IMAGE_SCRIM =
         floatPreferencesKey("appearance_background_image_scrim")
+    private val APPEARANCE_BACKGROUND_CARD_ALPHA =
+        floatPreferencesKey("appearance_background_card_alpha")
     private val APP_LAUNCH_COUNT = intPreferencesKey("app_launch_count")
     private val UPDATE_DISMISSED_VERSION = stringPreferencesKey("update_dismissed_version")
     private val UPDATE_LAST_CHECK_AT = longPreferencesKey("update_last_check_at")
@@ -524,6 +527,7 @@ internal object SettingsDataStore {
             backgroundImageEnabled = this[APPEARANCE_BACKGROUND_IMAGE_ENABLED] ?: false,
             backgroundImagePath = this[APPEARANCE_BACKGROUND_IMAGE_PATH].orEmpty(),
             backgroundImageScrim = this[APPEARANCE_BACKGROUND_IMAGE_SCRIM] ?: DEFAULT_BACKGROUND_SCRIM,
+            backgroundCardAlpha = this[APPEARANCE_BACKGROUND_CARD_ALPHA] ?: DEFAULT_BACKGROUND_CARD_ALPHA,
         ).normalized(),
     )
 
@@ -544,6 +548,7 @@ internal object SettingsDataStore {
         this[APPEARANCE_BACKGROUND_IMAGE_ENABLED] = settings.backgroundImageEnabled
         this[APPEARANCE_BACKGROUND_IMAGE_PATH] = settings.backgroundImagePath
         this[APPEARANCE_BACKGROUND_IMAGE_SCRIM] = settings.backgroundImageScrim
+        this[APPEARANCE_BACKGROUND_CARD_ALPHA] = settings.backgroundCardAlpha
     }
 }
 

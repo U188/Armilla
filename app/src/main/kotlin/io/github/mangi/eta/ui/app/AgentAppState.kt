@@ -1876,7 +1876,7 @@ internal class AgentAppState(
         estimatedTokens: Int?,
     ): Boolean {
         if (!Prefs.isEnabled(Prefs.Keys.AGENT_AUTO_COMPRESS_ENABLED)) return false
-        val window = contextWindow?.takeIf { it > 0 } ?: return false
+        val window = AgentContextCompactor.effectiveContextWindow(contextWindow)
         return AgentContextCompactor.shouldCompress(
             history = history,
             contextWindow = window,
@@ -1908,7 +1908,7 @@ internal class AgentAppState(
         return try {
             var summaryFailure: String? = null
             val compressed = runInterruptible {
-                val window = contextWindow?.takeIf { it > 0 } ?: 0
+                val window = AgentContextCompactor.effectiveContextWindow(contextWindow)
                 val initialCut = io.github.mangi.eta.agent.model.AgentCompressionBoundary.selectStart(
                     history, window)
                 val working = AgentContextCompactor.pruneOversizedToolResults(history, archive, initialCut)

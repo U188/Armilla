@@ -231,14 +231,30 @@ class AgentContextCompactorTest {
     }
 
     @Test
-    fun autoCompressRequiresConfiguredContextWindow() {
-        assertFalse(AgentContextCompactor.autoCompressEnabled(true, null))
-        assertFalse(AgentContextCompactor.autoCompressEnabled(true, 0))
-        assertFalse(AgentContextCompactor.autoCompressEnabled(false, 128_000))
+    fun autoCompressOnlyDependsOnPreferenceAfterFallback() {
+        // 有兜底窗口后，开关开启即启用，不再因缺配窗口而失效。
+        assertTrue(AgentContextCompactor.autoCompressEnabled(true, null))
+        assertTrue(AgentContextCompactor.autoCompressEnabled(true, 0))
         assertTrue(AgentContextCompactor.autoCompressEnabled(true, 128_000))
+        assertFalse(AgentContextCompactor.autoCompressEnabled(false, 128_000))
+        assertFalse(AgentContextCompactor.autoCompressEnabled(false, null))
+    }
+
+    @Test
+    fun configuredContextWindowKeepsNullForMissingWindow() {
         assertNull(AgentContextCompactor.configuredContextWindow(null))
         assertNull(AgentContextCompactor.configuredContextWindow(0))
         assertEquals(32_000, AgentContextCompactor.configuredContextWindow(32_000))
+    }
+
+    @Test
+    fun effectiveContextWindowFallsBackTo256k() {
+        assertEquals(256_000, AgentContextCompactor.FALLBACK_CONTEXT_WINDOW)
+        assertEquals(256_000, AgentContextCompactor.effectiveContextWindow(null))
+        assertEquals(256_000, AgentContextCompactor.effectiveContextWindow(0))
+        assertEquals(256_000, AgentContextCompactor.effectiveContextWindow(-1))
+        assertEquals(32_000, AgentContextCompactor.effectiveContextWindow(32_000))
+        assertEquals(1_000_000, AgentContextCompactor.effectiveContextWindow(1_000_000))
     }
 
     @Test

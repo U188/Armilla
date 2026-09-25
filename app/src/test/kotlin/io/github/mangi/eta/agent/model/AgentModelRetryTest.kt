@@ -39,6 +39,103 @@ class AgentModelRetryTest {
     }
 
     @Test
+    fun emptyNaturalResponseRetriesThenReturnsLastEmptyResponse() {
+        val delays = mutableListOf<Long>()
+        val retry = AgentModelRetry { _, delay -> delays += delay }
+        var calls = 0
+        val result = complete(retry, provider { _, _ ->
+            calls++
+            emptyResponse()
+        })
+        // 首次 + 3 次重试都空，最终返回最后一次空响应交给 Loop 报错。
+        assertEquals(4, calls)
+        assertEquals(listOf(2_000L, 4_000L, 8_000L), delays)
+        assertEquals("stop", result.response.assistantMessage.optString("finish_reason"))
+        assertTrue(result.response.assistantMessage.optString("content").isBlank())
+    }
+
+    @Test
+    fun emptyNaturalResponseRecoversWhenLaterAttemptHasContent() {
+        val delays = mutableListOf<Long>()
+        val retry = AgentModelRetry { _, delay -> delays += delay }
+        var calls = 0
+        val result = complete(retry, provider { _, _ ->
+            if (calls++ == 0) emptyResponse() else response()
+        })
+        assertEquals(2, calls)
+        assertEquals(listOf(2_000L), delays)
+        assertEquals("完成", result.response.assistantMessage.optString("content"))
+    }
+
+    @Test
+    fun reasoningOnlyResponseIsNotTreatedAsEmpty() {
+        val retry = AgentModelRetry { _, _ -> fail("有推理内容不应重试") }
+        var calls = 0
+        val result = complete(retry, provider { _, _ ->
+            calls++
+            ProviderResponse(JSONObject().put("content", "").put("reasoning_content", "思考中").put("finish_reason", "stop"))
+        })
+        assertEquals(1, calls)
+        assertEquals("思考中", result.response.assistantMessage.optString("reasoning_content"))
+    }
+
+    @Test
+    fun emptyResponseWithToolCallsIsNotTreatedAsEmpty() {
+        val retry = AgentModelRetry { _, _ -> fail("有工具调用不应重试") }
+        var calls = 0
+        val toolCall = JSONObject()
+            .put("id", "call-1")
+            .put("type", "function")
+            .put("function", JSONObject().put("name", "ping").put("arguments", "{}"))
+        val result = complete(retry, provider { _, _ ->
+            calls++
+            ProviderResponse(
+                JSONObject()
+                    .put("content", "")
+                    .put("finish_reason", "tool_calls")
+                    .put("tool_calls", JSONArray().put(toolCall)),
+            )
+        })
+        assertEquals(1, calls)
+        assertEquals(1, result.response.assistantMessage.optJSONArray("tool_calls")?.length())
+    }
+
+    @Test
+    fun emptyResponseAfterVisibleTextIsNotRetried() {
+        val retry = AgentModelRetry { _, _ -> fail("已吐出可见正文不应重试") }
+        var calls = 0
+        val result = complete(retry, provider { _, emit ->
+            calls++
+            emit(ProviderEvent.BlockDelta(AssistantBlockKind.TEXT, 0, "半截正文"))
+            emptyResponse()
+        })
+        assertEquals(1, calls)
+        assertEquals("stop", result.response.assistantMessage.optString("finish_reason"))
+    }
+
+    @Test
+    fun emptyTurnDuringPendingSteeringIsNotRetried() {
+        // 暂停/steering 导致的空回合是设计内的合法空回合，由 Loop 继续同一 run 处理，绝不重试。
+        val retry = AgentModelRetry { _, _ -> fail("steering 空回合不应触发空回复重试") }
+        val controller = AgentRunController()
+        var calls = 0
+        val result = complete(
+            retry,
+            provider { _, _ ->
+                calls++
+                val binding = controller.register(interruptible = true) {}
+                controller.pause()
+                controller.steer("补充指令")
+                binding.close()
+                emptyResponse()
+            },
+            controller,
+        )
+        assertEquals(1, calls)
+        assertEquals("stop", result.response.assistantMessage.optString("finish_reason"))
+    }
+
+    @Test
     fun cancellationDuringBackoffStopsBeforeAnotherRequest() {
         val controller = AgentRunController()
         var calls = 0
@@ -116,6 +213,8 @@ class AgentModelRetryTest {
     )
 
     private fun response() = ProviderResponse(JSONObject().put("content", "完成").put("finish_reason", "stop"))
+
+    private fun emptyResponse() = ProviderResponse(JSONObject().put("content", "").put("finish_reason", "stop"))
 
     private fun provider(action: (ProviderRequest, (ProviderEvent) -> Unit) -> ProviderResponse) =
         object : AgentProviderClient {

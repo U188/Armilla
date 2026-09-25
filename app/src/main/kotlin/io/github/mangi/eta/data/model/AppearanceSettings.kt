@@ -8,6 +8,9 @@ const val DEFAULT_INTERFACE_SCALE = 1f
 const val MIN_BACKGROUND_SCRIM = 0f
 const val MAX_BACKGROUND_SCRIM = 0.85f
 const val DEFAULT_BACKGROUND_SCRIM = 0.35f
+const val MIN_BACKGROUND_CARD_ALPHA = 0.2f
+const val MAX_BACKGROUND_CARD_ALPHA = 1f
+const val DEFAULT_BACKGROUND_CARD_ALPHA = 0.6f
 
 @Serializable
 data class AppearanceSettings(
@@ -30,11 +33,14 @@ data class AppearanceSettings(
     val backgroundImagePath: String = "",
     /** 背景图之上的遮罩透明度（0f–1f），保证前景文字可读。 */
     val backgroundImageScrim: Float = DEFAULT_BACKGROUND_SCRIM,
+    /** 启用背景图时卡片/气泡等 surface 的不透明度（0.2f–1f）：越小越通透露出底图，越大越实。 */
+    val backgroundCardAlpha: Float = DEFAULT_BACKGROUND_CARD_ALPHA,
 ) {
     fun normalized(): AppearanceSettings = copy(
         monetEnabled = true,
         interfaceScale = normalizeInterfaceScale(interfaceScale),
         backgroundImageScrim = normalizeBackgroundScrim(backgroundImageScrim),
+        backgroundCardAlpha = normalizeBackgroundCardAlpha(backgroundCardAlpha),
         // 路径为空时强制关闭，避免残留启用态却无图。
         backgroundImageEnabled = backgroundImageEnabled && backgroundImagePath.isNotBlank(),
     )
@@ -111,4 +117,11 @@ fun normalizeBackgroundScrim(value: Float): Float =
         value.coerceIn(MIN_BACKGROUND_SCRIM, MAX_BACKGROUND_SCRIM)
     } else {
         DEFAULT_BACKGROUND_SCRIM
+    }
+
+fun normalizeBackgroundCardAlpha(value: Float): Float =
+    if (value.isFinite()) {
+        value.coerceIn(MIN_BACKGROUND_CARD_ALPHA, MAX_BACKGROUND_CARD_ALPHA)
+    } else {
+        DEFAULT_BACKGROUND_CARD_ALPHA
     }

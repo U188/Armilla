@@ -20,13 +20,13 @@ internal object AgentCompressionPolicy {
 
     internal fun create(config: AgentModelClient.ModelConfig, summary: AgentModelClient.ModelConfig,
                         preference: Boolean?, child: Boolean): AgentLoop.CompactPolicy {
-        val configuredWindow = AgentContextCompactor.configuredContextWindow(config.contextWindow)
+        val configuredWindow = AgentContextCompactor.effectiveContextWindow(config.contextWindow)
         val summaryWindow = summary.contextWindow?.takeIf { it > 0 } ?: configuredWindow
-        val effectiveSummary = if (summaryWindow == null || summaryWindow == summary.contextWindow) summary
+        val effectiveSummary = if (summaryWindow == summary.contextWindow) summary
             else summary.copy(contextWindow = summaryWindow)
         return AgentLoop.CompactPolicy(
             enabled = AgentContextCompactor.autoCompressEnabled(preference ?: child, config.contextWindow),
-            contextWindow = configuredWindow ?: AgentLoop.CompactPolicy.Disabled.contextWindow,
+            contextWindow = configuredWindow,
             keepRecentMessages = 0,
             compressModelConfig = effectiveSummary,
         )

@@ -13,7 +13,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +61,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -106,6 +108,7 @@ private fun phaseAccent(phase: AgentOverlayPhase): Color = when (phase) {
 internal fun AgentOverlayOrb(
     phase: AgentOverlayPhase,
     onToggleCollapse: () -> Unit,
+    onDrag: (Float, Float) -> Unit = { _, _ -> },
 ) {
     var visible by remember { mutableStateOf(false) }
 
@@ -128,8 +131,8 @@ internal fun AgentOverlayOrb(
         ) + fadeOut(animationSpec = tween(durationMillis = 150)),
     ) {
         // 点击直接交给 Service 侧 toggle，不在 Compose 协程作用域里做延迟动作，
-        // 避免 scope 取消导致浮层残留。
-        AssistantOrb(phase = phase, onClick = onToggleCollapse)
+        // 避免 scope 取消导致浮层残留。拖动交给 Service 更新窗口坐标。
+        AssistantOrb(phase = phase, onClick = onToggleCollapse, onDrag = onDrag)
     }
 }
 
@@ -142,11 +145,30 @@ private fun AssistantOrb(
     phase: AgentOverlayPhase,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    onDrag: (Float, Float) -> Unit = { _, _ -> },
 ) {
     val accent = phaseAccent(phase)
     // Read pulse only during drawing; 20 Hz is enough for a 2.8-second breathing cycle.
     val pulse = rememberAgentOrbPulse(phase)
-    val tapModifier = if (onClick != null) Modifier.clickable { onClick() } else Modifier
+    // 点击与拖动分开检测：detectTapGestures 处理点击展开/收起，
+    // detectDragGestures 处理拖动（未超过 touch slop 的纯点击不会进入 drag 回调，
+    // 因此不能用 drag 的 onDragEnd 兼职点击，否则单击失效）。
+    val tapModifier = if (onClick != null) {
+        Modifier
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onClick() })
+            }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        onDrag(dragAmount.x, dragAmount.y)
+                    },
+                )
+            }
+    } else {
+        Modifier
+    }
     Box(
         modifier = modifier
             .then(tapModifier)

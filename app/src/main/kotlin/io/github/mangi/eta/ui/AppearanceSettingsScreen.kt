@@ -40,8 +40,11 @@ import io.github.mangi.eta.data.model.AppearanceTopBarBlurStyle
 import io.github.mangi.eta.data.model.MAX_INTERFACE_SCALE
 import io.github.mangi.eta.data.model.MIN_INTERFACE_SCALE
 import io.github.mangi.eta.data.model.normalizeInterfaceScale
+import io.github.mangi.eta.data.model.MAX_BACKGROUND_CARD_ALPHA
 import io.github.mangi.eta.data.model.MAX_BACKGROUND_SCRIM
+import io.github.mangi.eta.data.model.MIN_BACKGROUND_CARD_ALPHA
 import io.github.mangi.eta.data.model.MIN_BACKGROUND_SCRIM
+import io.github.mangi.eta.data.model.normalizeBackgroundCardAlpha
 import io.github.mangi.eta.data.model.normalizeBackgroundScrim
 import io.github.mangi.eta.data.repository.AppearanceSettingsRepository
 import io.github.mangi.eta.ui.app.LocalAppearanceSettings
@@ -259,6 +262,29 @@ internal fun AppearanceSettingsScreen(onBack: () -> Unit) {
                                     }
                                 },
                                 valueRange = MIN_BACKGROUND_SCRIM..MAX_BACKGROUND_SCRIM,
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.appearance_background_card_alpha),
+                                style = MiuixTheme.textStyles.body1,
+                                modifier = Modifier.padding(top = 16.dp),
+                            )
+                            Text(
+                                text = "${(appearance.backgroundCardAlpha * 100).roundToInt()}%",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Slider(
+                                value = appearance.backgroundCardAlpha.coerceIn(
+                                    MIN_BACKGROUND_CARD_ALPHA,
+                                    MAX_BACKGROUND_CARD_ALPHA,
+                                ),
+                                onValueChange = { value ->
+                                    update { current ->
+                                        current.copy(backgroundCardAlpha = normalizeBackgroundCardAlpha(value))
+                                    }
+                                },
+                                valueRange = MIN_BACKGROUND_CARD_ALPHA..MAX_BACKGROUND_CARD_ALPHA,
                                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                             )
                         }

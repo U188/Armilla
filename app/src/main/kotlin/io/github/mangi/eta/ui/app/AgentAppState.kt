@@ -354,6 +354,7 @@ internal class AgentAppState(
         recoveringPending: Boolean = false,
     ): Boolean {
         // Never clone an unresolved placeholder or discard its original-pointer recovery intent.
+        if (recoveringPending && source == null) return false
         if (source is SubAgentConfigKey.Draft && !subAgentDraftReady &&
             (!recoveringPending || subAgentDraftPointerReloadPending)) {
             Toast.makeText(appContext, "请先在子代理设置中重试恢复原草稿配置。", Toast.LENGTH_LONG).show()

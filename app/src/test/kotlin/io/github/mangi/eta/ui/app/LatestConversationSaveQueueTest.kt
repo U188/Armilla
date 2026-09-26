@@ -16,6 +16,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -395,6 +396,58 @@ class LatestConversationSaveQueueTest {
             assertTrue(withTimeout(2_000) { pending.await() })
             assertEquals(listOf(0, 1), writes)
             assertEquals(listOf(1), callbacks)
+        }
+    }
+
+    @Test
+    fun writerReturningSuccessAfterCancellingOwnerDoesNotAcknowledge() = runBlocking<Unit> {
+        withSaveScope {
+            val owner = this
+            var callbacks = 0
+            val queue = LatestConversationSaveQueue<Int>(owner, { _, newer -> newer }) {
+                owner.cancel()
+                true
+            }
+            assertFalse(withTimeout(2_000) { queue.submit(1) { callbacks++ }.await() })
+            assertEquals(0, callbacks)
+            assertFalse(queue.submit(2).await())
+        }
+    }
+
+    @Test
+    fun callbackCancellationLeavesRemainingBatchReceiptsFalse() = runBlocking<Unit> {
+        withSaveScope {
+            val owner = this
+            val start = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val queue = LatestConversationSaveQueue<Int>(owner, { _, newer -> newer }) {
+                if (it == 0) { start.complete(Unit); release.await() }
+                true
+            }
+            val first = queue.submit(0)
+            start.await()
+            val canceller = queue.submit(1) { owner.cancel() }
+            var called = false
+            val rest = queue.submit(2) { called = true }
+            release.complete(Unit)
+            assertTrue(first.await())
+            assertTrue(withTimeout(2_000) { canceller.await() })
+            assertFalse(withTimeout(2_000) { rest.await() })
+            assertFalse(called)
+        }
+    }
+
+    @Test
+    fun workerSelfCancellationCannotAcknowledgeEvenWhileOwnerRemainsActive() = runBlocking<Unit> {
+        withSaveScope {
+            var callbacks = 0
+            val queue = LatestConversationSaveQueue<Int>(this, { _, newer -> newer }) {
+                currentCoroutineContext().cancel()
+                true
+            }
+            assertFalse(withTimeout(2_000) { queue.submit(1) { callbacks++ }.await() })
+            assertEquals(0, callbacks)
+            assertFalse(queue.submit(2).await())
         }
     }
 

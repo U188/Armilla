@@ -37,11 +37,46 @@ class ConversationMemoryContractTest(unittest.TestCase):
         self.assertIn("saved[id] === state", text)
         self.assertIn("state.pendingImages.isNotEmpty()", text)
         self.assertIn("state.isPaused", text)
-        self.assertIn("releasePersistedConversationContent(conversations)", text)
+        self.assertIn("releasePersistedConversationContent(snapshot.conversations)", text)
 
     def test_large_heap_is_app_manifest_policy(self):
         app = ET.parse(ROOT / "app/src/main/AndroidManifest.xml").getroot().find("application")
         self.assertEqual("true", app.get("{http://schemas.android.com/apk/res/android}largeHeap"))
+
+    def test_queue_releases_payload_and_checks_worker_cancellation(self):
+        text = (SRC / "ui/app/LatestConversationSaveQueue.kt").read_text()
+        self.assertIn("batch.payload = null", text)
+        self.assertIn("batch.release()", text)
+        self.assertIn("currentCoroutineContext().ensureActive()", text)
+        self.assertIn("activeContext?.ensureActive()", text)
+        state = (SRC / "ui/app/AgentAppState.kt").read_text()
+        save = state[state.index("private fun persistConversations("):state.index("private suspend fun writeConversationSnapshot(")]
+        self.assertTrue("previous?.join()" not in save, "save queue must not retain predecessor snapshots")
+        self.assertTrue("persistenceQueue.submit(snapshot, onSaved)" in save)
+
+    def test_delete_all_commits_before_cache_or_ui_clear(self):
+        text = (SRC / "ui/app/AgentAppState.kt").read_text()
+        block = text[text.index("fun deleteAllConversations()"):text.index("fun deleteConversation(conversationId:")]
+        self.assertIn("withConversationArchive", block)
+        self.assertLess(block.index("AgentConversationStore.save("), block.index("conversationDrafts.clear()"))
+        self.assertLess(block.index("AgentConversationStore.save("), block.index("chatImageCache.deleteConversation"))
+
+    def test_view_model_borrows_process_host_but_not_service_leases(self):
+        vm = (SRC / "ui/app/AgentAppViewModel.kt").read_text()
+        host = (SRC / "ui/app/AgentSessionHost.kt").read_text()
+        self.assertIn("AgentSessionHost.get(application).state", vm)
+        self.assertIn("application.applicationContext", host)
+        self.assertIn("SupervisorJob()", host)
+        runtime = (SRC / "agent/runtime/AgentRuntimeService.kt").read_text()
+        self.assertTrue("sessions.cancelAll(" in runtime, "runtime service destruction must still cancel owned sessions")
+        self.assertIn("drainOwner", (SRC / "agent/runtime/AgentExecutionService.kt").read_text())
+
+    def test_search_callback_is_suspend_and_captures_before_background_scan(self):
+        state = (SRC / "ui/app/AgentAppState.kt").read_text()
+        block = state[state.index("suspend fun searchHistory("):state.index("private fun currentConversationSearchScope()")]
+        self.assertLess(block.index("val titles = conversationTitles"), block.index("runInterruptible(Dispatchers.IO)"))
+        dialog = (SRC / "ui/app/SearchHistoryDialog.kt").read_text()
+        self.assertIn("onSearch: suspend (String)", dialog)
 
 if __name__ == "__main__":
     unittest.main()

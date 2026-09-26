@@ -62,7 +62,9 @@ internal object AgentConversationStore {
 
     fun load(context: Context, selectedOnly: Boolean = false): Snapshot =
         runBlocking(Dispatchers.IO) {
-            loadSnapshot(context.applicationContext, selectedOnly)
+            EtaDatabase.get(context.applicationContext).withTransaction {
+                loadSnapshot(context.applicationContext, selectedOnly)
+            }
         }
 
     suspend fun save(
@@ -163,7 +165,9 @@ internal object AgentConversationStore {
         unnamedTitle: String, roles: io.github.mangi.eta.ui.model.MessageSearchRoleLabels,
     ): List<io.github.mangi.eta.ui.model.MessageSearchHit> = runBlocking(Dispatchers.IO) {
         if (query.isBlank()) return@runBlocking emptyList()
-        val dao = EtaDatabase.get(context.applicationContext).conversationDao()
+        val database = EtaDatabase.get(context.applicationContext)
+        database.withTransaction {
+        val dao = database.conversationDao()
         buildList {
             var offset = 0
             while (true) {
@@ -175,6 +179,7 @@ internal object AgentConversationStore {
                 if (page.size < MESSAGE_LOAD_PAGE_SIZE) break
                 offset += page.size
             }
+        }
         }
     }
 
@@ -203,36 +208,37 @@ internal object AgentConversationStore {
         }
 
     fun loadConversation(context: Context, id: String): AgentChatHomeUiState? = runBlocking(Dispatchers.IO) {
-        val dao = EtaDatabase.get(context.applicationContext).conversationDao()
-        dao.conversationMetadata(id)?.let { loadConversationState(dao, it, true) }
+        val database = EtaDatabase.get(context.applicationContext)
+        database.withTransaction {
+            val dao = database.conversationDao()
+            dao.conversationMetadata(id)?.let { loadConversationState(dao, it, true) }
+        }
     }
 
     private suspend fun loadConversationState(
         dao: ConversationDao, conversation: ConversationMetadata, withContent: Boolean,
     ): AgentChatHomeUiState {
         val (fallbackProviderId, fallbackModelId) = defaultSelection()
-        // Release each conversation's raw entities before reading the next one.
-        // The previous whole-library map kept every raw row alongside decoded UI/history.
-        val storedMessages = if (!withContent) {
-            listOfNotNull(dao.conversationPreview(conversation.id)?.asMessageEntity())
-        } else buildList {
-            var offset = 0
-            while (true) {
-                val page = dao.messagesPage(conversation.id, MESSAGE_LOAD_PAGE_SIZE, offset)
-                addAll(page)
-                if (page.size < MESSAGE_LOAD_PAGE_SIZE) break
-                offset += page.size
-            }
-        }
         val checkpoint = if (withContent) dao.contextCheckpoint(conversation.id) else null
         val decodedHistory = if (withContent) AgentConversationCodec.decodeTranscript(checkpoint?.historyJson) else emptyList()
-        val history = if (!withContent) emptyList() else decodedHistory.ifEmpty {
-            storedMessages.toLegacyHistory()
+        val legacyHistory = mutableListOf<AgentModelClient.ConversationMessage>()
+        val uiMessages = buildList {
+            if (!withContent) {
+                dao.conversationPreview(conversation.id)?.asMessageEntity()?.toMessageOrNull()?.let { add(it) }
+            } else {
+                var offset = 0
+                while (true) {
+                    val page = dao.messagesPage(conversation.id, MESSAGE_LOAD_PAGE_SIZE, offset)
+                    // Never retain the raw rows for the whole conversation alongside UI objects.
+                    page.mapNotNullTo(this) { it.toMessageOrNull() }
+                    if (decodedHistory.isEmpty()) legacyHistory.addAll(page.toLegacyHistory())
+                    if (page.size < MESSAGE_LOAD_PAGE_SIZE) break
+                    offset += page.size
+                }
+            }
         }
-        val messages = attachUserImageSources(
-            messages = storedMessages.mapNotNull { it.toMessageOrNull() },
-            history = history,
-        )
+        val history = decodedHistory.ifEmpty { legacyHistory }
+        val messages = attachUserImageSources(messages = uiMessages, history = history)
         // Invalid receipts must not resurrect bills from a different history/model.
         val receipt = checkpoint?.takeIf { decodedHistory.isNotEmpty() }?.let {
             CloudUsageReceiptCodec.decodeReceipt(it.cloudUsageJson, conversation.id,

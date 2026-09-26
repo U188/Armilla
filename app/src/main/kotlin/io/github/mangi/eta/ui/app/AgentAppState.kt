@@ -223,7 +223,13 @@ internal class AgentAppState(
     }
 
     private val persistenceLock = Any()
-    private var persistenceJob: Deferred<Boolean>? = null
+    private val persistenceQueue by lazy {
+        LatestConversationSaveQueue<ConversationSaveSnapshot>(
+            scope = CoroutineScope(scope.coroutineContext + Dispatchers.IO),
+            merge = { previous, latest -> latest.mergeRetiredFrom(previous) },
+            write = { snapshot -> writeConversationSnapshot(snapshot) },
+        )
+    }
     private val conversationPersistenceMutex = Mutex()
     @Volatile private var lastConversationPersistenceError: String? = null
     private var conversationArchiveBusy = false
@@ -244,6 +250,9 @@ internal class AgentAppState(
 
     private var currentReasoningCapabilities: ModelReasoningCapabilities? = null
     private var fileAttachmentOwnerVersion = 0L
+    private var conversationSelectionVersion = 0L
+    private var conversationSelectionJob: Job? = null
+    private var deleteAllConversationsJob: Job? = null
     private val preparingConversationMentions = mutableSetOf<String>()
     private val chatImageCache = AgentChatImageCache(appContext)
 
@@ -664,10 +673,17 @@ internal class AgentAppState(
                 val deferred = deferredArchiveSaves.toList()
                 deferredArchiveSaves.clear()
                 if (deferred.isNotEmpty()) scope.launch {
-                    val saved = persistConversations().await()
-                    deferred.forEach { (completion, callback) ->
-                        if (saved) callback?.invoke()
-                        completion.complete(saved)
+                    try {
+                        val saved = persistConversations().await()
+                        withContext(Dispatchers.IO) {
+                            deferred.forEach { (completion, callback) ->
+                                try { if (saved) callback?.invoke() }
+                                catch (_: Exception) { /* A callback cannot undo the committed save. */ }
+                                finally { completion.complete(saved) }
+                            }
+                        }
+                    } finally {
+                        deferred.forEach { (completion, _) -> completion.complete(false) }
                     }
                 }
             }
@@ -1081,7 +1097,7 @@ internal class AgentAppState(
         conversationPaneState = conversationPaneState.copy(searchQuery = query)
     }
 
-    fun searchHistory(
+    suspend fun searchHistory(
         query: String,
         currentConversationOnly: Boolean = false,
     ): List<MessageSearchHit> {
@@ -1098,15 +1114,19 @@ internal class AgentAppState(
                 selectedConversationId?.let { all[it] = homeState }
                 if (selectedConversationId == null && homeState.messages.isNotEmpty()) all[""] = homeState
             }
-        return source.entries.sortedWith(compareBy<Map.Entry<String, AgentChatHomeUiState>> {
-            conversationUpdatedAt[it.key] ?: 0L
+        val titles = conversationTitles
+        val timestamps = conversationUpdatedAt
+        return runInterruptible(Dispatchers.IO) {
+        source.entries.sortedWith(compareBy<Map.Entry<String, AgentChatHomeUiState>> {
+            timestamps[it.key] ?: 0L
         }.thenBy { it.key }).flatMap { (id, state) ->
             if (state.conversationContentLoaded) {
-                searchConversationMessages(mapOf(id to state), conversationTitles, conversationUpdatedAt, query, unnamed, roles)
+                searchConversationMessages(mapOf(id to state), titles, timestamps, query, unnamed, roles)
             } else {
-                AgentConversationStore.searchStoredConversation(appContext, id, conversationTitles[id].orEmpty(),
-                    conversationUpdatedAt[id] ?: 0L, query, unnamed, roles)
+                AgentConversationStore.searchStoredConversation(appContext, id, titles[id].orEmpty(),
+                    timestamps[id] ?: 0L, query, unnamed, roles)
             }
+        }
         }
     }
 
@@ -1121,27 +1141,58 @@ internal class AgentAppState(
 
     fun openHistorySearchHit(hit: MessageSearchHit) {
         if (hit.conversationId.isNotEmpty() && hit.conversationId != selectedConversationId) {
-            selectConversation(hit.conversationId)
+            selectConversationContent(hit.conversationId) { pendingScrollToMessageId = hit.messageId }
+        } else {
+            pendingScrollToMessageId = hit.messageId
         }
-        pendingScrollToMessageId = hit.messageId
     }
 
     fun consumePendingScrollToMessage() {
         pendingScrollToMessageId = null
     }
 
-    fun selectConversation(conversationId: String) {
+    fun selectConversation(conversationId: String) = selectConversationContent(conversationId) {}
+
+    private fun selectConversationContent(conversationId: String, onSelected: () -> Unit) {
         if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) cancelMessageEdit()
-        val state = conversationState(conversationId) ?: return
+        val version = ++conversationSelectionVersion
+        conversationSelectionJob?.cancel()
+        val state = conversationsById[conversationId] ?: return
+        if (state.conversationContentLoaded) {
+            applySelectedConversation(conversationId, state)
+            onSelected()
+            return
+        }
+        val ownerVersion = fileAttachmentOwnerVersion
+        conversationSelectionJob = scope.launch {
+            try {
+                val loaded = runInterruptible(Dispatchers.IO) {
+                    AgentConversationStore.loadConversation(appContext, conversationId)
+                } ?: return@launch
+                if (version != conversationSelectionVersion || ownerVersion != fileAttachmentOwnerVersion || conversationArchiveBusy) return@launch
+                val latest = conversationsById[conversationId] ?: return@launch
+                // Runtime recovery may have hydrated/updated it while the database read ran.
+                applySelectedConversation(conversationId, if (latest.conversationContentLoaded) latest else loaded)
+                onSelected()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AndroidAgentLogger.warn("Conversation load failed: ${failure.safeLogType()}")
+                Toast.makeText(appContext, "对话加载失败，请重试。", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun applySelectedConversation(conversationId: String, state: AgentChatHomeUiState) {
+        check(state.conversationContentLoaded)
         fileAttachmentOwnerVersion += 1
         selectedConversationId = conversationId
-        val resolvedState = state
-        conversationsById = conversationsById + (conversationId to resolvedState)
-        homeState = resolvedState
+        conversationsById = conversationsById + (conversationId to state)
+        homeState = state
         billedOverheadConversationId = null
         billedOverheadTokens = null
-        syncBilledOverhead(conversationId, resolvedState.messages)
+        syncBilledOverhead(conversationId, state.messages)
         conversationPaneState = conversationPaneState.copy(selectedConversationId = conversationId)
         persistConversations()
         restoreConversationRuntimeModel()
@@ -1232,36 +1283,75 @@ internal class AgentAppState(
     }
 
     fun deleteAllConversations() {
-        if (rejectConversationArchiveMutation()) return
-        val ids = conversationsById.keys.toList()
-        if (ids.isEmpty()) return
-        conversationsById.forEach { (id, state) ->
-            val content = if (state.conversationContentLoaded) state else
-                requireNotNull(AgentConversationStore.loadConversation(appContext, id))
-            retainDeletedConversation(content.messages, conversationUpdatedAt[id])
-        }
-        conversationDrafts.clear()
-        conversationsById = emptyMap()
-        conversationTitles = emptyMap()
-        conversationUpdatedAt = emptyMap()
-        conversationFolderIds = emptyMap()
-        conversationPinned = emptySet()
-        scope.launch(Dispatchers.IO) {
-            ids.forEach { chatImageCache.deleteConversation(it) }
-        }
-        fileAttachmentOwnerVersion += 1
-        selectedConversationId = null
-        pendingNewConversationFolderId = selectedFolderId
-        homeState = newDraftChatState()
-        conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
-        refreshConversationSummaries()
-        val deletion = persistConversations()
-        scope.launch(Dispatchers.IO) {
-            if (deletion.await()) {
-                ids.forEach { id ->
-                    runCatching { io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, id).delete() }
-                        .onFailure { AndroidAgentLogger.warn("压缩原文清理失败：${it.javaClass.simpleName}") }
+        if (rejectConversationArchiveMutation() || deleteAllConversationsJob?.isActive == true || conversationsById.isEmpty()) return
+        deleteAllConversationsJob = scope.launch {
+            try {
+                withConversationArchive {
+                    val source = conversationsById
+                    val timestamps = conversationUpdatedAt
+                    val ids = source.keys.toList()
+                    val aggregate = runInterruptible(Dispatchers.IO) {
+                        var usage = ConversationTokenUsageUi()
+                        var messageCount = 0
+                        val heatmap = mutableMapOf<java.time.LocalDate, Int>()
+                        source.forEach { (id, state) ->
+                            val content = if (state.conversationContentLoaded) state else
+                                requireNotNull(AgentConversationStore.loadConversation(appContext, id))
+                            val amount = conversationTokenUsage(content.messages)
+                            usage = ConversationTokenUsageUi(usage.inputTokens + amount.inputTokens,
+                                usage.outputTokens + amount.outputTokens, usage.cachedTokens + amount.cachedTokens)
+                            messageCount += content.messages.count { it is UserMessageUi || it is AgentMessageUi }
+                            timestamps[id]?.takeIf { it > 0L }?.let { timestamp ->
+                                val day = java.time.Instant.ofEpochMilli(timestamp).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                                heatmap[day] = (heatmap[day] ?: 0) + 1
+                            }
+                        }
+                        Triple(usage, messageCount, heatmap.toMap())
+                    }
+                    check(conversationsById === source && conversationUpdatedAt === timestamps) { "会话已变化，请重试" }
+                    // Commit before deleting drafts/images or changing UI. Once committed,
+                    // cancellation must not leave UI representing rows that no longer exist.
+                    withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                        AgentConversationStore.save(appContext, null, emptyMap(), emptyMap(), emptyMap(), folders = conversationFolders)
+                        withContext(Dispatchers.Main.immediate) {
+                            pendingRetiredUsage = ConversationTokenUsageUi(
+                                pendingRetiredUsage.inputTokens + aggregate.first.inputTokens,
+                                pendingRetiredUsage.outputTokens + aggregate.first.outputTokens,
+                                pendingRetiredUsage.cachedTokens + aggregate.first.cachedTokens,
+                            )
+                            pendingRetiredConversations += ids.size
+                            pendingRetiredMessages += aggregate.second
+                            aggregate.third.forEach { (day, count) ->
+                                pendingRetiredHeatmap = pendingRetiredHeatmap + (day to ((pendingRetiredHeatmap[day] ?: 0) + count))
+                            }
+                            conversationDrafts.clear()
+                            conversationsById = emptyMap()
+                            conversationTitles = emptyMap()
+                            conversationUpdatedAt = emptyMap()
+                            conversationFolderIds = emptyMap()
+                            conversationPinned = emptySet()
+                            fileAttachmentOwnerVersion += 1
+                            selectedConversationId = null
+                            pendingNewConversationFolderId = selectedFolderId
+                            homeState = newDraftChatState()
+                            conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
+                            refreshConversationSummaries()
+                        }
+                        ids.forEach { id ->
+                            runCatching { chatImageCache.deleteConversation(id) }
+                                .onFailure { AndroidAgentLogger.warn("图片缓存清理失败：${it.javaClass.simpleName}") }
+                            runCatching { io.github.mangi.eta.agent.model.AgentCompactionArchive(appContext.filesDir, id).delete() }
+                                .onFailure { AndroidAgentLogger.warn("压缩原文清理失败：${it.javaClass.simpleName}") }
+                        }
+                    }
                 }
+                // Retired counters are written only after deletion has durably succeeded.
+                persistConversations()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AndroidAgentLogger.warn("Delete all conversations failed: ${failure.safeLogType()}")
+                Toast.makeText(appContext, "删除未完成，请等待任务结束或稍后重试。", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -4447,7 +4537,8 @@ internal class AgentAppState(
         return conversationState(conversationId) ?: emptyChatState(defaultThinkingEnabled)
     }
 
-    private fun conversationState(id: String): AgentChatHomeUiState? {
+    private fun conversationState(id: String?): AgentChatHomeUiState? {
+        if (id == null) return null
         val cached = conversationsById[id] ?: return null
         if (cached.conversationContentLoaded) return cached
         val loaded = AgentConversationStore.loadConversation(appContext, id) ?: return null
@@ -4568,6 +4659,33 @@ internal class AgentAppState(
         pendingRetiredHeatmap = pendingRetiredHeatmap + (day to ((pendingRetiredHeatmap[day] ?: 0) + 1))
     }
 
+    private data class ConversationSaveSnapshot(
+        val selected: String?,
+        val conversations: Map<String, AgentChatHomeUiState>,
+        val titles: Map<String, String>,
+        val timestamps: Map<String, Long>,
+        val folderIds: Map<String, String>,
+        val pinnedIds: Set<String>,
+        val folders: List<ConversationFolderUi>,
+        val retired: ConversationTokenUsageUi,
+        val retiredConversations: Int,
+        val retiredMessages: Int,
+        val retiredHeatmap: Map<java.time.LocalDate, Int>,
+    ) {
+        fun mergeRetiredFrom(older: ConversationSaveSnapshot): ConversationSaveSnapshot = copy(
+            retired = ConversationTokenUsageUi(
+                inputTokens = retired.inputTokens + older.retired.inputTokens,
+                outputTokens = retired.outputTokens + older.retired.outputTokens,
+                cachedTokens = retired.cachedTokens + older.retired.cachedTokens,
+            ),
+            retiredConversations = retiredConversations + older.retiredConversations,
+            retiredMessages = retiredMessages + older.retiredMessages,
+            retiredHeatmap = (retiredHeatmap.keys + older.retiredHeatmap.keys).associateWith {
+                (retiredHeatmap[it] ?: 0) + (older.retiredHeatmap[it] ?: 0)
+            },
+        )
+    }
+
     private fun persistConversations(allowArchive: Boolean = false, onSaved: (() -> Unit)? = null): Deferred<Boolean> {
         if (conversationArchiveBusy && !allowArchive) {
             return kotlinx.coroutines.CompletableDeferred<Boolean>().also { deferredArchiveSaves += it to onSaved }
@@ -4575,75 +4693,72 @@ internal class AgentAppState(
         if (io.github.mangi.eta.agent.runtime.AgentExecutionService.backupMaintenance) {
             return kotlinx.coroutines.CompletableDeferred(false)
         }
-        val selected = selectedConversationId
-        val conversations = conversationsById
-        val titles = conversationTitles
-        val timestamps = conversationUpdatedAt
-        val folderIds = conversationFolderIds
-        val pinnedIds = conversationPinned
-        val folders = conversationFolders
         return synchronized(persistenceLock) {
-            val retired = pendingRetiredUsage
-            val retiredConversations = pendingRetiredConversations
-            val retiredMessages = pendingRetiredMessages
-            val retiredHeatmap = pendingRetiredHeatmap
+            val snapshot = ConversationSaveSnapshot(
+                selectedConversationId, conversationsById, conversationTitles, conversationUpdatedAt,
+                conversationFolderIds, conversationPinned, conversationFolders,
+                pendingRetiredUsage, pendingRetiredConversations, pendingRetiredMessages, pendingRetiredHeatmap,
+            )
             pendingRetiredUsage = ConversationTokenUsageUi()
             pendingRetiredConversations = 0
             pendingRetiredMessages = 0
             pendingRetiredHeatmap = emptyMap()
-            val previous = persistenceJob
-            scope.async(Dispatchers.IO) {
-                try {
-                    previous?.join()
-                    conversationPersistenceMutex.withLock {
-                        AgentConversationStore.save(
-                            context = appContext,
-                            selectedConversationId = selected,
-                            conversationsById = conversations,
-                            titles = titles,
-                            updatedAt = timestamps,
-                            folderIds = folderIds,
-                            pinnedIds = pinnedIds,
-                            folders = folders,
-                        )
-                        SettingsDataStore.addRetiredUsage(
-                            inputTokens = retired.inputTokens,
-                            outputTokens = retired.outputTokens,
-                            cachedTokens = retired.cachedTokens,
-                            conversations = retiredConversations,
-                            messages = retiredMessages,
-                            heatmap = retiredHeatmap,
-                        )
-                    }
-                    withContext(Dispatchers.Main.immediate) {
-                        releasePersistedConversationContent(conversations)
-                    }
-                    onSaved?.invoke()
-                    lastConversationPersistenceError = null
-                    true
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (throwable: Throwable) {
-                    withContext(Dispatchers.Main) {
-                        pendingRetiredUsage = ConversationTokenUsageUi(
-                            inputTokens = pendingRetiredUsage.inputTokens + retired.inputTokens,
-                            outputTokens = pendingRetiredUsage.outputTokens + retired.outputTokens,
-                            cachedTokens = pendingRetiredUsage.cachedTokens + retired.cachedTokens,
-                        )
-                        pendingRetiredConversations += retiredConversations
-                        pendingRetiredMessages += retiredMessages
-                        retiredHeatmap.forEach { (day, count) ->
-                            pendingRetiredHeatmap =
-                                pendingRetiredHeatmap + (day to ((pendingRetiredHeatmap[day] ?: 0) + count))
-                        }
-                    }
-                    AndroidAgentLogger.error(
-                        "Agent conversation persistence failed: type=${throwable.safeLogType()} message=${throwable.message}"
-                    )
-                    lastConversationPersistenceError = throwable.message
-                    false
+            persistenceQueue.submit(snapshot, onSaved)
+        }
+    }
+
+    private suspend fun writeConversationSnapshot(snapshot: ConversationSaveSnapshot): Boolean {
+        var retirementCommitted = false
+        try {
+            conversationPersistenceMutex.withLock {
+                AgentConversationStore.save(
+                    context = appContext, selectedConversationId = snapshot.selected,
+                    conversationsById = snapshot.conversations, titles = snapshot.titles,
+                    updatedAt = snapshot.timestamps, folderIds = snapshot.folderIds,
+                    pinnedIds = snapshot.pinnedIds, folders = snapshot.folders,
+                )
+                SettingsDataStore.addRetiredUsage(
+                    inputTokens = snapshot.retired.inputTokens,
+                    outputTokens = snapshot.retired.outputTokens,
+                    cachedTokens = snapshot.retired.cachedTokens,
+                    conversations = snapshot.retiredConversations,
+                    messages = snapshot.retiredMessages,
+                    heatmap = snapshot.retiredHeatmap,
+                )
+                retirementCommitted = true
+            }
+            withContext(Dispatchers.Main.immediate) {
+                releasePersistedConversationContent(snapshot.conversations)
+            }
+            lastConversationPersistenceError = null
+            return true
+        } catch (cancelled: CancellationException) {
+            if (!retirementCommitted) restorePendingRetiredUsage(snapshot)
+            throw cancelled
+        } catch (failure: Exception) {
+            if (!retirementCommitted) restorePendingRetiredUsage(snapshot)
+            AndroidAgentLogger.error(
+                "Agent conversation persistence failed: type=${failure.safeLogType()} message=${failure.message}"
+            )
+            lastConversationPersistenceError = failure.message
+            return false
+        }
+    }
+
+    private suspend fun restorePendingRetiredUsage(snapshot: ConversationSaveSnapshot) {
+        withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main.immediate) {
+            synchronized(persistenceLock) {
+                pendingRetiredUsage = ConversationTokenUsageUi(
+                    inputTokens = pendingRetiredUsage.inputTokens + snapshot.retired.inputTokens,
+                    outputTokens = pendingRetiredUsage.outputTokens + snapshot.retired.outputTokens,
+                    cachedTokens = pendingRetiredUsage.cachedTokens + snapshot.retired.cachedTokens,
+                )
+                pendingRetiredConversations += snapshot.retiredConversations
+                pendingRetiredMessages += snapshot.retiredMessages
+                snapshot.retiredHeatmap.forEach { (day, count) ->
+                    pendingRetiredHeatmap = pendingRetiredHeatmap + (day to ((pendingRetiredHeatmap[day] ?: 0) + count))
                 }
-            }.also { persistenceJob = it }
+            }
         }
     }
 

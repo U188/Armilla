@@ -1,10 +1,13 @@
 package io.github.mangi.eta.ui.app
 
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -18,7 +21,8 @@ import kotlinx.coroutines.launch
  *
  * A receipt becomes true only after its covering write succeeds and its callback has run.
  * False/throwing writes fail that batch without preventing later writes. Scope/worker
- * cancellation fails unfinished receipts with false. Cancelling an individual receipt does
+ * cancellation fails requests whose success callback has not started with false. A started
+ * success callback completes true even if that callback cancels its owner. Cancelling a receipt does
  * not cancel the shared write or suppress its success callback.
  *
  * The worker lives until [scope] is cancelled (use an application-owned scope, not a temporary
@@ -35,7 +39,11 @@ internal class LatestConversationSaveQueue<T>(
         val result = CompletableDeferred<Boolean>()
     }
 
-    private class Batch<T>(var value: T, val requests: MutableList<Request>)
+    private class Payload<T>(val value: T)
+    private class Batch<T>(value: T, val requests: MutableList<Request>) {
+        var payload: Payload<T>? = Payload(value)
+        fun release() { payload = null; requests.clear() }
+    }
 
     private val lock = Any()
     private val wakeups = Channel<Unit>(Channel.CONFLATED)
@@ -50,16 +58,21 @@ internal class LatestConversationSaveQueue<T>(
                 } ?: continue
                 try {
                     val saved = try {
-                        write(batch.value)
+                        write(checkNotNull(batch.payload).value)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
                         false
                     }
-                    finish(batch, saved)
+                    batch.payload = null
+                    // A non-cooperative writer may return after cancellation.
+                    currentCoroutineContext().ensureActive()
+                    finish(batch, saved, activeContext = currentCoroutineContext())
                 } finally {
                     // Covers cancellation during write, and even an unexpected fatal callback.
                     batch.requests.forEach { it.result.complete(false) }
+                    // Do not rely on coroutine spill-slot liveness to release a saved transcript.
+                    batch.release()
                 }
             }
         }
@@ -72,7 +85,7 @@ internal class LatestConversationSaveQueue<T>(
                 pending.also { pending = null }
             }
             wakeups.close()
-            abandoned?.let { finish(it, false) }
+            abandoned?.let { try { finish(it, false) } finally { it.release() } }
         }
     }
 
@@ -88,7 +101,7 @@ internal class LatestConversationSaveQueue<T>(
                     true
                 } else {
                     try {
-                        batch.value = merge(batch.value, value)
+                        batch.payload = Payload(merge(checkNotNull(batch.payload).value, value))
                         batch.requests.add(request)
                         true
                     } catch (_: Exception) {
@@ -109,8 +122,10 @@ internal class LatestConversationSaveQueue<T>(
         return request.result
     }
 
-    private fun finish(batch: Batch<T>, saved: Boolean) {
+    private fun finish(batch: Batch<T>, saved: Boolean, activeContext: CoroutineContext? = null) {
         for (request in batch.requests) {
+            // This guard is outside the completion finally: a cancelled request is false.
+            if (saved) activeContext?.ensureActive()
             try {
                 if (saved) {
                     try {

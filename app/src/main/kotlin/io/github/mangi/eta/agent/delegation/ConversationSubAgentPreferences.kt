@@ -156,7 +156,7 @@ internal class ConversationSubAgentPreferences(
                 providerId = preferences.getString("agent_child_${slot}_provider", "").orEmpty(),
                 modelId = preferences.getString("agent_child_${slot}_model", "").orEmpty(),
                 reasoning = ReasoningEffort.fromWireValue(preferences.getString("agent_child_${slot}_reasoning", "").orEmpty()),
-                tier = if (slot == 1) null else SubAgentTaskTier.fromWireValue(preferences.getString("agent_child_${slot}_task_tier", "")))
+                tier = if (slot == 1) null else SubAgentTaskTier.fromWireValue(preferences.getString("agent_child_${slot}_task_tier", "").orEmpty()))
         }
         val legacy = preferences.all.filterKeys { it.matches(Regex("agent_model_parallel_[0-9a-f]{64}")) }
             .mapValues { (_, raw) -> when (raw) {

@@ -10,7 +10,7 @@ class ExistingChildTaskToolsTest {
     @Test fun disabledDelegationStillExposesOwnerTaskRecoveryWithoutNewDispatch() {
         val tools = JSONArray().also(ExistingChildTaskTools::appendTo)
         val names = (0 until tools.length()).map { tools.getJSONObject(it).getJSONObject("function").getString("name") }
-        assertEquals(setOf("get_task_result", "continue_task", "cancel_task", "supervise_task"), names.toSet())
+        assertEquals(setOf("get_task_result", "manage_agent_workspace", "continue_task", "cancel_task", "supervise_task"), names.toSet())
         assertFalse("delegate_task" in names)
         val validator = AgentToolCallValidator(tools)
         assertNull(validator.validate(AgentModelClient.ToolCall("id", "get_task_result", "{}")))

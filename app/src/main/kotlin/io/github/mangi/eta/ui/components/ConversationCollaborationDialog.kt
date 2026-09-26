@@ -96,7 +96,7 @@ internal fun ConversationCollaborationDialog(
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { TouchHaptics.click(view); onDismiss() }) { Text("完成") }
+                        TextButton(enabled = !taskRunning, onClick = { TouchHaptics.click(view); onDismiss() }) { Text("完成") }
                     }
                 }
             }

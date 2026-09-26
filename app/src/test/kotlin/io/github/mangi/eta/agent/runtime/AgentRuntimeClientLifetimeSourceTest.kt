@@ -11,7 +11,7 @@ class AgentRuntimeClientLifetimeSourceTest {
         File("src/main/kotlin/io/github/mangi/eta/agent/runtime/AgentRuntimeClient.kt"),
         File("app/src/main/kotlin/io/github/mangi/eta/agent/runtime/AgentRuntimeClient.kt"),
     ).first { it.isFile }.readText()
-    private val run = blockAfter(client, "isStopRequested: () -> Boolean,")
+    private val run = blockAfter(client, "isStopRequested: () -> Boolean")
 
     @Test
     fun interruptedWaitCancelsOnlyForExplicitStopAndPropagatesWithoutATerminalResult() {

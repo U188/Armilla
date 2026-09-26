@@ -102,15 +102,26 @@ class SubAgentCoordinatorTest {
 
     @Test fun telemetryCanQueryTaskWithoutCoordinatorTaskLockInversion() {
         lateinit var c: SubAgentCoordinator
-        val observed = CountDownLatch(2)
+        val runningObserved = CountDownLatch(1)
+        val completedObserved = CountDownLatch(1)
+        val release = CountDownLatch(1)
         c = SubAgentCoordinator(listOf(model), onContext = { stats ->
             val result = get(c, stats.taskId, 0)
-            if (result.getBoolean("ok")) observed.countDown()
-        }, executeChild = { _, _, _ -> "done" })
+            if (result.getBoolean("ok")) {
+                when (stats.status) {
+                    "running" -> if (result.getString("status") == "running") runningObserved.countDown()
+                    "completed" -> if (result.getString("status") == "completed") completedObserved.countDown()
+                }
+            }
+        }, executeChild = { _, _, _ -> release.await(); "done" })
         c.use {
-            val id = start(c).getString("task_id")
-            assertEquals("completed", get(c, id).getString("status"))
-            assertTrue(observed.await(2, TimeUnit.SECONDS))
+            try {
+                val id = start(c).getString("task_id")
+                assertTrue(runningObserved.await(2, TimeUnit.SECONDS))
+                release.countDown()
+                assertEquals("completed", get(c, id).getString("status"))
+                assertTrue(completedObserved.await(2, TimeUnit.SECONDS))
+            } finally { release.countDown() }
         }
     }
 
@@ -330,14 +341,20 @@ class SubAgentCoordinatorTest {
     @Test fun compressingChildDoesNotBlockOtherWorkerAndLateTelemetryCannotReviveIt() {
         val compressing = CountDownLatch(1)
         val release = CountDownLatch(1)
+        val lateTelemetry = CountDownLatch(1)
+        val cancelledObserved = CountDownLatch(1)
         val events = java.util.Collections.synchronizedList(mutableListOf<SubAgentContextStats>())
-        SubAgentCoordinator(listOf(model, model), onContext = { events += it },
+        SubAgentCoordinator(listOf(model, model), onContext = {
+            events += it
+            if (it.status == "cancelled") cancelledObserved.countDown()
+        },
             executeObservedChild = { _, prompt, _, _, _, _, emit ->
                 if (prompt.contains("compress me")) {
                     emit(io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted(1))
                     compressing.countDown()
                     try { release.await() } catch (_: InterruptedException) { }
                     emit(io.github.mangi.eta.agent.runtime.AgentEvent.ContextCompactionStarted(2))
+                    lateTelemetry.countDown()
                 }
                 "done"
             }, executeChild = { _, _, _ -> error("Observed runner expected") }).use { c ->
@@ -348,9 +365,13 @@ class SubAgentCoordinatorTest {
             assertEquals("completed", get(c, second).getString("status"))
             c.execute(call("cancel_task", JSONObject().put("task_id", first)))
             release.countDown()
+            assertTrue(lateTelemetry.await(2, TimeUnit.SECONDS))
+            assertTrue(cancelledObserved.await(2, TimeUnit.SECONDS))
             assertEquals("cancelled", get(c, first, 0).getString("status"))
             assertFalse(get(c, first, 0).getJSONObject("context_usage").getBoolean("is_compacting"))
-            assertFalse(events.last { it.taskId == first }.isCompacting)
+            val last = synchronized(events) { events.last { it.taskId == first } }
+            assertEquals("cancelled", last.status)
+            assertFalse(last.isCompacting)
         }
     }
 

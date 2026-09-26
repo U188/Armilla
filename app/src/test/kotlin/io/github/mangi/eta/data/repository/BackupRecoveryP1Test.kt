@@ -26,6 +26,15 @@ class BackupRecoveryP1Test {
         override fun edit(): SharedPreferences.Editor {
             val delegate = real.edit()
             return object : SharedPreferences.Editor by delegate {
+                override fun putString(key: String?, value: String?): SharedPreferences.Editor {
+                    delegate.putString(key, value); return this
+                }
+                override fun remove(key: String?): SharedPreferences.Editor {
+                    delegate.remove(key); return this
+                }
+                override fun clear(): SharedPreferences.Editor {
+                    delegate.clear(); return this
+                }
                 override fun commit(): Boolean {
                     delegate.commit()
                     if (failures > 0) { failures--; return false }

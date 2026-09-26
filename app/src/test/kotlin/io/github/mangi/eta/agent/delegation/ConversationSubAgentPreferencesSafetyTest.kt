@@ -142,6 +142,9 @@ class ConversationSubAgentPreferencesSafetyTest {
         assertThrows(IllegalArgumentException::class.java) { b.delete(draft) }
         assertTrue(a.delete(first))
         assertFalse(b.confirmBoundDraft(draft, first))
+        assertThrows(IllegalArgumentException::class.java) { b.bindDraft(draft, second) }
+        assertEquals(saved.config, b.snapshot(second))
+        assertTrue(b.delete(second))
         b.bindDraft(draft, second)
         assertTrue(a.confirmBoundDraft(draft, second))
     }

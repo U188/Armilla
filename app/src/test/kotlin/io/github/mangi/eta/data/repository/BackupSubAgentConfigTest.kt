@@ -20,8 +20,10 @@ class BackupSubAgentConfigTest {
                 else -> error("Unexpected editor method ${method.name}")
             }
         } as SharedPreferences.Editor
-        return Proxy.newProxyInstance(javaClass.classLoader, arrayOf(SharedPreferences::class.java)) { _, method, args ->
+        return Proxy.newProxyInstance(javaClass.classLoader, arrayOf(SharedPreferences::class.java)) { proxy, method, args ->
             when (method.name) {
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args?.get(0)
                 "contains" -> values.containsKey(args!![0] as String)
                 "getString" -> values[args!![0] as String] ?: args[1]
                 "getAll" -> values.toMap()

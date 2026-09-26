@@ -5,12 +5,15 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3] / 'src/main/kotlin/io/github/mangi/eta'
 
 class MainMergeIntegrationTest(unittest.TestCase):
-    def test_material_recovery_retains_both_preview_capabilities(self):
+    def test_inline_controls_retain_authorized_preview_and_safe_close(self):
         page = (ROOT / 'ui/VirtualDisplayRecoveryScreen.kt').read_text()
-        for text in ('Scaffold(', 'VirtualDisplayWebPreview.open(context)', 'VirtualDisplayWebPreview.openWithManualClose(context)', 'onDispose { VirtualDisplayWebPreview.stop() }'):
+        for text in ('VirtualDisplayRecoveryControls(', 'VirtualDisplayWebPreview.openWithManualClose(context)',
+                     'onDispose {', 'VirtualDisplayWebPreview.stop()', 'snapshot.optBoolean("recoverable")'):
             self.assertIn(text, page)
-        self.assertEqual(2, page.count('check(stillInstalled)'))
-        self.assertNotIn('TextButton(text =', page)
+        self.assertEqual(1, page.count('check(stillInstalled)'))
+        self.assertEqual(3, page.count('Modifier.weight(1f).fillMaxHeight()'))
+        self.assertNotIn('VirtualDisplayWebPreview.open(context)', page)
+        self.assertNotIn('Scaffold(', page)
 
     def test_confirmed_empty_result_and_trailing_notice_paths_are_wired(self):
         live = (ROOT / 'ui/app/AgentAppState.kt').read_text()

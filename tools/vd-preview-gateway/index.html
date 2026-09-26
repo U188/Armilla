@@ -140,7 +140,7 @@
         <label for="preview-mode">模式
             <select id="preview-mode" onchange="changePreviewMode()">
                 <option value="module">模块副屏</option>
-                <option value="eta">代鱼副屏（只读）</option>
+                <option value="eta">代鱼副屏</option>
             </select>
         </label>
         <label id="eta-display-controls" for="eta-display" hidden>Display 编号
@@ -280,8 +280,8 @@
             modeEl.value = previewMode;
             displayControlsEl.hidden = previewMode !== 'eta';
             footerEl.textContent = previewMode === 'eta'
-                ? (etaConfig && etaConfig.controlToken ? '已授权手动关闭 · 仅关闭身份和空屏状态已核实的代鱼副屏 · 不强杀或自动重试' : '代鱼只读预览 · 手动刷新列表和画面 · 手动关闭请从代鱼的「网页预览与手动关闭」入口授权')
-                : '模块画面为手动刷新。代鱼会话请切换到「代鱼副屏（只读）」。';
+                ? (etaConfig && etaConfig.controlToken ? '已授权手动关闭 · 仅关闭身份和空屏状态已核实的代鱼副屏 · 不强杀或自动重试' : '代鱼只读预览 · 手动刷新列表和画面 · 手动关闭请从代鱼的「网页实时预览」入口授权')
+                : '模块画面为手动刷新。代鱼会话请切换到「代鱼副屏」。';
             renderToggle();
         }
         function changePreviewMode() {

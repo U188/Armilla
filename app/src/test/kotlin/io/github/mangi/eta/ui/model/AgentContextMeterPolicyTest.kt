@@ -29,7 +29,8 @@ class AgentContextMeterPolicyTest {
         val ring = liveContextUsage(emptyList(), "", emptyList(), null,
             historyTokenCount = 20000, billedContextTokens = 10000, requestOverheadTokens = 3000)
         val budget = compressionContextUsage(emptyList(), "", emptyList(), null,
-            historyTokenCount = 20000, billedContextTokens = 10000, requestOverheadTokens = 3000)
+            historyTokenCount = 20000, localHistoryTokenCount = 20000,
+            billedContextTokens = 10000, requestOverheadTokens = 3000)
         assertEquals(10000, ring.contextTokens)
         assertEquals(23000, budget.contextTokens)
         val conservative = compressionContextUsage(emptyList(), "", emptyList(), null,
@@ -54,4 +55,28 @@ class AgentContextMeterPolicyTest {
         assertNull(CloudUsageReceiptCodec.decodeReceipt(raw, "c", "p", "m", "edited"))
         assertEquals("", CloudUsageReceiptCodec.encode("c", "p", "m", "history", null, 6000, 700))
     }
+
+    @Test fun unsentHistoryMediaDoesNotDriftRawCloudCalibration() {
+        val part = org.json.JSONObject().put("type", "video_url")
+            .put("video_url", org.json.JSONObject().put("url", "data:video/mp4;base64,AAAA"))
+        val history = listOf(AgentModelClient.ConversationMessage("user", "", contentJson = org.json.JSONArray().put(part).toString()))
+        val raw = history.sumOf { AgentContextBudget.countMessage(it) }
+        val preview = liveContextUsage(history, "", emptyList(), null, requestOverheadTokens = 100)
+        assertTrue(requireNotNull(preview.contextTokens) < raw + 100)
+        val budget = compressionContextUsage(history, "", emptyList(), null,
+            billedContextTokens = 9000, billedHistoryTokens = raw,
+            billedOverheadTokens = 100, requestOverheadTokens = 100)
+        assertEquals(9000, budget.contextTokens)
+        assertEquals(9000, liveContextUsage(history, "", emptyList(), null, billedContextTokens = 9000).contextTokens)
+    }
+
+    @Test fun videoOnlyModelStillCountsAcceptedDraftVideo() {
+        val model = AgentModelOptionUi("m", "p", "P", "custom", "m", "M", 100000,
+            supportsVision = false, supportsVideo = true)
+        val attachment = PendingImageUi("v", "content://video", "data:image/jpeg;base64,AAAA", "video/mp4",
+            isVideo = true, byteSize = 2 * 1024 * 1024)
+        val usage = liveContextUsage(emptyList(), "watch", listOf(attachment), model)
+        assertEquals(AgentContextBudget.countCurrentTurn("watch", listOf(attachment.toOutboundModelImage(true))), usage.contextTokens)
+    }
+
 }

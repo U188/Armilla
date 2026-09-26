@@ -201,9 +201,15 @@ internal fun AgentChatInputBar(
     val textFieldState = draftField ?: rememberTextFieldState(initialText = input)
     var wasEditingMessage by remember { mutableStateOf(isEditingMessage) }
     val draftText = textFieldState.text.toString()
+    // Raw counts calibrate existing cloud receipts; filtered counts are local preview only.
     val historyTokenCount = remember(history) { history.sumOf { io.github.mangi.eta.agent.model.AgentContextBudget.countMessage(it) } }
+    val supportsVision = modelPickerState.selectedModel?.supportsVision == true
+    val supportsVideo = modelPickerState.selectedModel?.supportsVideo == true
+    val localHistoryTokenCount = remember(history, supportsVision, supportsVideo) {
+        io.github.mangi.eta.agent.model.AgentRequestTokenEstimate.history(history, supportsVision, supportsVideo)
+    }
     val liveUsage = remember(
-        historyTokenCount, projectedContextTokens,
+        localHistoryTokenCount, projectedContextTokens,
         billedContextTokens,
         requestOverheadTokens,
         billedOverheadTokens,
@@ -216,7 +222,7 @@ internal fun AgentChatInputBar(
     ) {
         liveContextUsage(
             history = emptyList(),
-            historyTokenCount = historyTokenCount,
+            historyTokenCount = localHistoryTokenCount,
             projectedContextTokens = projectedContextTokens,
             currentInput = draftText,
             pendingImages = pendingImages,
@@ -229,12 +235,13 @@ internal fun AgentChatInputBar(
             uncommittedLiveTokens = uncommittedLiveTokens,
         )
     }
-    val sendBudget = remember(historyTokenCount, draftText, pendingImages, pendingFileReferences,
+    val sendBudget = remember(historyTokenCount, localHistoryTokenCount, draftText, pendingImages, pendingFileReferences,
         conversationMentions.pending, modelPickerState.selectedModel, billedContextTokens,
         billedHistoryTokens, requestOverheadTokens, billedOverheadTokens) {
         io.github.mangi.eta.ui.model.compressionContextUsage(
             history = emptyList(), currentInput = draftText, pendingImages = pendingImages,
             selectedModel = modelPickerState.selectedModel, historyTokenCount = historyTokenCount,
+            localHistoryTokenCount = localHistoryTokenCount,
             pendingFileReferences = pendingFileReferences, pendingConversationMentions = conversationMentions.pending,
             billedContextTokens = billedContextTokens, requestOverheadTokens = requestOverheadTokens,
             billedHistoryTokens = billedHistoryTokens, billedOverheadTokens = billedOverheadTokens,

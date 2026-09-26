@@ -191,13 +191,17 @@ internal class AgentLoop(
             val requestHistoryTokens = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds)
                 .sumOf { AgentContextBudget.countMessage(it).toLong() }
                 .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-            val requestFixedTokens = (requestLocal - requestHistoryTokens).coerceAtLeast(0)
-            silentBudget.requestStarted(requestLocal)
+            // UI history calibration retains its original raw DTO basis, including old receipts.
+            val requestFixedTokens = AgentRequestTokenEstimate.fixed(messages, systemCount, roundTools)
+            // Finish the raw metadata pass before retaining the hydrated copy (lower peak memory).
+            // Reuse exactly one hydrated/filtered snapshot for projection and transport.
+            val filteredMessages = AgentRequestMediaPolicy.filter(messages, config.supportsVision, config.supportsVideo)
             val publishLocalEstimate = requestBudget.consumeLocalBoundary()
-            val localEstimate = if (publishLocalEstimate) {
-                (AgentContextBudget.estimate(messages) + AgentContextBudget.countTokens(currentRoundTools.toString()))
-                    .takeIf { it > 0 }
+            val preparedRequestTokens = if (publishLocalEstimate) {
+                AgentRequestTokenEstimate.filtered(filteredMessages, roundTools)
             } else null
+            silentBudget.requestStarted(requestLocal)
+            val localEstimate = preparedRequestTokens?.takeIf { it > 0 }
             requestBudget.requestStarted()
             lastUsage = null // A new request must not inherit missing fields from the preceding bill.
             localEstimate?.let { estimate ->
@@ -207,8 +211,7 @@ internal class AgentLoop(
                 modelRetry.complete(
                     initialRound = round,
                     request = ProviderRequest(requestConfigForRound(),
-                        AgentRequestMediaPolicy.filter(messages, config.supportsVision, config.supportsVideo),
-                        roundTools, sessionId),
+                        filteredMessages, roundTools, sessionId),
                     provider = provider,
                     controller = runController,
                     onEvent = onEvent,
@@ -423,8 +426,7 @@ internal class AgentLoop(
         .map { AgentConversationCodec.fromJsonObject(messages.getJSONObject(it)) }
 
     private fun localRequestTokens(): Int =
-        (AgentContextBudget.estimate(messages).toLong() + AgentContextBudget.countTokens(currentRoundTools.toString()))
-            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        AgentRequestTokenEstimate.boundary(messages, currentRoundTools, config.supportsVision, config.supportsVideo)
 
     // Compression and send limits use this silent budget, not the ring display.
     private fun requestBudgetTokens(): Int = silentBudget.tokens(localRequestTokens())

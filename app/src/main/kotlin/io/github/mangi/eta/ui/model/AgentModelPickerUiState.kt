@@ -278,7 +278,8 @@ internal fun liveContextUsage(
     }
     val draft = draftContextTokens(currentInput, pendingImages, selectedModel, pendingFileReferences, pendingConversationMentions)
     val local = projectedContextTokens?.takeIf { it > 0 }?.toLong()
-        ?: ((historyTokenCount ?: history.sumOf { AgentContextBudget.countMessage(it) }).toLong() +
+        ?: ((historyTokenCount ?: io.github.mangi.eta.agent.model.AgentRequestTokenEstimate.history(
+            history, selectedModel?.supportsVision == true, selectedModel?.supportsVideo == true)).toLong() +
             requestOverheadTokens.coerceAtLeast(0) + uncommittedLiveTokens.coerceAtLeast(0))
     return AgentContextUsageUi((local + draft).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(), selectedModel?.contextWindow, estimated = true)
 }
@@ -296,13 +297,14 @@ internal fun compressionContextUsage(
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
     billedHistoryTokens: Int? = null,
+    localHistoryTokenCount: Int? = null,
 ): AgentContextUsageUi {
     if (billedContextTokens == null || billedContextTokens <= 0 ||
         billedHistoryTokens == null || billedOverheadTokens == null) {
         // Legacy cloud receipts keep the ring accurate, but lack the calibration
         // needed for a safe delta. Only the silent budget falls back to a full estimate.
         val local = liveContextUsage(history, currentInput, pendingImages, selectedModel,
-            pendingFileReferences, pendingConversationMentions, historyTokenCount,
+            pendingFileReferences, pendingConversationMentions, localHistoryTokenCount,
             requestOverheadTokens = requestOverheadTokens)
         val floor = (billedContextTokens?.coerceAtLeast(0)?.toLong() ?: 0L) +
             draftContextTokens(currentInput, pendingImages, selectedModel, pendingFileReferences, pendingConversationMentions)
@@ -324,11 +326,14 @@ private fun draftContextTokens(
     files: List<PendingFileReferenceUi>, mentions: List<PendingConversationMentionUi>,
 ): Int {
     val vision = selectedModel?.supportsVision == true
-    val imageFiles = if (vision) emptyList() else pendingImages.mapIndexed { index, image ->
-        AgentFileReference(displayName = image.cacheDisplayName(index), absolutePath = "/cache/chat-image-${index + 1}", kind = AgentFileReferenceKind.File)
+    val video = selectedModel?.supportsVideo == true
+    fun accepted(image: PendingImageUi): Boolean = if (image.isVideo) video || vision else vision
+    val imageFiles = pendingImages.mapIndexedNotNull { index, image ->
+        if (accepted(image)) null else AgentFileReference(displayName = image.cacheDisplayName(index),
+            absolutePath = "/cache/chat-image-${index + 1}", kind = AgentFileReferenceKind.File)
     }
     val prompt = AgentFileReferencePromptCodec.format(input, files.map { it.reference } + imageFiles, mentions.toMentionedConversations())
-    val images = if (vision) pendingImages.map { it.toOutboundModelImage(selectedModel?.supportsVideo == true) } else emptyList()
+    val images = pendingImages.filter(::accepted).map { it.toOutboundModelImage(video) }
     return if (prompt.isEmpty() && images.isEmpty()) 0 else AgentContextBudget.countCurrentTurn(prompt, images)
 }
 

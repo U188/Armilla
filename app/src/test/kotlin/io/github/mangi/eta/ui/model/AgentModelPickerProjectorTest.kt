@@ -258,7 +258,8 @@ class AgentModelPickerProjectorTest {
         val expectedImages = images.map { it.toLiveModelImage() }
         val expected = history.sumOf { AgentContextBudget.countMessage(it) } +
             AgentContextBudget.countCurrentTurn(expectedPrompt, expectedImages)
-        assertNull(usage.contextTokens)
+        assertEquals(expected, usage.contextTokens)
+        assertTrue(usage.estimated)
         assertEquals(8_000, usage.contextWindow)
         assertTrue(expectedPrompt.contains("/sdcard/notes.txt"))
         assertTrue(expectedPrompt.contains("please read this"))
@@ -301,9 +302,10 @@ class AgentModelPickerProjectorTest {
             pendingImages = listOf(huge),
             selectedModel = selected.copy(supportsVision = true),
         )
-        assertNull(withImage.contextTokens)
-        assertNull(vision.contextTokens)
-        assertNull(textOnly.contextTokens)
+        val tiny = liveContextUsage(emptyList(), "看图", listOf(huge.copy(dataUrl = "data:image/png;base64,AA")), selected)
+        assertEquals(tiny.contextTokens, withImage.contextTokens)
+        assertTrue(requireNotNull(withImage.contextTokens) >= requireNotNull(textOnly.contextTokens))
+        assertTrue(requireNotNull(vision.contextTokens) > requireNotNull(textOnly.contextTokens))
     }
 
     @Test
@@ -326,7 +328,8 @@ class AgentModelPickerProjectorTest {
             pendingImages = emptyList(),
             selectedModel = selected,
         )
-        assertNull(usage.contextTokens)
+        assertEquals(history.sumOf { AgentContextBudget.countMessage(it) }, usage.contextTokens)
+        assertTrue(usage.estimated)
     }
 
     @Test
@@ -360,7 +363,8 @@ class AgentModelPickerProjectorTest {
             "look",
             listOf(image.toLiveModelImage()),
         )
-        assertNull(usage.contextTokens)
+        assertEquals(expected, usage.contextTokens)
+        assertTrue(usage.estimated)
         assertTrue(AgentContextBudget.countImageTokens(image.toLiveModelImage()) > 85)
     }
 
@@ -524,7 +528,8 @@ class AgentModelPickerProjectorTest {
             selectedModel = selected,
             requestOverheadTokens = 12_000,
         )
-        assertNull(usage.contextTokens)
+        assertEquals(local + 12_000, usage.contextTokens)
+        assertTrue(usage.estimated)
     }
 
     @Test
@@ -784,7 +789,8 @@ class AgentModelPickerProjectorTest {
             selectedModel = selected,
             uncommittedLiveTokens = streaming,
         )
-        assertNull(usage.contextTokens)
+        assertEquals(history.sumOf { AgentContextBudget.countMessage(it) } + streaming, usage.contextTokens)
+        assertTrue(usage.estimated)
     }
 
     @Test

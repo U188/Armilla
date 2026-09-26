@@ -29,6 +29,9 @@ internal data class AgentChatUiState(
     /** 当前请求的 prompt 占用；工具循环里由 Runtime 按账单+增量投影，对齐 ST 输入。 */
     val livePromptTokens: Int? = null,
     val livePromptIsProjected: Boolean = false,
+    // Local snapshots paired with the valid cloud receipt. Never shown as cloud usage.
+    val cloudHistoryTokens: Int? = null,
+    val cloudRequestOverheadTokens: Int? = null,
     val childContexts: List<io.github.mangi.eta.agent.delegation.SubAgentContextStats> = emptyList(),
     val childContextRunId: String = "",
     val selectedContextTaskId: String? = null,

@@ -93,6 +93,7 @@ import io.github.mangi.eta.ui.model.ConversationTokenUsageUi
 import io.github.mangi.eta.ui.model.conversationTokenUsage
 import io.github.mangi.eta.ui.model.latestBilledContextTokens
 import io.github.mangi.eta.ui.model.liveContextUsage
+import io.github.mangi.eta.ui.model.compressionContextUsage
 import io.github.mangi.eta.ui.model.cacheDisplayName
 import io.github.mangi.eta.ui.model.toOutboundModelImage
 import io.github.mangi.eta.ui.model.shouldBlockSendForContextWindow
@@ -1709,6 +1710,7 @@ internal class AgentAppState(
             messageEdit = null,
             livePromptTokens = null,
                 livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
         )
         val sourceTitle = conversationTitles[sourceId].orEmpty().ifBlank {
             appContext.getString(R.string.conversation_unnamed)
@@ -1851,7 +1853,7 @@ internal class AgentAppState(
         } else {
             billedPromptTokens(homeState)
         }
-        val usage = liveContextUsage(
+        val usage = compressionContextUsage(
             history = history,
             currentInput = prompt,
             pendingImages = images,
@@ -1860,7 +1862,8 @@ internal class AgentAppState(
             pendingConversationMentions = conversationMentions,
             billedContextTokens = billed,
             requestOverheadTokens = requestOverheadTokens,
-            billedOverheadTokens = billedOverheadTokens,
+            billedOverheadTokens = homeState.cloudRequestOverheadTokens.takeIf { billed != null },
+            billedHistoryTokens = homeState.cloudHistoryTokens.takeIf { billed != null },
         )
         if (!shouldBlockSendForContextWindow(autoCompressEnabled, usage)) {
             return false
@@ -1881,7 +1884,7 @@ internal class AgentAppState(
     private fun keepRecentFor(): Int = AgentContextCompactor.keepRecentFor()
 
     private fun billedPromptTokens(state: AgentChatHomeUiState): Int? =
-        state.livePromptTokens
+        state.livePromptTokens.takeUnless { state.livePromptIsProjected }
 
     private fun compressionContextWindow(fallback: Int? = null): Int? =
         modelPickerState.selectedModel?.contextWindow?.takeIf { it > 0 }
@@ -2062,14 +2065,15 @@ internal class AgentAppState(
         val willCompress = !generateImage && !generateVideo && !skipAutoCompress && shouldAutoCompress(
             history = history,
             contextWindow = runConfig.contextWindow,
-            estimatedTokens = liveContextUsage(
+            estimatedTokens = compressionContextUsage(
                 history = history,
                 currentInput = prompt,
                 pendingImages = images,
                 selectedModel = runModelOption,
                 billedContextTokens = if (history == state.history) billedPromptTokens(state) else null,
                 requestOverheadTokens = runOverhead,
-                billedOverheadTokens = runBilledOverhead,
+                billedOverheadTokens = state.cloudRequestOverheadTokens,
+                billedHistoryTokens = state.cloudHistoryTokens,
             ).contextTokens,
         )
         val runMessages = if (generateImage || generateVideo) {
@@ -2152,14 +2156,15 @@ internal class AgentAppState(
                 p.toOutboundModelImage(supportsVideo).copy(source = "user_attach")
             }
             val compressModelConfig = resolveCompressModelConfig(config)
-            val estimatedTokens = liveContextUsage(
+            val estimatedTokens = compressionContextUsage(
                 history = history,
                 currentInput = prompt,
                 pendingImages = images,
                 selectedModel = runModelOption,
                 billedContextTokens = if (history == state.history) billedPromptTokens(state) else null,
                 requestOverheadTokens = runOverhead,
-                billedOverheadTokens = runBilledOverhead,
+                billedOverheadTokens = state.cloudRequestOverheadTokens,
+                billedHistoryTokens = state.cloudHistoryTokens,
             ).contextTokens
             val pendingInRunCompact = withContext(Dispatchers.Main) {
                 pendingInRunCompactConversationIds.remove(conversationId)
@@ -2544,6 +2549,7 @@ internal class AgentAppState(
                 history = io.github.mangi.eta.agent.model.AgentTurnIdentity.migrate(compressedHistory) + userHistoryMessage,
                 livePromptTokens = null,
                 livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = current.messages,
                     originalHistory = originalHistory,
@@ -3767,7 +3773,8 @@ internal class AgentAppState(
                 } else if (!isStaleUsageAfterCompact(runId, event.round)) {
                     val occupancy = io.github.mangi.eta.ui.model.windowTokensFromUsage(event.usage.toUi())
                     updateAssistantUsage(runId, event.round, event.usage.toUi())
-                    updateLivePromptTokens(runId, occupancy, projected = false)
+                    updateLivePromptTokens(runId, occupancy, projected = false,
+                        historyTokens = event.requestHistoryTokens, overheadTokens = event.requestOverheadTokens)
                 }
             }
 
@@ -3917,10 +3924,11 @@ internal class AgentAppState(
             AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
             updateConversation(conversationId, current.copy(
                 history = event.history,
-                livePromptTokens = AgentContextCompactionUi.pendingPruningUsage(current.livePromptTokens, current.messages, current.livePromptIsProjected),
+                livePromptTokens = null,
                 livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
             ))
-            // Retain the last cloud bill while the summary is pending; do not estimate usage.
+            // Pruning committed a new context: the old cloud calibration no longer applies.
             persistConversations()
             return
         }
@@ -3932,6 +3940,7 @@ internal class AgentAppState(
                 history = event.history,
                 livePromptTokens = null,
                 livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = current.messages,
                     originalHistory = current.history,
@@ -3970,14 +3979,15 @@ internal class AgentAppState(
         val boundModel = AgentModelPickerProjector.project(selectionProviders, state.providerId, state.modelId).selectedModel
             ?.takeIf { it.providerId == state.providerId && it.id == state.modelId } ?: return
         val contextWindow = boundModel.contextWindow
-        val estimatedTokens = liveContextUsage(
+        val estimatedTokens = compressionContextUsage(
             history = state.history,
             currentInput = "",
             pendingImages = emptyList(),
             selectedModel = boundModel,
             billedContextTokens = billedPromptTokens(state),
-            requestOverheadTokens = requestOverheadTokens,
-            billedOverheadTokens = billedOverheadTokens,
+            requestOverheadTokens = if (conversationId == selectedConversationId) requestOverheadTokens else state.cloudRequestOverheadTokens ?: 0,
+            billedOverheadTokens = state.cloudRequestOverheadTokens,
+            billedHistoryTokens = state.cloudHistoryTokens,
         ).contextTokens
         if (!shouldAutoCompress(state.history, contextWindow, estimatedTokens)) return
         if (runId != null && !allowRepeat) {
@@ -4021,6 +4031,7 @@ internal class AgentAppState(
                     history = compressed,
                     livePromptTokens = null,
                 livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = latest.messages,
                         originalHistory = originalHistory,
@@ -4155,17 +4166,24 @@ internal class AgentAppState(
         }
     }
 
-    private fun updateLivePromptTokens(runId: String, tokens: Int?, projected: Boolean = false) {
+    private fun updateLivePromptTokens(runId: String, tokens: Int?, projected: Boolean = false,
+        historyTokens: Int? = null, overheadTokens: Int? = null) {
         if (projected && stoppingRuns.containsKey(runId)) return
         if (tokens == null || tokens <= 0 || runId in invalidatedUsageRuns) return
         val conversationId = conversationIdForRun(runId) ?: return
         val state = conversationState(conversationId) ?: return
         val owner = runUsageOwners.getOrPut(runId) { state.providerId to state.modelId }
         if (owner != (state.providerId to state.modelId)) return
-        if (state.livePromptTokens == tokens && state.livePromptIsProjected == projected) return
+        // Existing cloud measurement wins across tool rounds AND across user runs.
+        // A successful context replacement clears it and reopens the local boundary.
+        if (projected && state.livePromptTokens != null && !state.livePromptIsProjected) return
+        val next = state.copy(livePromptTokens = tokens, livePromptIsProjected = projected,
+            cloudHistoryTokens = historyTokens.takeUnless { projected },
+            cloudRequestOverheadTokens = overheadTokens.takeUnless { projected })
+        if (next == state) return
         updateConversation(
             conversationId,
-            state.copy(livePromptTokens = tokens, livePromptIsProjected = projected),
+            next,
             updateTimestamp = false,
         )
     }
@@ -4355,7 +4373,13 @@ internal class AgentAppState(
         val modelChanged = previous != null &&
             (previous.providerId != state.providerId || previous.modelId != state.modelId)
         if (modelChanged) runConversationIds.filterValues { it == conversationId }.keys.forEach { invalidatedUsageRuns.add(it) }
-        val current = if (modelChanged) state.copy(livePromptTokens = null, livePromptIsProjected = false) else state
+        val current = when {
+            modelChanged -> state.copy(livePromptTokens = null, livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null)
+            state.livePromptTokens == null || state.livePromptIsProjected -> state.copy(
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null)
+            else -> state
+        }
         conversationsById = conversationsById + (conversationId to current)
         if (updateTimestamp) {
             conversationUpdatedAt = conversationUpdatedAt + (conversationId to System.currentTimeMillis())
@@ -5052,6 +5076,7 @@ internal class AgentAppState(
                     history = compressedHistory,
                     livePromptTokens = null,
                 livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
                     messages = AgentContextCompactionUi.applyMarker(
                         messages = current.messages,
                         originalHistory = originalHistory,
@@ -5070,6 +5095,7 @@ internal class AgentAppState(
                 history = compressedHistory,
                 livePromptTokens = null,
                 livePromptIsProjected = false,
+                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
                 messages = AgentContextCompactionUi.applyMarker(
                     messages = homeState.messages,
                     originalHistory = originalHistory,

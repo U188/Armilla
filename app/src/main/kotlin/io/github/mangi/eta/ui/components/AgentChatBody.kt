@@ -158,6 +158,8 @@ internal fun AgentChatBody(
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
     livePromptTokens: Int? = null,
+    livePromptIsProjected: Boolean = false,
+    billedHistoryTokens: Int? = null,
     childContexts: List<io.github.mangi.eta.agent.delegation.SubAgentContextStats> = emptyList(),
     compactingModelName: String = "",
     selectedContextTaskId: String? = null,
@@ -290,13 +292,14 @@ internal fun AgentChatBody(
         }
     }
 
-    val billedContextTokens = remember(messages, livePromptTokens, messageEdit) {
+    val billedContextTokens = remember(livePromptTokens, livePromptIsProjected, messageEdit) {
         if (messageEdit != null) {
             null
         } else {
-            livePromptTokens
+            livePromptTokens.takeUnless { livePromptIsProjected }
         }
     }
+    val projectedContextTokens = livePromptTokens.takeIf { livePromptIsProjected && messageEdit == null && isStreaming }
     val uncommittedLiveTokens = 0 // Cloud-only metering: do not scan streaming text for local estimates.
     val imageSourceCache = remember { ChatImageSourceCache() }
     val previewGallery by produceState<List<String>>(emptyList(), visibleMessages, pendingImages) {
@@ -324,6 +327,8 @@ internal fun AgentChatBody(
                 modelPickerState = modelPickerState,
                 history = history,
                 billedContextTokens = billedContextTokens,
+                projectedContextTokens = projectedContextTokens,
+                billedHistoryTokens = billedHistoryTokens,
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
                 uncommittedLiveTokens = uncommittedLiveTokens,
@@ -402,6 +407,8 @@ private fun AgentChatScaffold(
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
     billedContextTokens: Int? = null,
+    projectedContextTokens: Int? = null,
+    billedHistoryTokens: Int? = null,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
     uncommittedLiveTokens: Int = 0,
@@ -488,6 +495,8 @@ private fun AgentChatScaffold(
                 modelPickerState = modelPickerState,
                 history = history,
                 billedContextTokens = billedContextTokens,
+                projectedContextTokens = projectedContextTokens,
+                billedHistoryTokens = billedHistoryTokens,
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
                 uncommittedLiveTokens = uncommittedLiveTokens,
@@ -1239,6 +1248,8 @@ private fun AgentChatBottomBar(
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
     billedContextTokens: Int? = null,
+    projectedContextTokens: Int? = null,
+    billedHistoryTokens: Int? = null,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
     uncommittedLiveTokens: Int = 0,
@@ -1343,6 +1354,8 @@ private fun AgentChatBottomBar(
                 modelPickerState = modelPickerState,
                 history = history,
                 billedContextTokens = billedContextTokens,
+                projectedContextTokens = projectedContextTokens,
+                billedHistoryTokens = billedHistoryTokens,
                 requestOverheadTokens = requestOverheadTokens,
                 billedOverheadTokens = billedOverheadTokens,
                 uncommittedLiveTokens = uncommittedLiveTokens,

@@ -40,7 +40,7 @@ class AgentAutomaticCompactionTest {
     @Test fun partialOutputUsagePreservesSameRequestInputAndAllowsRealCorrection() {
         for (corrected in listOf(false, true)) {
             val frames = mutableListOf(AgentTokenUsage(outputTokens = 20))
-            if (corrected) frames += AgentTokenUsage(inputTokens = AUTO_PRESSURE - 1)
+            if (corrected) frames += AgentTokenUsage(inputTokens = AUTO_PRESSURE - 1000)
             val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = AUTO_PRESSURE) }), frames)
             val events = mutableListOf<AgentEvent>()
             var summaries = 0
@@ -54,8 +54,8 @@ class AgentAutomaticCompactionTest {
         }
     }
 
-    @Test fun missingBilledUsageNeverTriggersAutomaticCompaction() {
-        // The local history is already above 80%, yet with no billed usage there is no decision.
+    @Test fun unmeasuredInitialRequestUsesSilentLocalPressure() {
+        // The local history exceeds 80% before any provider request: summarize safely.
         val messages = largeHistory()
         assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
         val events = mutableListOf<AgentEvent>()
@@ -65,26 +65,26 @@ class AgentAutomaticCompactionTest {
             compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
         assertEquals(1, provider.requests.size)
-        assertEquals(0, summaries)
+        assertEquals(1, summaries)
         assertTrue(events.filterIsInstance<AgentEvent.UsageReceived>().none { !it.projected })
         assertEquals(1, events.filterIsInstance<AgentEvent.UsageReceived>().count { it.projected })
-        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
-        assertTrue(events.none { it is AgentEvent.ContextCompacted })
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompacted>().count { it.applied })
     }
 
-    @Test fun billedUsageBelowEightyPercentNeverCompactsEvenWithLargeLocalHistory() {
-        val messages = largeHistory()
-        assertTrue(requestTokens(messages) >= AUTO_PRESSURE)
+    @Test fun calibratedUsageAndSmallIncrementBelowThresholdDoNotCompact() {
+        val messages = smallHistory()
+        assertTrue(requestTokens(messages) < AUTO_PRESSURE)
         val events = mutableListOf<AgentEvent>()
         var summaries = 0
-        val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = AUTO_PRESSURE - 1) }))
+        val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = AUTO_PRESSURE - 1000) }))
         assertEquals("done", runLoop(messages, provider, events,
             compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
         assertEquals(1, provider.requests.size)
         assertEquals(0, summaries)
         assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
-        assertEquals(AUTO_PRESSURE - 1,
+        assertEquals(AUTO_PRESSURE - 1000,
             requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single { !it.projected }.usage.inputTokens))
     }
 
@@ -92,16 +92,17 @@ class AgentAutomaticCompactionTest {
         // The decision uses the request's configured window, not the policy's default window.
         val config = modelConfig().copy(contextWindow = WINDOW / 2)
         val threshold = AgentContextCompactor.autoPressureTokens(requireNotNull(config.contextWindow))
+        val responseDelta = AgentContextBudget.countMessage(AgentConversationCodec.fromJsonObject(assistant()))
         for (decisionTokens in listOf(threshold - 1, threshold)) {
             val messages = smallHistory()
             val events = mutableListOf<AgentEvent>()
             var summaries = 0
-            val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = decisionTokens) }))
+            val provider = ScriptedProvider(listOf({ _, _ -> assistant(promptTokens = decisionTokens - responseDelta) }))
             assertEquals("done", runLoop(messages, provider, events, config = config,
                 compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
             assertEquals(1, provider.requests.size)
-            assertEquals(decisionTokens,
+            assertEquals(decisionTokens - responseDelta,
                 requireNotNull(events.filterIsInstance<AgentEvent.UsageReceived>().single { !it.projected }.usage.inputTokens))
             if (decisionTokens < threshold) {
                 assertEquals(0, summaries)
@@ -113,11 +114,11 @@ class AgentAutomaticCompactionTest {
         }
     }
 
-    @Test fun freshToolOutputIsNotLocallyAccumulatedIntoTheDecision() {
+    @Test fun silentToolIncrementTriggersSummaryWithoutChangingTheCloudBill() {
         val messages = smallHistory()
         val events = mutableListOf<AgentEvent>()
         var summaries = 0
-        val output = "x".repeat(900_000)
+        val output = "x".repeat(360_000)
         val provider = ScriptedProvider(listOf(
             { _, _ -> toolReply("big").put("usage", JSONObject().put("prompt_tokens", 131_470)) },
             { _, _ -> assistant(promptTokens = 20) },
@@ -127,10 +128,13 @@ class AgentAutomaticCompactionTest {
             compactHistory = { source, policy -> summaries++; summarize(source, policy) }).content)
 
         assertEquals(2, provider.requests.size)
-        assertEquals(0, summaries)
-        assertTrue(events.none { it is AgentEvent.ContextCompactionStarted })
-        // The retained history is far above 80% locally, yet only the billed usage gates a summary.
-        assertTrue(requestTokens(provider.requests.last()) >= AUTO_PRESSURE)
+        assertEquals(1, summaries)
+        assertEquals(1, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().size)
+        // The new cloud base is discarded after summary; the complete tool result still fits.
+        assertTrue(requestTokens(provider.requests.last()) < AUTO_PRESSURE)
+        assertTrue(provider.requests.last().toString().contains(output))
+        assertEquals(listOf(131470, 20), events.filterIsInstance<AgentEvent.UsageReceived>()
+            .filterNot { it.projected }.map { it.usage.inputTokens })
     }
 
     @Test fun automaticCompactionUsesBilledUsageThenWaitsForTheNextReport() {
@@ -156,7 +160,7 @@ class AgentAutomaticCompactionTest {
         assertEquals(2, events.filterIsInstance<AgentEvent.UsageReceived>().count { it.projected })
         assertEquals(2, events.filterIsInstance<AgentEvent.ContextCompactionStarted>().single().round)
         // The batch that reported 80% is summarized once, after it finished. The usage-less round
-        // after the summary must not re-summarize until a fresh usage is reported.
+        // after the summary stays below the threshold using its new local budget.
         val firstToolIndex = events.indexOfFirst { it is AgentEvent.ToolFinished && it.toolCallId == "first" }
         val startIndex = events.indexOfFirst { it is AgentEvent.ContextCompactionStarted }
         assertTrue(firstToolIndex in 0 until startIndex)

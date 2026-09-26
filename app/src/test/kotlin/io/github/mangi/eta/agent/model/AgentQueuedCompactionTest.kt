@@ -10,7 +10,7 @@ import org.junit.Test
 
 class AgentQueuedCompactionTest {
     @get:org.junit.Rule val timeout = org.junit.rules.Timeout.seconds(45)
-    @Test fun pressureAfterShrinkRequiresFreshProviderUsage() {
+    @Test fun smallPostSummaryBudgetStaysBelowThresholdUntilCloudOrDeltaCrossesIt() {
         for (freshUsage in listOf(false, true)) {
             var compactions = 0
             var requests = 0
@@ -18,7 +18,7 @@ class AgentQueuedCompactionTest {
             val events = mutableListOf<AgentEvent>()
             val model = AgentModelClient.ModelConfig(baseUrl = "https://example.invalid/v1", apiKey = "test",
                 model = "test", systemPrompt = "", contextWindow = 100_000)
-            val history = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(352_000)))
+            val history = JSONArray().put(AgentConversationCodec.userTextMessage("x".repeat(280_000)))
                 .put(JSONObject().put("role", "assistant").put("content", "old"))
                 .put(AgentConversationCodec.userTextMessage("protected"))
             val tools = JSONArray().put(AgentToolSchema.function("get_current_context", "read", JSONObject().put("type", "object")))
@@ -50,7 +50,7 @@ class AgentQueuedCompactionTest {
                     check(compactions <= if (freshUsage) 2 else 1)
                     val tail = source.drop(requireNotNull(policy.keepStartOverride))
                     listOf(AgentModelClient.ConversationMessage("user", "[Conversation summary] " +
-                        "x".repeat(if (compactions == 1) 340_000 else 4000))) + tail
+                        "x".repeat(if (compactions == 1) 240_000 else 4000))) + tail
                 }).run()
             assertEquals(if (freshUsage) 2 else 1, compactions)
             assertEquals(compactions + 1, requests)

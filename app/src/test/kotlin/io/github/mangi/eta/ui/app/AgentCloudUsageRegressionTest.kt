@@ -37,8 +37,8 @@ class AgentCloudUsageRegressionTest {
             send(AgentEvent.UsageReceived(2, AgentTokenUsage(outputTokens = 30)))
             assertEquals(152885, current().livePromptTokens)
             send(AgentEvent.UsageReceived(2, AgentTokenUsage(inputTokens = 999999), projected = true))
-            assertEquals(999999, current().livePromptTokens)
-            assertTrue(current().livePromptIsProjected)
+            assertEquals(152885, current().livePromptTokens)
+            assertFalse(current().livePromptIsProjected)
             assertEquals(152885, latestBilledContextTokens(current().messages))
             val field = app.javaClass.getDeclaredField("stoppingRuns").apply { isAccessible = true }
             @Suppress("UNCHECKED_CAST")

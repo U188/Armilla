@@ -718,6 +718,8 @@ internal object AgentRuntimeWire {
                 putString(KEY_TYPE, "usage_received")
                 putInt("round", event.round)
                 putBoolean("projected", event.projected)
+                event.requestHistoryTokens?.let { putInt("request_history_tokens", it) }
+                event.requestOverheadTokens?.let { putInt("request_overhead_tokens", it) }
                 putTokenUsage(event.usage)
             }
 
@@ -882,6 +884,8 @@ internal object AgentRuntimeWire {
             round = bundle.getInt("round"),
             usage = bundle.getTokenUsage(),
             projected = bundle.getBoolean("projected", false),
+            requestHistoryTokens = bundle.optionalInt("request_history_tokens"),
+            requestOverheadTokens = bundle.optionalInt("request_overhead_tokens"),
         )
 
         "user_supplement_received" -> AgentEvent.UserSupplementReceived(

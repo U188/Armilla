@@ -47,7 +47,7 @@ class AgentConversationStoreTest {
         context.deleteDatabase("eta.db")
     }
 
-    @Test fun actualMessageUsageRestoresWhenReceiptIsMissing() {
+    @Test fun missingReceiptCannotResurrectAnUnscopedHistoricalBill() {
         val state = AgentChatHomeUiState(
             messages = listOf(AgentMessageUi(
                 id = "assistant-1", content = "done", isStreaming = false,
@@ -60,8 +60,9 @@ class AgentConversationStoreTest {
         runBlocking { AgentConversationStore.save(context, "c", mapOf("c" to state), mapOf("c" to "task"), mapOf("c" to 1L)) }
         EtaDatabase.closeForTests()
         val restored = requireNotNull(AgentConversationStore.load(context).conversationsById["c"])
-        assertEquals(126364, restored.livePromptTokens)
+        assertNull(restored.livePromptTokens)
         assertFalse(restored.livePromptIsProjected)
+        assertEquals(126364, (restored.messages.single() as AgentMessageUi).usage?.inputTokens)
     }
 
     @Test fun cloudInputSurvivesDatabaseReopenAndInvalidationStaysEmpty() {

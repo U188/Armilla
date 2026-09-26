@@ -138,6 +138,7 @@ internal object AgentConversationStore {
                             cloudUsageJson = CloudUsageReceiptCodec.encode(
                                 conversationId, state.providerId, state.modelId, encodedHistory,
                                 state.livePromptTokens.takeUnless { state.livePromptIsProjected },
+                                state.cloudHistoryTokens, state.cloudRequestOverheadTokens,
                             ),
                         )))
                     }
@@ -224,15 +225,19 @@ internal object AgentConversationStore {
             }
         }
         val checkpoint = if (withContent) dao.contextCheckpoint(conversation.id) else null
-        val history = if (!withContent) emptyList() else AgentConversationCodec.decodeTranscript(
-            checkpoint?.historyJson
-        ).ifEmpty {
+        val decodedHistory = if (withContent) AgentConversationCodec.decodeTranscript(checkpoint?.historyJson) else emptyList()
+        val history = if (!withContent) emptyList() else decodedHistory.ifEmpty {
             storedMessages.toLegacyHistory()
         }
         val messages = attachUserImageSources(
             messages = storedMessages.mapNotNull { it.toMessageOrNull() },
             history = history,
         )
+        // Invalid receipts must not resurrect bills from a different history/model.
+        val receipt = checkpoint?.takeIf { decodedHistory.isNotEmpty() }?.let {
+            CloudUsageReceiptCodec.decodeReceipt(it.cloudUsageJson, conversation.id,
+                conversation.providerId, conversation.modelId, it.historyJson)
+        }
         return AgentChatHomeUiState(
             conversationContentLoaded = withContent,
             messages = messages,
@@ -245,11 +250,9 @@ internal object AgentConversationStore {
             providerId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackProviderId else conversation.providerId,
             modelId = if (conversation.providerId.isBlank() && conversation.modelId.isBlank()) fallbackModelId else conversation.modelId,
             assistantId = conversation.assistantId,
-            livePromptTokens = checkpoint?.let { checkpointEntity ->
-                CloudUsageReceiptCodec.decode(
-                    checkpointEntity.cloudUsageJson, conversation.id, conversation.providerId, conversation.modelId, checkpointEntity.historyJson,
-                )
-            } ?: io.github.mangi.eta.ui.model.latestBilledContextTokens(messages),
+            livePromptTokens = receipt?.inputTokens,
+            cloudHistoryTokens = receipt?.historyTokens,
+            cloudRequestOverheadTokens = receipt?.overheadTokens,
         )
     }
 

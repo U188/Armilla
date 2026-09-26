@@ -155,6 +155,8 @@ internal fun AgentChatInputBar(
     modelPickerState: AgentModelPickerUiState,
     history: List<AgentModelClient.ConversationMessage>,
     billedContextTokens: Int? = null,
+    projectedContextTokens: Int? = null,
+    billedHistoryTokens: Int? = null,
     requestOverheadTokens: Int = 0,
     billedOverheadTokens: Int? = null,
     uncommittedLiveTokens: Int = 0,
@@ -199,7 +201,9 @@ internal fun AgentChatInputBar(
     val textFieldState = draftField ?: rememberTextFieldState(initialText = input)
     var wasEditingMessage by remember { mutableStateOf(isEditingMessage) }
     val draftText = textFieldState.text.toString()
+    val historyTokenCount = remember(history) { history.sumOf { io.github.mangi.eta.agent.model.AgentContextBudget.countMessage(it) } }
     val liveUsage = remember(
+        historyTokenCount, projectedContextTokens,
         billedContextTokens,
         requestOverheadTokens,
         billedOverheadTokens,
@@ -212,6 +216,8 @@ internal fun AgentChatInputBar(
     ) {
         liveContextUsage(
             history = emptyList(),
+            historyTokenCount = historyTokenCount,
+            projectedContextTokens = projectedContextTokens,
             currentInput = draftText,
             pendingImages = pendingImages,
             selectedModel = modelPickerState.selectedModel,
@@ -223,7 +229,18 @@ internal fun AgentChatInputBar(
             uncommittedLiveTokens = uncommittedLiveTokens,
         )
     }
-    val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, liveUsage)
+    val sendBudget = remember(historyTokenCount, draftText, pendingImages, pendingFileReferences,
+        conversationMentions.pending, modelPickerState.selectedModel, billedContextTokens,
+        billedHistoryTokens, requestOverheadTokens, billedOverheadTokens) {
+        io.github.mangi.eta.ui.model.compressionContextUsage(
+            history = emptyList(), currentInput = draftText, pendingImages = pendingImages,
+            selectedModel = modelPickerState.selectedModel, historyTokenCount = historyTokenCount,
+            pendingFileReferences = pendingFileReferences, pendingConversationMentions = conversationMentions.pending,
+            billedContextTokens = billedContextTokens, requestOverheadTokens = requestOverheadTokens,
+            billedHistoryTokens = billedHistoryTokens, billedOverheadTokens = billedOverheadTokens,
+        )
+    }
+    val contextSendBlocked = shouldBlockSendForContextWindow(autoCompressEnabled, sendBudget)
     val compressionSendBlocked = isCompressingContext
     val canSend = !modelPickerState.isChanging && modelPickerState.selectedModel != null && !contextSendBlocked && !compressionSendBlocked && (
         textFieldState.text.isNotBlank() ||

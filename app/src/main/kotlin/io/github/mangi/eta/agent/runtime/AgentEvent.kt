@@ -120,6 +120,9 @@ internal sealed interface AgentEvent {
         val round: Int,
         val usage: AgentTokenUsage,
         val projected: Boolean = false,
+        // Local request-shape snapshots for silent next-request budgeting, not billing.
+        val requestHistoryTokens: Int? = null,
+        val requestOverheadTokens: Int? = null,
     ) : AgentEvent {
         override fun toLogLine(): String =
             "usage_received round=$round, projected=$projected, ctx=${usage.contextTokens}, in=${usage.inputTokens}, out=${usage.outputTokens}, reasoning=${usage.reasoningTokens}, cache=${usage.cachedTokens}"

@@ -7,7 +7,7 @@ class SubAgentLifecycleRecoveryContract(unittest.TestCase):
         return (ROOT / "app/src/main/kotlin/io/github/mangi/eta" / name).read_text()
     def test_new_operation_captures_current_owner(self):
         text = self.source("ui/app/AgentAppState.kt")
-        self.assertIn("beginNewSubAgentDraft(source: SubAgentConfigKey? = subAgentConfigOwner)", text)
+        self.assertIn("source: SubAgentConfigKey? = subAgentConfigOwner,", text)
         self.assertNotIn("val source = if (!subAgentDraftReady) pendingSubAgentDraftSource", text)
     def test_initial_retry_rereads_original_pointer(self):
         text = self.source("ui/app/AgentAppState.kt")

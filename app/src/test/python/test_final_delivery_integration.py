@@ -46,6 +46,21 @@ class FinalDeliveryIntegrationTest(unittest.TestCase):
         self.assertLess(retry.index('lifecycleRecovery?.invoke() == true'), retry.index('storedState = SubAgentEditorState.Loading'))
         self.assertIn('val enabled: Boolean get() = state is SubAgentEditorState.Loaded && canEdit()', editor)
 
+    def test_failed_initial_draft_pointer_read_cannot_be_seeded_by_new_draft(self):
+        app = self.source('ui/app/AgentAppState.kt')
+        begin = app.split('private fun beginNewSubAgentDraft(', 1)[1].split('private fun ensureSubAgentConfigurationReady()', 1)[0]
+        ensure = app.split('private fun ensureSubAgentConfigurationReady()', 1)[1].split('private fun ', 1)[0]
+        guard = begin.split('return try {', 1)[0]
+        self.assertIn('source is SubAgentConfigKey.Draft && !subAgentDraftReady', guard)
+        self.assertIn('(!recoveringPending || subAgentDraftPointerReloadPending)', guard)
+        self.assertIn('recoveringPending && source == null', guard)  # No bootstrap during pending recovery.
+        create = begin.split('return try {', 1)[1]
+        self.assertLess(create.index('existingDraftOrNull(source) != null'), create.index('createDraft(source)'))
+        self.assertLess(create.index('createDraft(source)'), create.index('subAgentDraftPointerReloadPending = false'))
+        self.assertIn('beginNewSubAgentDraft(pendingSubAgentDraftSource, recoveringPending = true)', ensure)
+        self.assertIn('source: SubAgentConfigKey? = subAgentConfigOwner', begin)
+        self.assertIn('val next = conversationSubAgentPreferences.createDraft(source)', create)
+
 
 if __name__ == '__main__':
     unittest.main()

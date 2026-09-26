@@ -349,14 +349,27 @@ internal class AgentAppState(
         Toast.makeText(appContext, subAgentConfigFailure, Toast.LENGTH_LONG).show()
     }
 
-    private fun beginNewSubAgentDraft(source: SubAgentConfigKey? = subAgentConfigOwner): Boolean {
-        // A NEW user operation always captures the currently selected owner, never a stale pending source.
-        subAgentDraftPointerReloadPending = false
+    private fun beginNewSubAgentDraft(
+        source: SubAgentConfigKey? = subAgentConfigOwner,
+        recoveringPending: Boolean = false,
+    ): Boolean {
+        // Never clone an unresolved placeholder or discard its original-pointer recovery intent.
+        if (source is SubAgentConfigKey.Draft && !subAgentDraftReady &&
+            (!recoveringPending || subAgentDraftPointerReloadPending)) {
+            Toast.makeText(appContext, "请先在子代理设置中重试恢复原草稿配置。", Toast.LENGTH_LONG).show()
+            return false
+        }
         return try {
+            if (source is SubAgentConfigKey.Draft) {
+                check(conversationSubAgentPreferences.existingDraftOrNull(source) != null) {
+                    "原草稿配置不可读取，不能替换为默认配置"
+                }
+            }
             val next = conversationSubAgentPreferences.createDraft(source)
             Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
             draftSubAgentOwner = next
             subAgentDraftReady = true
+            subAgentDraftPointerReloadPending = false
             pendingSubAgentDraftSource = null
             subAgentConfigFailure = null
             true
@@ -385,7 +398,7 @@ internal class AgentAppState(
             subAgentConfigFailure = null
         }
         // Only recovery of the same unselected draft resumes its saved source.
-        if (selectedConversationId == null && !subAgentDraftReady && !beginNewSubAgentDraft(pendingSubAgentDraftSource)) false
+        if (selectedConversationId == null && !subAgentDraftReady && !beginNewSubAgentDraft(pendingSubAgentDraftSource, recoveringPending = true)) false
         else {
             conversationSubAgentPreferences.snapshot(subAgentConfigOwner)
             true

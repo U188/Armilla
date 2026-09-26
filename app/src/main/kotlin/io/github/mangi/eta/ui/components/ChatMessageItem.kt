@@ -425,80 +425,81 @@ internal fun AgentWorkProcessHeader(
 
     val pulseAlpha = rememberActivePulse(active = running && !isPaused, label = "work_pulse")
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp)
-            .squircleSurface(
-                color = MiuixTheme.colorScheme.surface,
-                cornerRadius = 14.dp,
-            )
-            .squircleBorder(
-                width = 0.5.dp,
-                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.50f),
-                cornerRadius = 14.dp,
-            ),
+    WorkProcessCardSlice(
+        part = if (expanded && messages.isNotEmpty()) WorkProcessCardPart.First else WorkProcessCardPart.Whole,
+        modifier = modifier,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 13.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = when {
-                    runningTool != null -> iconForTool(runningTool.toolName)
-                    running -> ImageVector.vectorResource(R.drawable.ic_atom)
-                    else -> Icons.Rounded.Build
-                },
-                contentDescription = null,
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
                 modifier = Modifier
-                    .size(15.dp)
-                    .graphicsLayer(alpha = if (running && !isPaused) pulseAlpha else 1f),
-                tint = if (running && !isPaused) {
-                    MiuixTheme.colorScheme.primary
-                } else {
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary
-                },
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = when {
-                    running && toolCount > 0 -> pluralStringResource(
-                        R.plurals.work_processing_step,
-                        toolCount,
-                        toolCount,
-                    ) + (runningToolTitle?.let { " · $it" } ?: "")
-                    running -> stringResource(R.string.work_analyzing)
-                    toolCount > 0 -> pluralStringResource(
-                        R.plurals.work_completed_steps,
-                        toolCount,
-                        toolCount,
-                    )
-                    else -> stringResource(R.string.work_completed)
-                },
-                style = MiuixTheme.textStyles.body2,
-                color = if (running && !isPaused) {
-                    MiuixTheme.colorScheme.onSurface
-                } else {
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                imageVector = if (expanded) Icons.Rounded.ExpandMore
-                    else Icons.Rounded.ChevronRight,
-                contentDescription = stringResource(
-                    if (expanded) R.string.work_collapse else R.string.work_expand,
-                ),
-                modifier = Modifier.size(14.dp),
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-            )
-        }
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 13.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = when {
+                        runningTool != null -> iconForTool(runningTool.toolName)
+                        running -> ImageVector.vectorResource(R.drawable.ic_atom)
+                        else -> Icons.Rounded.Build
+                    },
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(15.dp)
+                        .graphicsLayer(alpha = if (running && !isPaused) pulseAlpha else 1f),
+                    tint = if (running && !isPaused) {
+                        MiuixTheme.colorScheme.primary
+                    } else {
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    },
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = when {
+                        running && toolCount > 0 -> pluralStringResource(
+                            R.plurals.work_processing_step,
+                            toolCount,
+                            toolCount,
+                        ) + (runningToolTitle?.let { " · $it" } ?: "")
+                        running -> stringResource(R.string.work_analyzing)
+                        toolCount > 0 -> pluralStringResource(
+                            R.plurals.work_completed_steps,
+                            toolCount,
+                            toolCount,
+                        )
+                        else -> stringResource(R.string.work_completed)
+                    },
+                    style = MiuixTheme.textStyles.body2,
+                    color = if (running && !isPaused) {
+                        MiuixTheme.colorScheme.onSurface
+                    } else {
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandMore
+                        else Icons.Rounded.ChevronRight,
+                    contentDescription = stringResource(
+                        if (expanded) R.string.work_collapse else R.string.work_expand,
+                    ),
+                    modifier = Modifier.size(14.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                )
+            }
 
+            if (expanded && messages.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 13.dp)
+                        .height(0.5.dp)
+                        .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.45f)),
+                )
+            }
+        }
     }
 }
 

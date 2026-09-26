@@ -29,6 +29,57 @@ class AgentTimelineRowsTest {
         assertEquals(groups.size, rows.filterIsInstance<AgentTimelineRow.WorkHeader>().size)
     }
 
+    @Test fun everyExpandedBatchHasExactlyOneFirstAndLastStep() {
+        for (count in listOf(1, 31, 32, 33, 64, 65, 1_000)) {
+            val groups = List(count) { tool(it) }.toTimelineEntries()
+            val rows = groups.toLazyTimelineRows(groups.associate { it.key to true }, false)
+            val batches = rows.filterIsInstance<AgentTimelineRow.WorkStep>().groupBy { it.groupKey }.values
+            assertEquals(List(count) { it }.chunked(32).map { it.size }, batches.map { it.size })
+            batches.forEach { steps ->
+                assertEquals(1, steps.count { it.isFirst })
+                assertEquals(1, steps.count { it.isLast })
+                assertTrue(steps.first().isFirst)
+                assertTrue(steps.last().isLast)
+                assertTrue(steps.drop(1).none { it.isFirst })
+                assertTrue(steps.dropLast(1).none { it.isLast })
+            }
+        }
+    }
+
+    @Test fun appendingUpdatesLastCornerWithoutChangingExistingKeys() {
+        val initial = listOf(tool(0)).toTimelineEntries()
+        val expanded = mapOf(initial.single().key to true)
+        val first = initial.toLazyTimelineRows(expanded, false).filterIsInstance<AgentTimelineRow.WorkStep>()
+        val next = listOf(tool(0), tool(1)).toTimelineEntries().toLazyTimelineRows(expanded, false)
+            .filterIsInstance<AgentTimelineRow.WorkStep>()
+        assertTrue(first.single().isFirst && first.single().isLast)
+        assertEquals(first.single().key, next.first().key)
+        assertTrue(next.first().isFirst)
+        assertFalse(next.first().isLast)
+        assertFalse(next.last().isFirst)
+        assertTrue(next.last().isLast)
+    }
+
+    @Test fun appendAcrossBatchBoundaryKeepsClosedEdgesAndStableKeys() {
+        var previous = emptyList<AgentTimelineRow>()
+        for (count in listOf(31, 32, 33, 64, 65)) {
+            val groups = List(count) { tool(it) }.toTimelineEntries()
+            val rows = groups.toLazyTimelineRows(groups.associate { it.key to true }, false)
+            assertEquals(previous.map { it.key }, rows.take(previous.size).map { it.key })
+            val batches = rows.filterIsInstance<AgentTimelineRow.WorkStep>().groupBy { it.groupKey }.values
+            assertEquals(List(count) { it }.chunked(32).map { it.size }, batches.map { it.size })
+            batches.forEach { batch ->
+                assertTrue(batch.first().isFirst)
+                assertTrue(batch.last().isLast)
+                assertTrue(batch.dropLast(1).none { it.isLast })
+            }
+            // Completed new batches stay collapsed unless explicitly opened.
+            val defaultRows = groups.toLazyTimelineRows(emptyMap(), false)
+            assertTrue(defaultRows.all { it is AgentTimelineRow.WorkHeader })
+            previous = rows
+        }
+    }
+
     @Test fun collapsedGroupsRetainDataButDoNotEmitDetails() {
         val tools = List(65) { tool(it) }
         val groups = tools.toTimelineEntries()

@@ -1019,17 +1019,24 @@ internal fun AgentConversationMessages(
                             (message.isStreaming || streamingMarkdownStates.containsKey(message.id))) {
                             streamingMarkdownStates.getOrPut(message.id) { StreamingMarkdownState() }
                         } else null
-                        ChatMessageItem(
-                            message = message,
-                            actions = messageActions,
-                            retainedStreamingState = retainedState,
-                            showBrowserShortcut = message is ToolActivityMessageUi &&
-                                message.id == currentBrowserMessageId,
-                            enableLivePreview = !isStreaming,
-                            compact = true,
-                            isPaused = isPaused,
-                            modifier = Modifier.padding(horizontal = 20.dp),
-                        )
+                        WorkProcessCardSlice(
+                            part = if (entry.isLast) WorkProcessCardPart.Last else WorkProcessCardPart.Middle,
+                        ) {
+                            ChatMessageItem(
+                                message = message,
+                                actions = messageActions,
+                                retainedStreamingState = retainedState,
+                                showBrowserShortcut = message is ToolActivityMessageUi &&
+                                    message.id == currentBrowserMessageId,
+                                enableLivePreview = !isStreaming,
+                                compact = true,
+                                isPaused = isPaused,
+                                modifier = Modifier.padding(
+                                    top = if (entry.isFirst) 2.dp else 0.dp,
+                                    bottom = if (entry.isLast) 8.dp else 0.dp,
+                                ),
+                            )
+                        }
                     }
                 }
             }

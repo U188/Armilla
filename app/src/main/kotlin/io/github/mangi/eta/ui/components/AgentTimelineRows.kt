@@ -17,7 +17,12 @@ internal sealed interface AgentTimelineRow {
     data class WorkHeader(val group: AgentTimelineEntry.WorkProcess, val expanded: Boolean) : AgentTimelineRow {
         override val key: String get() = group.key
     }
-    data class WorkStep(val groupKey: String, val message: AgentChatMessageUi) : AgentTimelineRow {
+    data class WorkStep(
+        val groupKey: String,
+        val message: AgentChatMessageUi,
+        val isFirst: Boolean,
+        val isLast: Boolean,
+    ) : AgentTimelineRow {
         override val key: String get() = "work-step:${message.id}"
     }
 }
@@ -37,7 +42,10 @@ internal fun List<AgentTimelineEntry>.toLazyTimelineRows(
                 }
                 val expanded = expandedOverrides[entry.key] ?: (running || (isStreaming && entry.key == trailingWorkKey))
                 add(AgentTimelineRow.WorkHeader(entry, expanded))
-                if (expanded) entry.messages.forEach { add(AgentTimelineRow.WorkStep(entry.key, it)) }
+                if (expanded) entry.messages.forEachIndexed { index, message ->
+                    add(AgentTimelineRow.WorkStep(entry.key, message,
+                        isFirst = index == 0, isLast = index == entry.messages.lastIndex))
+                }
             }
         }
     }

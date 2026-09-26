@@ -86,6 +86,9 @@ internal object AgentRuntimeWire {
     /** client -> service：在当前 run 内压缩，不另开 run。 */
     const val MSG_COMPACT_RUN = 16
 
+    /** Stop only the parent; independently owned child groups remain available. */
+    const val MSG_STOP_MAIN_RUN = 17
+
     private const val MODULE_PACKAGE = "io.github.mangi.eta"
     private const val SERVICE_CLASS = "io.github.mangi.eta.agent.runtime.AgentRuntimeService"
 

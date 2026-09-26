@@ -81,19 +81,18 @@ class SubAgentCoordinatorTest {
         val release = CountDownLatch(1)
         SubAgentCoordinator(listOf(model), timeoutMs = 150, workerIds = listOf("stable-id"), workerNames = listOf("执行A"),
             executeChild = { _, prompt, _ ->
-                if (prompt.contains("first")) {
-                    firstStarted.countDown()
-                    try { release.await() } catch (_: InterruptedException) { release.await() }
-                }
+                if (prompt.contains("first")) { firstStarted.countDown(); release.await() }
                 "done"
             }).use { c ->
             val first = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "first").put("agent_id", "stable-id"))).content)
             assertTrue(firstStarted.await(2, TimeUnit.SECONDS))
             val queued = start(c).getString("task_id")
-            Thread.sleep(250)
-            assertEquals("timed_out", get(c, first.getString("task_id"), 0).getString("status"))
-            assertEquals("queued", get(c, queued, 0).getString("status"))
-            release.countDown()
+            try {
+                Thread.sleep(250)
+                // Text budget is advisory; the queued worker has no execution clock yet.
+                assertEquals("running", get(c, first.getString("task_id"), 0).getString("status"))
+                assertEquals("queued", get(c, queued, 0).getString("status"))
+            } finally { release.countDown() }
             val done = get(c, queued)
             assertEquals("completed", done.getString("status"))
             assertEquals("stable-id", done.getJSONObject("context_usage").getString("agent_id"))
@@ -150,10 +149,7 @@ class SubAgentCoordinatorTest {
         val release = CountDownLatch(1)
         val children = java.util.Collections.synchronizedList(mutableListOf<io.github.mangi.eta.agent.runtime.AgentRunController>())
         SubAgentCoordinator(listOf(model, model)) { _, _, child ->
-            children += child
-            started.countDown()
-            release.await()
-            "done"
+            children += child; started.countDown(); release.await(); "done"
         }.use { c ->
             val parentBinding = parent.register { c.close() }
             try {
@@ -172,10 +168,7 @@ class SubAgentCoordinatorTest {
                 release.countDown()
                 assertEquals("completed", get(c, first).getString("status"))
                 assertEquals("completed", get(c, second).getString("status"))
-            } finally {
-                release.countDown()
-                parentBinding.close()
-            }
+            } finally { release.countDown(); parentBinding.close() }
         }
     }
 
@@ -188,8 +181,7 @@ class SubAgentCoordinatorTest {
         SubAgentCoordinator(listOf(model, model)) { _, _, control ->
             controls += control
             if (controls.size == 1) firstReady.countDown() else secondReady.countDown()
-            release.await()
-            "preserved output"
+            release.await(); "preserved output"
         }.use { c ->
             try {
                 val first = start(c).getString("task_id")
@@ -234,8 +226,7 @@ class SubAgentCoordinatorTest {
             started.countDown()
             try { CountDownLatch(1).await() } catch (_: InterruptedException) { }
             assertTrue(controller.isCancelled)
-            returned.countDown()
-            "late answer"
+            returned.countDown(); "late answer"
         }.use { c ->
             val id = start(c).getString("task_id")
             assertTrue(started.await(2, TimeUnit.SECONDS))
@@ -251,10 +242,7 @@ class SubAgentCoordinatorTest {
         val started = CountDownLatch(1)
         val stopped = CountDownLatch(1)
         val c = SubAgentCoordinator(listOf(model)) { _, _, controller ->
-            controller.register { stopped.countDown() }
-            started.countDown()
-            CountDownLatch(1).await()
-            "unused"
+            controller.register { stopped.countDown() }; started.countDown(); CountDownLatch(1).await(); "unused"
         }
         start(c)
         assertTrue(started.await(2, TimeUnit.SECONDS))
@@ -263,16 +251,21 @@ class SubAgentCoordinatorTest {
         assertEquals("RUN_CLOSED", start(c).getString("code"))
     }
 
-    @Test fun timeoutStopsWorkerAndResultsAreBoundedSensitive() {
-        val stopped = CountDownLatch(1)
-        SubAgentCoordinator(listOf(model), timeoutMs = 100) { _, _, controller ->
-            controller.register { stopped.countDown() }
-            CountDownLatch(1).await()
-            "unused"
+    @Test fun textBudgetIsAdvisoryAndResultsAreBoundedSensitive() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        SubAgentCoordinator(listOf(model), timeoutMs = 100) { _, _, _ ->
+            entered.countDown(); release.await(); "done"
         }.use { c ->
             val id = start(c).getString("task_id")
-            assertTrue(stopped.await(2, TimeUnit.SECONDS))
-            assertEquals("timed_out", get(c, id, 0).getString("status"))
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            try {
+                Thread.sleep(200)
+                val running = get(c, id, 0)
+                assertEquals("running", running.getString("status"))
+                assertTrue(running.getJSONObject("supervision").getJSONArray("events").toString().contains("execution_soft_warning"))
+            } finally { release.countDown() }
+            assertEquals("completed", get(c, id).getString("status"))
         }
         SubAgentCoordinator(listOf(model)) { _, _, _ -> "a".repeat(20000) }.use { c ->
             val id = start(c).getString("task_id")
@@ -294,8 +287,7 @@ class SubAgentCoordinatorTest {
         val other = model.copy(model = "review-model")
         var used = ""
         SubAgentCoordinator(listOf(model, other), roles = listOf("implementation", "review")) { cfg, _, _ ->
-            used = cfg.model
-            "summary"
+            used = cfg.model; "summary"
         }.use { c ->
             val started = JSONObject(c.execute(call("delegate_task", JSONObject().put("task", "summarize").put("role", "summary"))).content)
             assertEquals("completed", get(c, started.getString("task_id")).getString("status"))
@@ -369,10 +361,7 @@ class SubAgentCoordinatorTest {
         val started = CountDownLatch(1)
         val cancelled = CountDownLatch(1)
         SubAgentCoordinator(listOf(model), onContext = { error("UI gone") }) { _, _, controller ->
-            controller.register { cancelled.countDown() }
-            started.countDown()
-            CountDownLatch(1).await()
-            "unused"
+            controller.register { cancelled.countDown() }; started.countDown(); CountDownLatch(1).await(); "unused"
         }.use { c ->
             val id = start(c).getString("task_id")
             assertTrue(started.await(2, TimeUnit.SECONDS))
@@ -387,8 +376,7 @@ class SubAgentCoordinatorTest {
         var called = 0
         SubAgentCoordinator(listOf(grok), roles = listOf("image_generation"),
             executeImageChild = { config, prompt, _, options ->
-                assertEquals(grok, config)
-                assertTrue(prompt.contains("portrait"))
+                assertEquals(grok, config); assertTrue(prompt.contains("portrait"))
                 received = options; called++; "file"
             }, executeChild = { _, _, _ -> error("text runner must not be used") }).use { c ->
             val args = JSONObject().put("task", "portrait").put("role", "image_generation")
@@ -410,30 +398,18 @@ class SubAgentCoordinatorTest {
 
     @Test fun implementationWorkspaceIsReadyBeforeTheCallerReturns() {
         val workspace = SubAgentWorkspace("unused", AgentModelClient.ToolExecutor {
-            AgentModelClient.ToolResult(JSONObject()
-                .put("ok", true)
-                .put("exit_code", 0)
-                .put("stdout", JSONObject()
-                    .put("ok", true)
+            AgentModelClient.ToolResult(JSONObject().put("ok", true).put("exit_code", 0)
+                .put("stdout", JSONObject().put("ok", true)
                     .put("id", "0123456789abcdef0123456789abcdef")
                     .put("path", "/workspace/Eta/.agent/worktrees/0123456789abcdef0123456789abcdef")
-                    .put("state", "editing")
-                    .toString())
-                .toString())
+                    .put("state", "editing").toString()).toString())
         })
-        SubAgentCoordinator(
-            listOf(model),
-            roles = listOf("implementation"),
-            workerIds = listOf("exec-agent"),
-            workspace = workspace,
-            executeWorkspaceChild = { _, _, _, _, _, _ -> "edited" },
-            executeChild = { _, _, _ -> error("research runner must not own an implementation task") },
-        ).use { coordinator ->
+        SubAgentCoordinator(listOf(model), roles = listOf("implementation"), workerIds = listOf("exec-agent"),
+            workspace = workspace, executeWorkspaceChild = { _, _, _, _, _, _ -> "edited" },
+            executeChild = { _, _, _ -> error("research runner must not own an implementation task") }).use { coordinator ->
             val started = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
-                .put("task", "edit the project")
-                .put("role", "implementation")
-                .put("agent_id", "exec-agent")
-                .put("project", "/workspace/Eta"))).content)
+                .put("task", "edit the project").put("role", "implementation")
+                .put("agent_id", "exec-agent").put("project", "/workspace/Eta"))).content)
             assertEquals(true, started.getBoolean("ok"))
             assertEquals("0123456789abcdef0123456789abcdef", started.getString("workspace_id"))
             assertTrue(started.getString("workspace_path").contains("worktrees"))
@@ -500,9 +476,7 @@ class SubAgentCoordinatorTest {
             "read"
         }.use { coordinator ->
             val started = JSONObject(coordinator.execute(call("delegate_task", JSONObject()
-                .put("task", "inspect")
-                .put("role", "research")
-                .put("agent_id", "exec-agent"))).content)
+                .put("task", "inspect").put("role", "research").put("agent_id", "exec-agent"))).content)
             assertEquals("research", started.getString("role"))
             assertTrue(started.isNull("workspace_id"))
         }
@@ -515,5 +489,4 @@ class SubAgentCoordinatorTest {
             assertEquals("IMAGE_GENERATION_INVALID_OPTIONS", result.getString("code"))
         }
     }
-
 }

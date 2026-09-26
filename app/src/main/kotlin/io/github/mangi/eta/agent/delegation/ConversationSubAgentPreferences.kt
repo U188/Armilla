@@ -1,6 +1,7 @@
 package io.github.mangi.eta.agent.delegation
 
 import android.content.SharedPreferences
+import io.github.mangi.eta.agent.model.ImageResolutionTier
 import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.data.model.ReasoningEffort
 import java.security.MessageDigest
@@ -8,8 +9,8 @@ import java.util.Base64
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -32,7 +33,6 @@ internal data class ConversationSubAgentConfig(
     val enabled: Boolean = true,
     val parallelLimits: Map<SubAgentParallelModel, Int> = emptyMap(),
     val diagnosticsEnabled: Boolean = false,
-    /** Unresolved legacy hashes are frozen into the seed and lazily resolved with the actual API name. */
     val legacyParallelLimits: Map<String, Int> = emptyMap(),
 ) {
     fun detached(): ConversationSubAgentConfig = copy(
@@ -42,7 +42,16 @@ internal data class ConversationSubAgentConfig(
         parallelLimits[model] ?: legacyParallelLimits[model.legacyKey()] ?: 1
     fun validate() {
         require(profiles.map { it.id }.distinct().size == profiles.size) { "Duplicate profile IDs" }
-        profiles.forEach { require(it.role == "implementation" || it.tier == null) }
+        profiles.forEach { profile ->
+            require(profile.role == "implementation" || profile.tier == null)
+            require(profile.imageResolution == null || profile.imageResolution in ImageResolutionTier.values) {
+                "Invalid profile image resolution"
+            }
+            require(profile.reasoningByModel.keys.all { key ->
+                val parts = key.split('\u0000')
+                parts.size == 2 && parts.all { it.isNotBlank() }
+            }) { "Invalid reasoning-memory model key" }
+        }
         require(parallelLimits.values.all { it >= 0 })
         require(legacyParallelLimits.all { (key, limit) -> key.matches(Regex("agent_model_parallel_[0-9a-f]{64}")) && limit >= 0 })
     }
@@ -53,7 +62,7 @@ internal data class ConversationSubAgentConfig(
             Base64.getUrlEncoder().withoutPadding().encodeToString(model.apiModel.toByteArray(Charsets.UTF_8))
 }
 
-/** Explicit-owner commits. All repository instances in the process share both write lock and revision. */
+/** Instances using the same preferences share a lock, durability fence, and per-owner versions. */
 internal class ConversationSubAgentPreferences(
     private val preferences: SharedPreferences = requireNotNull(Prefs.localAgentPreferences()) { "Initialize Prefs first" },
     private val canEdit: (SubAgentConfigKey) -> Boolean = { true },
@@ -64,32 +73,77 @@ internal class ConversationSubAgentPreferences(
         private const val BIND_PREFIX = "agent_conversation_child_binding_v1_"
         private const val VERSION = 1
         private val lock = Any()
-        private val revisions = java.util.WeakHashMap<SharedPreferences, MutableStateFlow<Long>>()
-        private fun revisionFor(preferences: SharedPreferences): MutableStateFlow<Long> = synchronized(lock) {
-            revisions.getOrPut(preferences) { MutableStateFlow(0L) }
+        private class SharedState {
+            val changes = MutableStateFlow(0L)
+            val owners = mutableMapOf<SubAgentConfigKey, MutableStateFlow<Long>>()
+            // The original string values remain available even when both the write and rollback fail.
+            var pending: Map<String, String?>? = null
+        }
+        private val states = java.util.WeakHashMap<SharedPreferences, SharedState>()
+        private fun stateFor(preferences: SharedPreferences): SharedState = synchronized(lock) {
+            states.getOrPut(preferences) { SharedState() }
         }
     }
     sealed class WriteResult {
         data class Saved(val revision: Long, val config: ConversationSubAgentConfig) : WriteResult()
         object Rejected : WriteResult()
     }
-    private val changes = revisionFor(preferences)
-    val revision: StateFlow<Long> get() = changes
-    fun flow(owner: SubAgentConfigKey) = changes.map { snapshot(owner) }.distinctUntilChanged()
+    private val state = stateFor(preferences)
+    /** Global notification only; use revision(owner) for owner-specific concurrency checks. */
+    val revision: StateFlow<Long> get() = state.changes
+    fun revision(owner: SubAgentConfigKey): StateFlow<Long> = synchronized(lock) {
+        state.owners.getOrPut(owner) { MutableStateFlow(0L) }
+    }
+    fun flow(owner: SubAgentConfigKey) = state.changes.map { snapshot(owner) }.distinctUntilChanged()
     private fun key(owner: SubAgentConfigKey): String = OWNER_PREFIX +
         (if (owner is SubAgentConfigKey.Conversation) "c_" else "d_") +
         Base64.getUrlEncoder().withoutPadding().encodeToString(owner.value.toByteArray(Charsets.UTF_8))
     private fun binding(conversation: SubAgentConfigKey.Conversation) = BIND_PREFIX + key(conversation).removePrefix(OWNER_PREFIX)
-    private fun commit(name: String, data: String) {
-        check(preferences.edit().putString(name, data).commit()) { "Sub-agent config commit failed: $name" }
-        changes.value = changes.value + 1
+    private fun ensureClean() { check(state.pending == null) { "Sub-agent storage durability unknown; call recoverDurability() before accessing configs" } }
+
+    /** Explicit retry of the ORIGINAL values; never treat an in-memory contains() as proof of durability. */
+    fun recoverDurability(): Boolean = synchronized(lock) {
+        val original = state.pending ?: return@synchronized true
+        val restored = try {
+            val edit = preferences.edit()
+            original.forEach { (name, value) -> if (value == null) edit.remove(name) else edit.putString(name, value) }
+            edit.commit() && original.all { (name, value) -> storedUnchecked(name) == value }
+        } catch (_: Exception) { false }
+        if (restored) state.pending = null
+        restored
     }
-    private fun stored(name: String): String? {
+    private fun storedUnchecked(name: String): String? {
         if (!preferences.contains(name)) return null
         return preferences.getString(name, null) ?: error("Invalid config value type: $name")
     }
+    private fun stored(name: String): String? { ensureClean(); return storedUnchecked(name) }
+    private fun transaction(changes: Map<String, String?>, vararg owners: SubAgentConfigKey) {
+        ensureClean()
+        val old = changes.keys.associateWith(::storedUnchecked)
+        try {
+            val edit = preferences.edit()
+            changes.forEach { (name, value) -> if (value == null) edit.remove(name) else edit.putString(name, value) }
+            check(edit.commit()) { "Sub-agent config commit failed" }
+        } catch (failure: Exception) {
+            state.pending = old
+            // commit(false) may already have changed memory. A rollback is best effort;
+            // only explicit recoverDurability() with a successful commit lifts the fence.
+            try {
+                val rollback = preferences.edit()
+                old.forEach { (name, value) -> if (value == null) rollback.remove(name) else rollback.putString(name, value) }
+                rollback.commit()
+            } catch (_: Exception) { /* pending originals still held */ }
+            throw failure
+        }
+        owners.distinct().forEach { owner ->
+            val flow = state.owners.getOrPut(owner) { MutableStateFlow(0L) }
+            flow.value = flow.value + 1
+        }
+        state.changes.value = state.changes.value + 1
+    }
     private fun seed(): ConversationSubAgentConfig {
         stored(SEED_KEY)?.let { return decode(it) }
+        // Legacy profile records are migrated using their historical tolerant reader, NOT archive validation.
         val profiles = if (preferences.contains(SubAgentPreferences.PROFILES_KEY)) {
             val json = JSONObject(stored(SubAgentPreferences.PROFILES_KEY)!!)
             require(json.getInt("version") == 1)
@@ -104,7 +158,6 @@ internal class ConversationSubAgentPreferences(
                 reasoning = ReasoningEffort.fromWireValue(preferences.getString("agent_child_${slot}_reasoning", "")),
                 tier = if (slot == 1) null else SubAgentTaskTier.fromWireValue(preferences.getString("agent_child_${slot}_task_tier", "")))
         }
-        // Preserve every legacy value even when its selection ID cannot be resolved to an API model here.
         val legacy = preferences.all.filterKeys { it.matches(Regex("agent_model_parallel_[0-9a-f]{64}")) }
             .mapValues { (_, raw) -> when (raw) {
                 is Int -> raw
@@ -113,7 +166,7 @@ internal class ConversationSubAgentPreferences(
             }.also { require(it >= 0) } }
         val result = ConversationSubAgentConfig(profiles, legacyParallelLimits = legacy)
         result.validate()
-        commit(SEED_KEY, encode(result))
+        transaction(mapOf(SEED_KEY to encode(result)))
         return result.detached()
     }
     private fun initial(owner: SubAgentConfigKey): ConversationSubAgentConfig {
@@ -132,75 +185,108 @@ internal class ConversationSubAgentPreferences(
     fun createConversation(owner: SubAgentConfigKey.Conversation, source: SubAgentConfigKey? = null): ConversationSubAgentConfig = synchronized(lock) {
         stored(key(owner))?.let { return@synchronized decode(it).detached() }
         val config = (source?.let { read(it) } ?: initial(owner)).detached()
-        commit(key(owner), encode(config))
+        transaction(mapOf(key(owner) to encode(config)), owner)
         config.detached()
     }
     fun createDraft(source: SubAgentConfigKey? = null): SubAgentConfigKey.Draft = synchronized(lock) {
         val config = (source?.let { read(it) } ?: seed()).detached()
         val owner = SubAgentConfigKey.Draft(UUID.randomUUID().toString())
-        commit(key(owner), encode(config))
+        transaction(mapOf(key(owner) to encode(config)), owner)
         owner
+    }
+    private fun bindings(): Map<String, String> = preferences.all.keys.filter { it.startsWith(BIND_PREFIX) }
+        .associateWith { stored(it) ?: error("Missing binding") }
+    private fun assertUnshared(draft: SubAgentConfigKey.Draft, conversation: SubAgentConfigKey.Conversation) {
+        require(bindings().none { (name, value) -> value == draft.value && name != binding(conversation) }) {
+            "Draft is already bound to a different conversation"
+        }
     }
     /** Persist owner and association atomically; only caller may confirm after Room commit. */
     fun bindDraft(draft: SubAgentConfigKey.Draft, conversation: SubAgentConfigKey.Conversation): ConversationSubAgentConfig = synchronized(lock) {
+        ensureClean()
+        assertUnshared(draft, conversation)
         val existingBinding = stored(binding(conversation))
         if (existingBinding != null) require(existingBinding == draft.value) { "Conversation bound to another draft" }
         stored(key(conversation))?.let {
             require(existingBinding == draft.value) { "Existing conversation is not bound to this draft" }
+            require(stored(key(draft)) != null) { "Bound draft missing" }
             return@synchronized decode(it).detached()
         }
+        require(existingBinding == null) { "Bound conversation config missing" }
         val data = stored(key(draft)) ?: error("Draft is absent: ${draft.value}")
         val config = decode(data)
-        check(preferences.edit().putString(key(conversation), encode(config))
-            .putString(binding(conversation), draft.value).commit()) { "Sub-agent draft bind failed" }
-        changes.value = changes.value + 1
+        transaction(mapOf(key(conversation) to encode(config), binding(conversation) to draft.value), conversation)
         config.detached()
     }
     fun confirmBoundDraft(draft: SubAgentConfigKey.Draft, conversation: SubAgentConfigKey.Conversation): Boolean = synchronized(lock) {
-        if (stored(binding(conversation)) != draft.value || !preferences.contains(key(draft))) return@synchronized false
+        ensureClean()
+        if (stored(binding(conversation)) != draft.value) return@synchronized false
+        assertUnshared(draft, conversation)
         decode(stored(key(conversation)) ?: error("Bound conversation config missing"))
         decode(stored(key(draft)) ?: error("Draft config missing"))
-        check(preferences.edit().remove(key(draft)).remove(binding(conversation)).commit()) { "Sub-agent draft confirmation failed" }
-        changes.value = changes.value + 1
+        transaction(mapOf(key(draft) to null, binding(conversation) to null), draft, conversation)
         true
     }
     fun update(owner: SubAgentConfigKey, change: (ConversationSubAgentConfig) -> ConversationSubAgentConfig): WriteResult = synchronized(lock) {
+        ensureClean()
         if (!canEdit(owner)) return@synchronized WriteResult.Rejected
         val next = change(read(owner).detached()).detached()
         next.validate()
-        commit(key(owner), encode(next))
-        WriteResult.Saved(changes.value, next.detached())
+        transaction(mapOf(key(owner) to encode(next)), owner)
+        WriteResult.Saved(revision(owner).value, next.detached())
     }
     fun delete(owner: SubAgentConfigKey): Boolean = synchronized(lock) {
-        if (!preferences.contains(key(owner))) return@synchronized false
-        val edit = preferences.edit().remove(key(owner))
-        if (owner is SubAgentConfigKey.Conversation) edit.remove(binding(owner))
-        check(edit.commit()) { "Sub-agent config removal failed" }
-        changes.value = changes.value + 1
+        ensureClean()
+        if (owner is SubAgentConfigKey.Draft) require(bindings().values.none { it == owner.value }) { "Draft still bound" }
+        if (stored(key(owner)) == null) return@synchronized false
+        val names = mutableMapOf(key(owner) to null as String?)
+        if (owner is SubAgentConfigKey.Conversation && stored(binding(owner)) != null) names[binding(owner)] = null
+        transaction(names, owner)
         true
     }
     fun export(owner: SubAgentConfigKey): String = synchronized(lock) { encode(read(owner)) }
+    /** Strict, read-only archive validation; no seed creation or writes. */
+    fun validateArchive(raw: String) { decode(raw) }
     fun importOwner(owner: SubAgentConfigKey, archive: String, overwrite: Boolean = false): Boolean = synchronized(lock) {
+        ensureClean()
         val config = decode(archive)
-        if (!overwrite && preferences.contains(key(owner))) {
+        if (!overwrite && stored(key(owner)) != null) {
             decode(stored(key(owner))!!)
             return@synchronized false
         }
-        commit(key(owner), encode(config.detached()))
+        transaction(mapOf(key(owner) to encode(config.detached())), owner)
         true
     }
+    private fun ownerFromSuffix(suffix: String): SubAgentConfigKey {
+        require(suffix.startsWith("c_") || suffix.startsWith("d_")) { "Invalid owner key" }
+        val encoded = suffix.substring(2)
+        val value = String(Base64.getUrlDecoder().decode(encoded), Charsets.UTF_8)
+        require(value.isNotBlank() && Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8)) == encoded)
+        return if (suffix.startsWith("c_")) SubAgentConfigKey.Conversation(value) else SubAgentConfigKey.Draft(value)
+    }
     fun validateRestoredPreferences() = synchronized(lock) {
+        ensureClean()
         stored(SEED_KEY)?.let(::decode)
-        preferences.all.keys.filter { it.startsWith(OWNER_PREFIX) }.forEach { name ->
+        val keys = preferences.all.keys
+        keys.filter { it.startsWith(OWNER_PREFIX) }.forEach { name ->
+            ownerFromSuffix(name.removePrefix(OWNER_PREFIX))
             decode(stored(name) ?: error("Missing owner payload: $name"))
         }
-        preferences.all.keys.filter { it.startsWith(BIND_PREFIX) }.forEach { name ->
-            require(!stored(name).isNullOrBlank()) { "Invalid bound draft association" }
+        val boundDrafts = mutableSetOf<String>()
+        keys.filter { it.startsWith(BIND_PREFIX) }.forEach { name ->
+            val owner = ownerFromSuffix(name.removePrefix(BIND_PREFIX))
+            require(owner is SubAgentConfigKey.Conversation && stored(key(owner)) != null) { "Bound conversation missing" }
+            val draftId = stored(name)
+            require(!draftId.isNullOrBlank() && boundDrafts.add(draftId) && stored(key(SubAgentConfigKey.Draft(draftId))) != null) {
+                "Invalid or shared bound draft association"
+            }
         }
     }
     fun refreshAfterRestore() = synchronized(lock) {
         validateRestoredPreferences()
-        changes.value = changes.value + 1
+        state.changes.value = state.changes.value + 1
+        // Restore is a global replacement; invalidate all previously observed owner versions.
+        state.owners.values.forEach { it.value = it.value + 1 }
     }
     private fun encode(config: ConversationSubAgentConfig): String {
         config.validate()
@@ -214,26 +300,65 @@ internal class ConversationSubAgentPreferences(
                 JSONObject().put("hash", hash).put("limit", limit)
             })).toString()
     }
+    private fun string(j: JSONObject, name: String): String {
+        require(j.has(name) && j.opt(name) is String) { "Invalid string: $name" }
+        return j.getString(name)
+    }
+    private fun bool(j: JSONObject, name: String): Boolean {
+        require(j.has(name) && j.opt(name) is Boolean) { "Invalid boolean: $name" }
+        return j.getBoolean(name)
+    }
+    private fun int(j: JSONObject, name: String): Int {
+        require(j.has(name) && j.opt(name) is Int) { "Invalid integer: $name" }
+        return j.getInt(name)
+    }
+    private fun array(j: JSONObject, name: String): JSONArray {
+        require(j.has(name) && j.opt(name) is JSONArray) { "Invalid array: $name" }
+        return j.getJSONArray(name)
+    }
+    private fun profile(j: JSONObject): SubAgentProfile {
+        require(string(j, "id").isNotBlank() && string(j, "name").isNotBlank())
+        require(string(j, "role") in setOf("implementation", "review", "image_generation", "video_generation"))
+        bool(j, "enabled")
+        string(j, "provider"); string(j, "model")
+        val tier = string(j, "tier")
+        require(tier.isEmpty() || (j.getString("role") == "implementation" && SubAgentTaskTier.fromWireValue(tier) != null))
+        val effort = string(j, "reasoning")
+        require(effort.isEmpty() || ReasoningEffort.fromWireValue(effort) != null)
+        val resolution = string(j, "image_resolution")
+        require(resolution.isEmpty() || resolution in ImageResolutionTier.values)
+        val memory = array(j, "reasoning_memory")
+        val pairs = mutableSetOf<Pair<String, String>>()
+        for (i in 0 until memory.length()) {
+            val item = memory.getJSONObject(i)
+            val provider = string(item, "provider"); val model = string(item, "model")
+            require(provider.isNotBlank() && model.isNotBlank() && '\u0000' !in provider && '\u0000' !in model)
+            require(pairs.add(provider to model))
+            require(ReasoningEffort.fromWireValue(string(item, "reasoning")) != null)
+        }
+        return SubAgentProfile.fromJson(j)
+    }
     private fun decode(raw: String): ConversationSubAgentConfig {
         val json = JSONObject(raw)
-        require(json.getInt("version") == VERSION) { "Unsupported sub-agent config version" }
-        val agents = json.getJSONArray("agents")
-        val limits = json.getJSONArray("parallel_limits")
+        require(int(json, "version") == VERSION) { "Unsupported sub-agent config version" }
+        val agents = array(json, "agents")
+        val limits = array(json, "parallel_limits")
         val models = (0 until limits.length()).map { index ->
             val item = limits.getJSONObject(index)
-            SubAgentParallelModel(item.getString("provider"), item.getString("api_model")) to item.getInt("limit")
+            SubAgentParallelModel(string(item, "provider"), string(item, "api_model")) to int(item, "limit")
         }
         require(models.map { it.first }.distinct().size == models.size)
-        val legacy = json.optJSONArray("legacy_parallel_limits") ?: JSONArray()
+        // Earlier seed archives did not include this field; wrong-typed PRESENT values are never ignored.
+        val legacy = if (json.has("legacy_parallel_limits")) array(json, "legacy_parallel_limits") else JSONArray()
         val hashes = (0 until legacy.length()).map { index ->
             val item = legacy.getJSONObject(index)
-            item.getString("hash") to item.getInt("limit")
+            string(item, "hash") to int(item, "limit")
         }
         require(hashes.map { it.first }.distinct().size == hashes.size)
         val config = ConversationSubAgentConfig(
-            profiles = (0 until agents.length()).map { index -> SubAgentProfile.fromJson(agents.getJSONObject(index)) },
-            enabled = json.getBoolean("enabled"), parallelLimits = models.toMap(),
-            diagnosticsEnabled = json.getBoolean("diagnostics_enabled"), legacyParallelLimits = hashes.toMap())
+            profiles = (0 until agents.length()).map { index -> profile(agents.getJSONObject(index)) },
+            enabled = bool(json, "enabled"), parallelLimits = models.toMap(),
+            diagnosticsEnabled = bool(json, "diagnostics_enabled"), legacyParallelLimits = hashes.toMap())
         config.validate()
         return config.detached()
     }

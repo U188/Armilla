@@ -19,6 +19,21 @@ import androidx.compose.ui.window.DialogProperties
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 
+/** A popup entry belongs to one real configuration owner (including the unique draft key).
+ * Reopening invalidates previously captured callbacks even when the owner is the same. */
+internal class OwnerBoundPopup<Owner>(val owner: Owner) {
+    private var active: Any? = null
+    fun open(): Any = Any().also { active = it }
+    fun dismiss() { active = null }
+    fun isCurrent(ticket: Any?, current: OwnerBoundPopup<Owner>): Boolean =
+        ticket != null && current === this && active === ticket
+    fun dispatch(ticket: Any?, current: OwnerBoundPopup<Owner>, action: () -> Unit): Boolean {
+        if (!isCurrent(ticket, current)) return false
+        action()
+        return true
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ConversationCollaborationDialog(
@@ -27,15 +42,14 @@ internal fun ConversationCollaborationDialog(
     onEnabledChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     taskRunning: Boolean = false,
+    ownerMatches: () -> Boolean = { true },
 ) {
-    if (!show) return
-    val editor = LocalConversationSubAgentEditor.current
-    val current = if (editor != null) {
-        val flow = remember(editor) { editor.repository.flow(editor.owner) }
-        val state by flow.collectAsState(initial = editor.repository.snapshot(editor.owner))
-        state
-    } else null
-    val canChange = editor?.enabled == true && !taskRunning
+    if (!show || !ownerMatches()) return
+    // Never rebind an already opened dialog to a different editor during asynchronous loading.
+    val editor = LocalConversationSubAgentEditor.current?.takeIf { ownerMatches() }
+    val state = editor?.observe()
+    val current = (state as? SubAgentEditorState.Loaded)?.config
+    val canChange = editor?.enabled == true && !taskRunning && ownerMatches()
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
     val maximumHeight = (LocalConfiguration.current.screenHeightDp - 64).coerceAtLeast(240).dp
     val view = LocalView.current
@@ -48,29 +62,38 @@ internal fun ConversationCollaborationDialog(
                     Text("本会话协作", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 18.dp))
                     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
                         .alpha(if (canChange) 1f else 0.38f)) {
-                        if (editor == null) Text("请先选择会话；未选择会话时不可编辑。")
-                        else if (!canChange) Text("主代理尚未停止，暂不可编辑本会话配置。")
-                        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
-                            .toggleable(value = current?.enabled == true, enabled = canChange, role = Role.Switch,
-                                onValueChange = { if (editor?.enabled == true && !taskRunning) {
-                                    TouchHaptics.click(view); editor.setEnabled(it)
-                                } }), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("自动委派", style = MaterialTheme.typography.bodyLarge)
-                                Text("按职责自动分配任务", style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface)
+                        when (state) {
+                            is SubAgentEditorState.Error -> {
+                                Text("子代理配置读取或保存失败：${state.reason}")
+                                TextButton(onClick = { editor?.retry() }) { Text("重试恢复配置") }
                             }
-                            Switch(checked = current?.enabled == true, enabled = canChange, onCheckedChange = null)
+                            SubAgentEditorState.Loading -> Text("正在读取本会话子代理配置…")
+                            else -> if (editor == null) Text("请先选择会话；未选择会话时不可编辑。")
+                                else if (!canChange) Text("主代理尚未停止，暂不可编辑本会话配置。")
                         }
-                        HorizontalDivider(Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-                        current?.profiles?.forEach { profile ->
-                            key(editor, profile.id) {
-                                SubAgentProfileRow(profile, providers, enabled = canChange)
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                        if (current != null) {
+                            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                                .toggleable(value = current.enabled, enabled = canChange, role = Role.Switch,
+                                    onValueChange = { if (ownerMatches() && editor?.enabled == true && !taskRunning) {
+                                        TouchHaptics.click(view); editor.setEnabled(it)
+                                    } }), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("自动委派", style = MaterialTheme.typography.bodyLarge)
+                                    Text("按职责自动分配任务", style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface)
+                                }
+                                Switch(checked = current.enabled, enabled = canChange, onCheckedChange = null)
                             }
+                            HorizontalDivider(Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                            current.profiles.forEach { profile ->
+                                key(editor, profile.id) {
+                                    SubAgentProfileRow(profile, providers, enabled = canChange)
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                                }
+                            }
+                            Text("点按模型切换 · 长按调整思考", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
                         }
-                        Text("点按模型切换 · 长按调整思考", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
                     }
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { TouchHaptics.click(view); onDismiss() }) { Text("完成") }

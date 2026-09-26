@@ -9,6 +9,13 @@ import java.util.ArrayDeque
 internal class SubAgentEventJournal(private val capacity: Int = 64, private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     init { require(capacity > 0) }
     private val events = ArrayDeque<JSONObject>()
+    // Only public TEXT is inspected. Retain at most one incomplete window and a bounded
+    // recent fingerprint history; neither the journal nor its pages contain model text.
+    private val textFingerprints = LinkedHashSet<Int>()
+    private val recentTextDeltas = LinkedHashSet<Pair<Int, Int>>()
+    private val pendingText = StringBuilder()
+    private var textBlock: Pair<Int, Int>? = null
+    private var previousWasSpace = false
     private var sequence = 0L
     private var revision = 0L
     var lastProgressMs: Long = now()
@@ -40,7 +47,7 @@ internal class SubAgentEventJournal(private val capacity: Int = 64, private val 
             is AgentEvent.ToolFinished -> event.success == true && event.name != "report_task_progress"
             is AgentEvent.HostedToolFinished -> event.success
             is AgentEvent.ContextCompacted -> event.applied
-            is AgentEvent.AssistantBlockDelta -> event.kind == AgentEvent.AssistantBlockKind.TEXT && event.deltaChars > 0
+            is AgentEvent.AssistantBlockDelta -> substantiveTextProgress(event)
             else -> false
         }
         when (event) {
@@ -49,13 +56,64 @@ internal class SubAgentEventJournal(private val capacity: Int = 64, private val 
             is AgentEvent.HostedToolFinished -> mark(if (event.success) "tool_finished" else "tool_failed", event.name, progress = progress, data = true)
             is AgentEvent.ProviderRequestStarted -> mark("provider_request", data = true)
             is AgentEvent.ProviderResponseStarted -> mark("provider_response", data = true)
-            is AgentEvent.AssistantBlockDelta -> if (progress) mark("text_progress", progress = true, data = true)
+            is AgentEvent.AssistantBlockDelta -> {
+                // Even short, repeated, punctuation-only or private thinking deltas are data,
+                // not evidence that the delegated task is making business progress.
+                if (progress) mark("text_progress", progress = true, data = true)
+                else lastDataMs = now()
+            }
             is AgentEvent.ContextCompacted -> mark("compaction_finished", progress = progress, data = true)
             is AgentEvent.ContextCompactionStarted -> mark("compaction_started", data = true)
             else -> Unit
         }
         return progress
     }
+
+    private fun substantiveTextProgress(event: AgentEvent.AssistantBlockDelta): Boolean {
+        if (event.kind != AgentEvent.AssistantBlockKind.TEXT) return false
+        val block = event.round to event.index
+        if (textBlock != block) {
+            textBlock = block
+            pendingText.setLength(0)
+            previousWasSpace = false
+        }
+        // Normalization is streaming: splitting a word, whitespace run, or Chinese text
+        // into arbitrary transport deltas produces the same fixed-size windows.
+        val normalized = buildString {
+            for (char in event.delta) {
+                if (char.isWhitespace()) {
+                    if (!previousWasSpace) append(' ')
+                    previousWasSpace = true
+                } else {
+                    append(char)
+                    previousWasSpace = false
+                }
+            }
+        }
+        // A replay of a complete delta must not shift incomplete windows and manufacture
+        // fresh evidence. Tiny fragments must still be buffered (not rejected individually).
+        val deltaKey = normalized.length to normalized.hashCode()
+        if (normalized.length >= TEXT_WINDOW && !remember(recentTextDeltas, deltaKey)) return false
+        var progress = false
+        for (char in normalized) {
+            pendingText.append(char)
+            if (pendingText.length == TEXT_WINDOW) {
+                val window = pendingText.toString()
+                pendingText.setLength(0)
+                if (window.count { it.isLetterOrDigit() } >= 2 &&
+                    remember(textFingerprints, window.hashCode())) progress = true
+            }
+        }
+        return progress
+    }
+
+    private fun <T> remember(recent: LinkedHashSet<T>, value: T): Boolean {
+        val fresh = !recent.remove(value)
+        recent.add(value) // revisiting a window renews its recency, not its progress.
+        if (recent.size > MAX_TEXT_PROGRESS_FRAGMENTS) recent.remove(recent.first())
+        return fresh
+    }
+
     /** A checkpoint is an explicit high-level report, not inferred from arbitrary model text. */
     @Synchronized fun setCheckpoint(text: String) {
         checkpoint = text.take(1000)
@@ -83,5 +141,19 @@ internal class SubAgentEventJournal(private val capacity: Int = 64, private val 
         }
         return page(after, limit)
     }
-    @Synchronized fun clear() { events.clear(); checkpoint = ""; revision++; (this as java.lang.Object).notifyAll() }
+    @Synchronized fun clear() {
+        events.clear()
+        textFingerprints.clear()
+        recentTextDeltas.clear()
+        pendingText.setLength(0)
+        textBlock = null
+        previousWasSpace = false
+        checkpoint = ""
+        revision++
+        (this as java.lang.Object).notifyAll()
+    }
+    private companion object {
+        const val MAX_TEXT_PROGRESS_FRAGMENTS = 32
+        const val TEXT_WINDOW = 4
+    }
 }

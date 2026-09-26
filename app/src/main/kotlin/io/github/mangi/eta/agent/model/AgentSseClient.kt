@@ -66,7 +66,6 @@ internal object AgentSseClient {
             )
         }
 
-
         val listener = object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
                 opened.set(true)
@@ -91,13 +90,13 @@ internal object AgentSseClient {
                 type: String?,
                 data: String,
             ) {
-                if (completed.get() || runController.hasPendingSteering || runController.isPaused) {
+                if (completed.get() || runController.hasPendingImmediateSteering || runController.isPaused) {
                     stream.finish()
                     return
                 }
                 try {
                     runController.withTransportCallback { runController.throwIfCancelled() }
-                    if (runController.hasPendingSteering || runController.isPaused) {
+                    if (runController.hasPendingImmediateSteering || runController.isPaused) {
                         stream.finish()
                         return
                     }
@@ -133,7 +132,7 @@ internal object AgentSseClient {
                     when {
                         runController.isCancelled ->
                             failure.compareAndSet(null, AgentRunCancelledException())
-                        runController.hasPendingSteering || runController.isPaused || runController.hasPausedInterrupt -> Unit
+                        runController.hasPendingImmediateSteering || runController.isPaused || runController.hasPausedInterrupt -> Unit
                         response != null && !response.isSuccessful -> {
                             if (!opened.get()) {
                                 runCatching { runController.withTransportCallback { emitOpen(response.code) } }
@@ -160,8 +159,7 @@ internal object AgentSseClient {
                             )
                         }
                         t != null &&
-                            !shouldIgnoreFailure() &&
-                            !isBenignClose(t) ->
+                            !shouldIgnoreFailure() ->
                             failure.compareAndSet(null, t)
                     }
                 }
@@ -191,7 +189,7 @@ internal object AgentSseClient {
             val recordedFailure = failure.get()
             // A received provider rejection is not a benign socket cancellation.
             if (recordedFailure is AgentModelFailure ||
-                (!runController.hasPendingSteering && !runController.hasPausedInterrupt)) {
+                (!runController.hasPendingImmediateSteering && !runController.hasPausedInterrupt)) {
                 recordedFailure?.let { throw it }
             }
         } finally {

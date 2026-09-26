@@ -19,9 +19,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.mangi.eta.agent.delegation.ConversationSubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
 import io.github.mangi.eta.data.repository.ProviderRepository
 import io.github.mangi.eta.ui.components.LocalConversationSubAgentEditor
+import io.github.mangi.eta.ui.components.SubAgentEditorState
 import io.github.mangi.eta.ui.components.SubAgentDropdownMenu
 import io.github.mangi.eta.ui.components.SubAgentProfileRow
 import io.github.mangi.eta.ui.components.WithoutPressRipple
@@ -32,11 +34,8 @@ import io.github.mangi.eta.ui.layout.horizontalCutoutPadding
 @Composable
 internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
     val editor = LocalConversationSubAgentEditor.current
-    val config = if (editor != null) {
-        val flow = remember(editor) { editor.repository.flow(editor.owner) }
-        val current by flow.collectAsState(initial = editor.repository.snapshot(editor.owner))
-        current
-    } else null
+    val state = editor?.observe()
+    val config = (state as? SubAgentEditorState.Loaded)?.config
     val profiles = config?.profiles.orEmpty()
     val editable = editor?.enabled == true
     val providers by remember { ProviderRepository.providersFlow() }.collectAsState(initial = emptyList())
@@ -66,70 +65,77 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                 LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(),
                     contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 96.dp)) {
                     item {
-                        Text(if (editor == null) "请先选择会话；未选择会话时不可编辑子代理。"
-                            else if (!editable) "主代理尚未停止，当前会话配置暂不可修改。" else "配置仅属于当前会话；新任务和失败接替使用更新后的配置。",
-                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
+                        Text(when (state) {
+                            is SubAgentEditorState.Error -> "子代理配置读取或保存失败：${state.reason}"
+                            SubAgentEditorState.Loading -> "正在读取本会话子代理配置…"
+                            else -> if (editor == null) "请先选择会话；未选择会话时不可编辑子代理。"
+                                else if (!editable) "主代理尚未停止，当前会话配置暂不可修改。"
+                                else "配置仅属于当前会话；新任务和失败接替使用更新后的配置。"
+                        }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(bottom = 4.dp))
+                        if (state is SubAgentEditorState.Error) TextButton(onClick = { editor?.retry() }) { Text("重试恢复配置") }
                     }
-                    item {
-                        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("自动委派", style = MaterialTheme.typography.bodyLarge)
-                                Text("按职责自动分配本会话任务", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Switch(checked = config?.enabled == true, enabled = editable,
-                                onCheckedChange = { if (editor?.enabled == true) editor.setEnabled(it) })
-                        }
-                    }
-                    item {
-                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("子代理诊断日志", style = MaterialTheme.typography.bodyLarge)
-                                Text("仅保存本会话诊断配置；运行日志接线由运行层处理。", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Switch(checked = config?.diagnosticsEnabled == true, enabled = editable,
-                                onCheckedChange = { if (editor?.enabled == true) editor.setDiagnosticsEnabled(it) })
-                        }
-                    }
-                    items(profiles, key = { it.id }) { profile ->
-                        Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp).alpha(if (editable) 1f else 0.38f)) {
-                            Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(when (profile.role) {
-                                        "review" -> Icons.Rounded.FactCheck
-                                        "image_generation" -> Icons.Rounded.Image
-                                        "video_generation" -> Icons.Rounded.Videocam
-                                        else -> Icons.Rounded.AccountTree
-                                    }, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurface)
-                                    Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Box(Modifier.requiredSize(36.dp, 22.dp).wrapContentSize(unbounded = true)
-                                        .semantics { contentDescription = "启用${profile.name}" }, contentAlignment = Alignment.Center) {
-                                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-                                            Switch(profile.enabled, enabled = editable, onCheckedChange = { active ->
-                                                if (editor?.enabled == true) { TouchHaptics.click(view); editor.updateProfile(profile.id) { it.copy(enabled = active) } }
-                                            }, modifier = Modifier.scale(0.7f))
-                                        }
-                                    }
-                                    var expanded by remember(editor, profile.id) { mutableStateOf(false) }
-                                    LaunchedEffect(editable) { if (!editable) expanded = false }
-                                    Box {
-                                        IconButton(enabled = editable, onClick = { if (editor?.enabled == true) { TouchHaptics.click(view); expanded = true } }) {
-                                            Icon(Icons.Rounded.MoreVert, "${profile.name}更多操作")
-                                        }
-                                        if (editable) SubAgentDropdownMenu(expanded, { expanded = false }) {
-                                            DropdownMenuItem(text = { Text("重命名") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                                                onClick = { if (editor?.enabled == true) { name = profile.name; rename = profile }; expanded = false })
-                                            DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                                                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
-                                                onClick = { if (editor?.enabled == true) delete = profile; expanded = false })
-                                        }
-                                    }
+                    if (config != null) {
+                        item {
+                            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("自动委派", style = MaterialTheme.typography.bodyLarge)
+                                    Text("按职责自动分配本会话任务", style = MaterialTheme.typography.bodySmall)
                                 }
-                                SubAgentProfileRow(profile, providers, enabled = editable, settings = true)
+                                Switch(checked = config.enabled, enabled = editable,
+                                    onCheckedChange = { if (editor?.enabled == true) editor.setEnabled(it) })
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        }
+                        item {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("子代理诊断日志", style = MaterialTheme.typography.bodyLarge)
+                                    Text("仅保存本会话诊断配置；运行日志接线由运行层处理。", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Switch(checked = config.diagnosticsEnabled, enabled = editable,
+                                    onCheckedChange = { if (editor?.enabled == true) editor.setDiagnosticsEnabled(it) })
+                            }
+                        }
+                        items(profiles, key = { it.id }) { profile ->
+                            Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp).alpha(if (editable) 1f else 0.38f)) {
+                                Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(when (profile.role) {
+                                            "review" -> Icons.Rounded.FactCheck
+                                            "image_generation" -> Icons.Rounded.Image
+                                            "video_generation" -> Icons.Rounded.Videocam
+                                            else -> Icons.Rounded.AccountTree
+                                        }, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurface)
+                                        Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Box(Modifier.requiredSize(36.dp, 22.dp).wrapContentSize(unbounded = true)
+                                            .semantics { contentDescription = "启用${profile.name}" }, contentAlignment = Alignment.Center) {
+                                            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                                                Switch(profile.enabled, enabled = editable, onCheckedChange = { active ->
+                                                    if (editor?.enabled == true) { TouchHaptics.click(view); editor.updateProfile(profile.id) { it.copy(enabled = active) } }
+                                                }, modifier = Modifier.scale(0.7f))
+                                            }
+                                        }
+                                        var expanded by remember(editor, profile.id) { mutableStateOf(false) }
+                                        LaunchedEffect(editable) { if (!editable) expanded = false }
+                                        Box {
+                                            IconButton(enabled = editable, onClick = { if (editor?.enabled == true) { TouchHaptics.click(view); expanded = true } }) {
+                                                Icon(Icons.Rounded.MoreVert, "${profile.name}更多操作")
+                                            }
+                                            if (editable) SubAgentDropdownMenu(expanded, { expanded = false }) {
+                                                DropdownMenuItem(text = { Text("重命名") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                                    onClick = { if (editor?.enabled == true) { name = profile.name; rename = profile }; expanded = false })
+                                                DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                                                    leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                                                    onClick = { if (editor?.enabled == true) delete = profile; expanded = false })
+                                            }
+                                        }
+                                    }
+                                    SubAgentProfileRow(profile, providers, enabled = editable, settings = true)
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                            }
                         }
                     }
                 }
@@ -141,8 +147,8 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                     singleLine = true, enabled = editable, modifier = Modifier.fillMaxWidth()) },
                 dismissButton = { TextButton(onClick = { rename = null }) { Text("取消") } },
                 confirmButton = { TextButton(enabled = editable && name.trim().isNotBlank(), onClick = {
-                    if (editor?.enabled == true) editor.updateProfile(profile.id) { it.copy(name = name.trim()) }
-                    rename = null
+                    if (editor?.enabled == true && editor.updateProfile(profile.id) { it.copy(name = name.trim()) } is ConversationSubAgentPreferences.WriteResult.Saved)
+                        rename = null
                 }) { Text("保存") } })
         }
         delete?.let { profile ->
@@ -150,8 +156,8 @@ internal fun SubAgentSettingsScreen(onBack: () -> Unit) {
                 text = { Text("将删除“${profile.name}”的配置，不会删除提供商或模型。") },
                 dismissButton = { TextButton(onClick = { delete = null }) { Text("取消") } },
                 confirmButton = { TextButton(enabled = editable, onClick = {
-                    if (editor?.enabled == true) editor.remove(profile.id)
-                    delete = null
+                    if (editor?.enabled == true && editor.remove(profile.id) is ConversationSubAgentPreferences.WriteResult.Saved)
+                        delete = null
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) } })
         }
     }

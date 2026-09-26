@@ -17,7 +17,8 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class ConversationSubAgentPreferencesTest {
-    private fun prefs() = RuntimeEnvironment.getApplication().getSharedPreferences("subagents-${java.util.UUID.randomUUID()}", Context.MODE_PRIVATE)
+    private fun prefs() = RuntimeEnvironment.getApplication<android.app.Application>()
+        .getSharedPreferences("subagents-${java.util.UUID.randomUUID()}", Context.MODE_PRIVATE)
     private fun c(id: String) = SubAgentConfigKey.Conversation(id)
     private val pool = SubAgentParallelModel("p", "api-model")
     private fun profile() = SubAgentProfile("worker", "name", reasoning = ReasoningEffort.HIGH,

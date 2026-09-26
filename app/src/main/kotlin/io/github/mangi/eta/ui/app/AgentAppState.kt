@@ -286,17 +286,30 @@ internal class AgentAppState(
     // UI and Runtime use explicit owners. A selected UI owner is never a Runtime lookup key.
     val conversationSubAgentPreferences = ConversationSubAgentPreferences(canEdit = ::canEditSubAgentSettings)
     private val pendingSubAgentDraftBindings = mutableMapOf<String, SubAgentConfigKey.Draft>()
-    private var draftSubAgentOwner by mutableStateOf(
+    private var subAgentDraftReady by mutableStateOf(true)
+    private var subAgentRestoreBlocked by mutableStateOf(false)
+    private var subAgentConfigFailure by mutableStateOf<String?>(null)
+    private var pendingSubAgentDraftSource: SubAgentConfigKey? = selectedConversationId?.let { SubAgentConfigKey.Conversation(it) }
+    private var draftSubAgentOwner by mutableStateOf(initializeSubAgentDraft())
+
+    private fun initializeSubAgentDraft(): SubAgentConfigKey.Draft = try {
         Prefs.getString("agent_conversation_child_ui_draft_v1").takeIf { it.isNotBlank() }
             ?.let { SubAgentConfigKey.Draft(it) }
-            ?: conversationSubAgentPreferences.createDraft(selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
-                .also { Prefs.putString("agent_conversation_child_ui_draft_v1", it.value) },
-    )
+            ?: conversationSubAgentPreferences.createDraft(pendingSubAgentDraftSource)
+                .also { Prefs.putString("agent_conversation_child_ui_draft_v1", it.value) }
+    } catch (failure: Exception) {
+        if (failure is CancellationException) throw failure
+        subAgentDraftReady = false
+        subAgentConfigFailure = "草稿配置读取失败；原数据未覆盖，请在子代理设置中重试。"
+        SubAgentConfigKey.Draft(java.util.UUID.randomUUID().toString())
+    }
+
     val subAgentConfigOwner: SubAgentConfigKey
         get() = selectedConversationId?.let { SubAgentConfigKey.Conversation(it) } ?: draftSubAgentOwner
 
     fun canEditSubAgentSettings(owner: SubAgentConfigKey): Boolean {
-        if (owner != subAgentConfigOwner || conversationArchiveBusy) return false
+        if (owner != subAgentConfigOwner || conversationArchiveBusy || subAgentRestoreBlocked) return false
+        if (owner is SubAgentConfigKey.Draft && !subAgentDraftReady) return false
         // Paused/stopping parents still own their run. Children and other conversations do not lock this owner.
         if (homeState.isStreaming || homeState.isPaused) return false
         val id = selectedConversationId
@@ -306,19 +319,63 @@ internal class AgentAppState(
     }
 
     fun subAgentEditor(owner: SubAgentConfigKey): ConversationSubAgentEditor =
-        ConversationSubAgentEditor(owner, conversationSubAgentPreferences) { canEditSubAgentSettings(owner) }
+        ConversationSubAgentEditor(owner, conversationSubAgentPreferences) { canEditSubAgentSettings(owner) }.also { editor ->
+            if (subAgentRestoreBlocked || (owner is SubAgentConfigKey.Draft && !subAgentDraftReady)) {
+                editor.setLifecycleFailure(subAgentConfigFailure ?: "会话配置尚未恢复") {
+                    owner == subAgentConfigOwner && ensureSubAgentConfigurationReady()
+                }
+            }
+        }
 
-    private fun beginNewSubAgentDraft() {
-        val next = conversationSubAgentPreferences.createDraft(subAgentConfigOwner)
-        draftSubAgentOwner = next
-        Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
+    private fun subAgentConfigFailed(failure: Exception) {
+        if (failure is CancellationException) throw failure
+        subAgentConfigFailure = "会话配置保存或读取失败；原配置已保留，请在子代理设置中重试。"
+        AndroidAgentLogger.warn("Sub-agent configuration unavailable: type=${failure.safeLogType()}")
+        Toast.makeText(appContext, subAgentConfigFailure, Toast.LENGTH_LONG).show()
     }
 
-    private fun bindSubAgentDraft(conversationId: String) {
+    private fun beginNewSubAgentDraft(): Boolean {
+        val source = if (!subAgentDraftReady) pendingSubAgentDraftSource else subAgentConfigOwner
+        return try {
+            val next = conversationSubAgentPreferences.createDraft(source)
+            Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
+            draftSubAgentOwner = next
+            subAgentDraftReady = true
+            pendingSubAgentDraftSource = null
+            subAgentConfigFailure = null
+            true
+        } catch (failure: Exception) {
+            pendingSubAgentDraftSource = source
+            subAgentDraftReady = false
+            subAgentConfigFailed(failure)
+            false
+        }
+    }
+
+    private fun ensureSubAgentConfigurationReady(): Boolean = try {
+        if (subAgentRestoreBlocked) {
+            conversationSubAgentPreferences.refreshAfterRestore()
+            val next = Prefs.getString("agent_conversation_child_ui_draft_v1")
+                .takeIf { it.isNotBlank() }?.let { SubAgentConfigKey.Draft(it) }
+                ?: conversationSubAgentPreferences.createDraft(selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
+            draftSubAgentOwner = next
+            subAgentDraftReady = true
+            subAgentRestoreBlocked = false
+            Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
+        }
+        if (selectedConversationId == null && !subAgentDraftReady && !beginNewSubAgentDraft()) false
+        else {
+            conversationSubAgentPreferences.snapshot(subAgentConfigOwner)
+            true
+        }
+    } catch (failure: Exception) { subAgentConfigFailed(failure); false }
+
+    private fun bindSubAgentDraft(conversationId: String): Boolean = try {
         val draft = draftSubAgentOwner
         conversationSubAgentPreferences.bindDraft(draft, SubAgentConfigKey.Conversation(conversationId))
         pendingSubAgentDraftBindings[conversationId] = draft
-    }
+        true
+    } catch (failure: Exception) { subAgentConfigFailed(failure); false }
 
     data class StopRequest(
         val selection: AgentStopSelection<AgentChildTaskGroups.StopTarget>,
@@ -821,7 +878,21 @@ internal class AgentAppState(
             AgentConversationStore.load(appContext, selectedOnly = true)
         }
         withContext(Dispatchers.Main.immediate) {
-            conversationSubAgentPreferences.refreshAfterRestore()
+            try {
+                conversationSubAgentPreferences.refreshAfterRestore()
+                val next = Prefs.getString("agent_conversation_child_ui_draft_v1")
+                    .takeIf { it.isNotBlank() }?.let { SubAgentConfigKey.Draft(it) }
+                    ?: conversationSubAgentPreferences.createDraft(snapshot.selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
+                Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
+                draftSubAgentOwner = next
+                subAgentDraftReady = true
+                subAgentRestoreBlocked = false
+            } catch (failure: Exception) {
+                subAgentRestoreBlocked = true
+                subAgentConfigFailed(failure)
+            }
+            pendingSubAgentDraftBindings.clear()
+            // Always reload committed Room history, even when preferences cannot yet be read.
             selectedConversationId = snapshot.selectedConversationId
             conversationsById = snapshot.conversationsById
             conversationTitles = snapshot.titles
@@ -1297,8 +1368,8 @@ internal class AgentAppState(
     fun createConversation() {
         if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) cancelMessageEdit()
+        if (!beginNewSubAgentDraft()) return
         fileAttachmentOwnerVersion += 1
-        beginNewSubAgentDraft()
         selectedConversationId = null
         pendingNewConversationFolderId = selectedFolderId
         homeState = newDraftChatState()
@@ -1522,6 +1593,7 @@ internal class AgentAppState(
             Toast.makeText(appContext, "正在恢复备份，请等待完成。", Toast.LENGTH_SHORT).show()
             return
         }
+        if (!ensureSubAgentConfigurationReady()) return
         val prompt = (submittedText ?: currentDraftField().text.toString()).trim()
         val pendingImages = homeState.pendingImages
         val pendingFileReferences = homeState.pendingFileReferences
@@ -1577,6 +1649,7 @@ internal class AgentAppState(
         val edit = homeState.messageEdit
         if (edit == null && selectedConversationId?.isReadOnlyExternalArchiveConversation() == true) {
             moveCurrentDraftToNewConversation()
+            if (!subAgentDraftReady) return
         }
 
         val editBoundary = edit?.let {
@@ -1600,8 +1673,8 @@ internal class AgentAppState(
             return
         }
         val conversationId = selectedConversationId ?: newConversationId().also { id ->
+            if (!bindSubAgentDraft(id)) return
             conversationDrafts.promote(id)
-            bindSubAgentDraft(id)
             selectedConversationId = id
             conversationPaneState = conversationPaneState.copy(selectedConversationId = id)
             assignPendingFolder(id)
@@ -4552,8 +4625,8 @@ internal class AgentAppState(
 
     private fun moveCurrentDraftToNewConversation() {
         val draft = homeState.copy(input = currentDraftField().text.toString())
+        if (!beginNewSubAgentDraft()) return
         conversationDrafts.replace(null, draft.input)
-        beginNewSubAgentDraft()
         selectedConversationId = null
         homeState = emptyChatState(defaultThinkingEnabled).copy(
             input = draft.input,
@@ -4627,10 +4700,9 @@ internal class AgentAppState(
             conversationId,
             state.copy(
                 isStreaming = isStreaming,
-                childContexts = if (isStreaming) state.childContexts else state.childContexts.map {
-                    it.copy(status = if (it.status in setOf("queued", "running")) "cancelled" else it.status,
-                        isCompacting = false, manualCompactionState = if (it.manualCompactionState in setOf("pending", "compressing")) "ended" else it.manualCompactionState)
-                },
+                // A parent terminal event does not determine independently owned child status.
+                // Keep the last reported child snapshot; the task-group registry owns liveness.
+                childContexts = state.childContexts,
                 isWaitingForCompression = isStreaming && state.isWaitingForCompression,
                 isPaused = if (isStreaming) state.isPaused else false,
                 isCompressingContext = when {

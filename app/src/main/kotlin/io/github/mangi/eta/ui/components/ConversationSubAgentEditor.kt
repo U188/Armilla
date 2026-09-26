@@ -1,6 +1,12 @@
 package io.github.mangi.eta.ui.components
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import io.github.mangi.eta.agent.delegation.ConversationSubAgentConfig
 import io.github.mangi.eta.agent.delegation.ConversationSubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentConfigKey
@@ -8,6 +14,14 @@ import io.github.mangi.eta.agent.delegation.SubAgentParallelModel
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
 import io.github.mangi.eta.agent.model.ModelFeatureSelection
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
+
+internal sealed interface SubAgentEditorState {
+    data object Loading : SubAgentEditorState
+    data class Loaded(val config: ConversationSubAgentConfig) : SubAgentEditorState
+    data class Error(val reason: String) : SubAgentEditorState
+}
 
 /** Capture this object when opening a picker: callbacks must never retarget the currently selected owner. */
 internal class ConversationSubAgentEditor(
@@ -16,15 +30,57 @@ internal class ConversationSubAgentEditor(
     val canEdit: () -> Boolean,
 ) {
     private class LostOwner : RuntimeException()
-    val enabled: Boolean get() = canEdit()
+    var state: SubAgentEditorState by mutableStateOf(SubAgentEditorState.Loading)
+        private set
+    private var retryVersion by mutableIntStateOf(0)
+    val enabled: Boolean get() = state is SubAgentEditorState.Loaded && canEdit()
+    private fun fail(failure: Exception) {
+        if (failure is CancellationException) throw failure
+        state = SubAgentEditorState.Error(failure.message ?: failure.javaClass.simpleName)
+    }
+    private var lifecycleRecovery: (() -> Boolean)? = null
+    init {
+        try { state = SubAgentEditorState.Loaded(repository.snapshot(owner)) }
+        catch (failure: Exception) { fail(failure) }
+    }
+    fun setLifecycleFailure(reason: String, recovery: () -> Boolean) {
+        state = SubAgentEditorState.Error(reason)
+        lifecycleRecovery = recovery
+    }
+    /** Explicitly recover the durability fence, then restart the snapshot + live subscription. */
+    fun retry() {
+        try {
+            check(repository.recoverDurability()) { "子代理配置恢复失败；请重试" }
+            check(lifecycleRecovery?.invoke() != false) { "会话配置尚未恢复，原配置已保留" }
+            lifecycleRecovery = null
+            state = SubAgentEditorState.Loading
+            retryVersion++
+        } catch (failure: Exception) { fail(failure) }
+    }
+    @Composable
+    fun observe(): SubAgentEditorState {
+        val version = retryVersion
+        LaunchedEffect(this, version) {
+            // Opening another page cannot silently clear an error: only the retry action may do so.
+            if (state is SubAgentEditorState.Error) return@LaunchedEffect
+            try {
+                state = SubAgentEditorState.Loaded(repository.snapshot(owner))
+                repository.flow(owner).collect { config ->
+                    if (state !is SubAgentEditorState.Error) state = SubAgentEditorState.Loaded(config)
+                }
+            } catch (failure: Exception) { fail(failure) }
+        }
+        return state
+    }
     fun update(change: (ConversationSubAgentConfig) -> ConversationSubAgentConfig): ConversationSubAgentPreferences.WriteResult {
-        if (!canEdit()) return ConversationSubAgentPreferences.WriteResult.Rejected
+        if (!enabled) return ConversationSubAgentPreferences.WriteResult.Rejected
         return try {
             repository.update(owner) { old ->
-                if (!canEdit()) throw LostOwner()
+                if (!canEdit() || state !is SubAgentEditorState.Loaded) throw LostOwner()
                 change(old)
             }
         } catch (_: LostOwner) { ConversationSubAgentPreferences.WriteResult.Rejected }
+          catch (failure: Exception) { fail(failure); ConversationSubAgentPreferences.WriteResult.Rejected }
     }
     fun add(): ConversationSubAgentPreferences.WriteResult = update { old ->
         var number = old.profiles.size + 1

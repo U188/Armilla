@@ -16,7 +16,8 @@ internal class AgentRunController {
     private val lock = ReentrantLock()
     private val pauseCondition = lock.newCondition()
     data class SteeringInput(val text: String, val imagesJson: String = "[]")
-    private val steeringMessages = ArrayDeque<SteeringInput>()
+    private data class PendingSteering(val input: SteeringInput, val immediate: Boolean)
+    private val steeringMessages = ArrayDeque<PendingSteering>()
     private var acceptingSteering = true
     private var stoppedSteering = emptyList<SteeringInput>()
     fun takeStoppedSteering(): List<SteeringInput> = lock.withLock {
@@ -37,7 +38,7 @@ internal class AgentRunController {
 
     fun cancel() {
         lock.withLock {
-            if (!cancelled) stoppedSteering = steeringMessages.toList()
+            if (!cancelled) stoppedSteering = steeringMessages.map { it.input }
             cancelled = true
             checkpointPaused = false
             acceptingSteering = false
@@ -60,15 +61,16 @@ internal class AgentRunController {
         return true
     }
     /** Child supervision only: never cut an in-flight response to deliver guidance. */
-    fun queueBoundaryGuidance(text: String): Boolean = enqueueSteering(SteeringInput(text)) != null
+    fun queueBoundaryGuidance(text: String): Boolean = enqueue(input = SteeringInput(text), immediate = false) != null
 
-    internal fun enqueueSteering(input: SteeringInput): Boolean? = lock.withLock {
+    internal fun enqueueSteering(input: SteeringInput): Boolean? = enqueue(input, immediate = true)
+    private fun enqueue(input: SteeringInput, immediate: Boolean): Boolean? = lock.withLock {
         if (input.text.isBlank() || cancelled || !acceptingSteering || steeringMessages.size >= MAX_PENDING_STEERING) return null
         val normalized = input.copy(text = input.text.trim())
         if (normalized.text.length > MAX_STEERING_CHARS || normalized.imagesJson.length > MAX_STEERING_CHARS) return null
-        if (steeringMessages.contains(normalized)) return null
-        if (steeringMessages.sumOf { it.text.length + it.imagesJson.length } + normalized.text.length + normalized.imagesJson.length > MAX_STEERING_TOTAL_CHARS) return null
-        steeringMessages.addLast(normalized)
+        if (steeringMessages.any { it.input == normalized }) return null
+        if (steeringMessages.sumOf { it.input.text.length + it.input.imagesJson.length } + normalized.text.length + normalized.imagesJson.length > MAX_STEERING_TOTAL_CHARS) return null
+        steeringMessages.addLast(PendingSteering(normalized, immediate))
         !paused
     }
     internal fun interruptSteering(interrupt: Boolean) { if (interrupt) interruptCurrentRequest() }
@@ -94,15 +96,17 @@ internal class AgentRunController {
         interruptibles.forEach { resource -> runCatching { resource.cancel() } }
     }
     fun pollSteeringMessage(): String? = pollSteeringInput()?.text
-    fun pollSteeringInput(): SteeringInput? = lock.withLock { steeringMessages.pollFirst() }
+    fun pollSteeringInput(): SteeringInput? = lock.withLock { steeringMessages.pollFirst()?.input }
     fun pollSteeringOrSeal(): String? = pollSteeringInputOrSeal()?.text
     fun pollSteeringInputOrSeal(): SteeringInput? = lock.withLock {
-        steeringMessages.pollFirst()?.let { return it }
+        steeringMessages.pollFirst()?.let { return it.input }
         if (pendingCompact != null) return null
         acceptingSteering = false
         null
     }
     val hasPendingSteering: Boolean get() = lock.withLock { steeringMessages.isNotEmpty() }
+    /** Only interactive steering may terminate an in-flight provider request. */
+    val hasPendingImmediateSteering: Boolean get() = lock.withLock { steeringMessages.any { it.immediate } }
     val isPaused: Boolean get() = paused
     val hasPausedInterrupt: Boolean get() = pausedInterrupt
     fun consumePausedInterrupt(): Boolean = lock.withLock {

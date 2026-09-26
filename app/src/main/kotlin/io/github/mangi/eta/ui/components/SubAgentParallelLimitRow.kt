@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import io.github.mangi.eta.agent.delegation.ConversationSubAgentPreferences
 import io.github.mangi.eta.agent.delegation.SubAgentParallelModel
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
 import io.github.mangi.eta.agent.model.AgentModelClient
@@ -25,31 +26,35 @@ import io.github.mangi.eta.ui.haptics.TouchHaptics
 internal fun SubAgentParallelLimitRow(profile: SubAgentProfile, config: AgentModelClient.ModelConfig?, enabled: Boolean = true) {
     val editor = LocalConversationSubAgentEditor.current
     val view = LocalView.current
-    val usable = enabled && editor?.enabled == true && config != null && config.providerId.isNotBlank() && config.model.isNotBlank()
+    val state = editor?.observe()
+    val ownerConfig = (state as? SubAgentEditorState.Loaded)?.config
+    val usable = enabled && editor?.enabled == true && ownerConfig != null && config != null && config.providerId.isNotBlank() && config.model.isNotBlank()
     val currentUsable by rememberUpdatedState(usable)
     key(editor, profile.id, profile.providerId, profile.modelId, profile.role, config?.providerId, config?.model, usable) {
         var open by remember { mutableStateOf(false) }
         var value by remember { mutableStateOf("") }
-        val ownerConfig = if (editor != null) {
-            val flow = remember(editor) { editor.repository.flow(editor.owner) }
-            val current by flow.collectAsState(initial = editor.repository.snapshot(editor.owner))
-            current
+        val limit = if (config != null && ownerConfig != null && config.providerId.isNotBlank() && config.model.isNotBlank()) {
+            ownerConfig.parallelLimit(SubAgentParallelModel(config.providerId, config.model))
         } else null
-        val limit = config?.let { cfg ->
-            ownerConfig?.parallelLimit(SubAgentParallelModel(cfg.providerId, cfg.model))
-        } ?: 1
         SubAgentSettingRow("并行上限", when {
+            state is SubAgentEditorState.Error -> "配置读取失败"
+            ownerConfig == null -> "正在读取配置"
             config == null -> if (profile.modelId.isBlank()) "未选择模型" else "模型不可用"
             limit == 0 -> "不限"
-            else -> limit.toString()
+            limit != null -> limit.toString()
+            else -> "模型不可用"
         }, Icons.Rounded.CallSplit, "设置${profile.name}并行上限", enabled = usable,
             onClick = {
-                if (currentUsable && config != null) {
+                if (currentUsable && config != null && limit != null) {
                     TouchHaptics.click(view)
                     value = limit.toString()
                     open = true
                 }
             })
+        if (state is SubAgentEditorState.Error) {
+            Text("子代理配置错误：${state.reason}")
+            TextButton(onClick = { editor?.retry() }) { Text("重试恢复配置") }
+        }
         if (open && usable && config != null) {
             val number = value.trim().toIntOrNull()?.takeIf { it >= 0 }
             AlertDialog(onDismissRequest = { open = false }, title = { Text("${profile.name} · 并行上限") },
@@ -62,10 +67,9 @@ internal fun SubAgentParallelLimitRow(profile: SubAgentProfile, config: AgentMod
                 } },
                 dismissButton = { TextButton(onClick = { open = false }) { Text("取消") } },
                 confirmButton = { TextButton(enabled = usable && number != null, onClick = {
-                    if (currentUsable && number != null) {
-                        editor?.saveParallelLimit(profile.id, profile.providerId, profile.modelId, config.model, number)
+                    if (currentUsable && number != null &&
+                        editor?.saveParallelLimit(profile.id, profile.providerId, profile.modelId, config.model, number) is ConversationSubAgentPreferences.WriteResult.Saved)
                         open = false
-                    }
                 }) { Text("保存") } })
         }
     }

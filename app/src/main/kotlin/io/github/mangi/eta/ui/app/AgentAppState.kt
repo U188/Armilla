@@ -4007,21 +4007,17 @@ internal class AgentAppState(
             }
             return
         }
-        runCompressedDuringRun.add(runId)
         runUsageResumeRounds[runId] = event.round
         val current = conversationState(conversationId) ?: return
-        if (conversationId in pendingInRunCompactConversationIds &&
-            AgentContextCompactionUi.isPruningOnly(current.history, event.history, event.compressorLabel)) {
-            updateConversation(conversationId, current.copy(
-                history = event.history,
-                livePromptTokens = null,
-                livePromptIsProjected = false,
-                cloudHistoryTokens = null, cloudRequestOverheadTokens = null,
-            ))
-            // Pruning committed a new context: the old cloud calibration no longer applies.
+        if (event.pruningOnly) {
+            // Automatic and manual tool pruning both keep the cloud reading and
+            // raw-history calibration anchor. Only the silent delta has changed.
+            // Do not insert a summary marker or finish a pending manual summary.
+            updateConversation(conversationId, current.copy(history = event.history))
             persistConversations()
             return
         }
+        runCompressedDuringRun.add(runId)
         updateConversation(
             conversationId,
             current.copy(

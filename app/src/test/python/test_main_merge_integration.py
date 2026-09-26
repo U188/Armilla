@@ -32,7 +32,12 @@ class MainMergeIntegrationTest(unittest.TestCase):
         source = (ROOT / 'ui/app/AgentAppState.kt').read_text()
         self.assertNotIn('resetLiveUsageForRequest(', source)
         self.assertNotIn('runCloudUsage', source)
-        self.assertIn('Pruning committed a new context: the old cloud calibration no longer applies.', source)
+        # Both automatic and pending/manual pruning preserve the last cloud reading.
+        handler = source.split('private fun applyRuntimeCompactedHistory(', 1)[1]
+        pruning = handler.split('if (event.pruningOnly)', 1)[1].split('runCompressedDuringRun.add(runId)', 1)[0]
+        self.assertIn('current.copy(history = event.history)', pruning)
+        self.assertNotIn('livePromptTokens = null', pruning)
+        self.assertNotIn('cloudHistoryTokens = null', pruning)
         update = source.split('private fun updateLivePromptTokens(', 1)[1][:650]
         self.assertIn('stoppingRuns.containsKey(runId)', update)
         self.assertIn('runId in invalidatedUsageRuns', update)

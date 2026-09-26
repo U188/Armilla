@@ -14,7 +14,8 @@ class ContextDualMeterContractTest(unittest.TestCase):
         self.assertIn('input.toLong() + currentLocal - measuredLocal', budget)
         loop = self.text('agent/model/AgentLoop.kt')
         self.assertIn('silentBudget.tokens(localRequestTokens())', loop)
-        self.assertEqual(2, loop.count('silentBudget.contextReplaced()'))
+        # Only a true summary replacement resets calibration; tool pruning preserves its anchor.
+        self.assertEqual(1, loop.count('silentBudget.contextReplaced()'))
         self.assertLess(loop.index('silentBudget.requestStarted(requestLocal)'), loop.index('modelRetry.complete('))
         self.assertIn('requestBudget.consumeLocalBoundary()', loop)
         self.assertIn('ProviderEvent.RequestStarted) lastUsage = null', loop)

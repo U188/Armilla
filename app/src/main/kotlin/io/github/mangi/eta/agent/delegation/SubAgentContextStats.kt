@@ -118,6 +118,9 @@ internal class SubAgentContextTracker(initial: SubAgentContextStats) {
                 beforeCompactionTokens = if (value.isCompacting) value.beforeCompactionTokens else value.contextTokens,
                 afterCompactionTokens = null)
             is AgentEvent.ContextCompacted -> {
+                // Tool-result pruning is not a summary boundary: retain all bills, calibration
+                // and pending manual requests (including their spinner) without invalidating rounds.
+                if (event.pruningOnly) return null
                 if (event.applied) {
                     awaitingCompactedUsage = true
                     invalidatedAtRound = event.round

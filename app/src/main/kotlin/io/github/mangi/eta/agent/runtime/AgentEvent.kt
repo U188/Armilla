@@ -211,6 +211,8 @@ internal sealed interface AgentEvent {
         val compressorLabel: String = "",
         val blocked: Boolean = false,
         val reason: String = "",
+        /** Pruning changes oversized tool bodies, not the accounting/compaction boundary. */
+        val pruningOnly: Boolean = compressorLabel == "工具输出预算修剪（原文可回读）",
     ) : AgentEvent {
         override fun toLogLine(): String =
             "context_compacted round=$round, applied=$applied, $originalCount->$compactedCount"

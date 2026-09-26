@@ -787,6 +787,7 @@ internal object AgentRuntimeWire {
                 putInt("original_count", event.originalCount)
                 putInt("compacted_count", event.compactedCount)
                 putString("compressor_label", event.compressorLabel)
+                putBoolean("pruning_only", event.pruningOnly)
                 putBoolean("context_blocked", event.blocked)
                 putString("context_reason", event.reason)
                 if (historyDescriptor == null) putString("history_json", encodeConversationHistory(event.history))
@@ -948,6 +949,8 @@ internal object AgentRuntimeWire {
             compressorLabel = bundle.getString("compressor_label").orEmpty(),
             blocked = bundle.getBoolean("context_blocked", false),
             reason = bundle.getString("context_reason").orEmpty(),
+            pruningOnly = bundle.getBoolean("pruning_only",
+                bundle.getString("compressor_label") == "工具输出预算修剪（原文可回读）"),
         )
 
         "run_finished" -> AgentEvent.RunFinished(

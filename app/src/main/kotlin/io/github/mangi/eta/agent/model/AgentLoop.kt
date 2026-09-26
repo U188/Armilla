@@ -565,13 +565,13 @@ internal class AgentLoop(
         if (replacements.isEmpty()) return false
         runController.throwIfCancelled()
         replacements.forEach { (index, message) -> messages.put(index, message) }
-        lastUsage = null
-        requestBudget.contextReplaced()
-        silentBudget.contextReplaced()
+        // A tool-body edit is not a new context epoch. Keep the latest cloud bill
+        // and its local anchor; the silent budget accounts for the trimmed delta.
+        // Only a real summary replacement reopens the local display boundary.
         onHistoryCompacted()
         onEvent(AgentEvent.ContextCompacted(round, true, messages.length(), messages.length(),
             history = AgentConversationCodec.transcript(messages, systemCount, sensitiveToolCallIds),
-            compressorLabel = "工具输出预算修剪（原文可回读）"))
+            compressorLabel = "工具输出预算修剪（原文可回读）", pruningOnly = true))
         checkpoints.forEach { runCatching { archive.record(it, "committed") } }
         return true
     }

@@ -132,7 +132,7 @@ internal class AgentLoop(
                 auxiliaryVision.prepare(messages)
             } catch (failure: Exception) {
                 runController.throwIfCancelled()
-                if (runController.hasPausedInterrupt || runController.hasPendingSteering) {
+                if (runController.hasPausedInterrupt || runController.hasPendingImmediateSteering) {
                     runController.consumePausedInterrupt()
                     continue
                 }
@@ -158,7 +158,7 @@ internal class AgentLoop(
                     auxiliaryVision.prepare(messages)
                 } catch (failure: Exception) {
                     runController.throwIfCancelled()
-                    if (runController.hasPausedInterrupt || runController.hasPendingSteering) {
+                    if (runController.hasPausedInterrupt || runController.hasPendingImmediateSteering) {
                         runController.consumePausedInterrupt()
                         continue@roundLoop
                     }
@@ -347,13 +347,12 @@ internal class AgentLoop(
                     finishedContent.isNotBlank() &&
                     finishedContent != "null"
                 if (finishedNaturally) {
-                    onEvent(AgentEvent.RunFinished(round = round, contentChars = finishedContent.length, generatedAtMillis = System.currentTimeMillis()))
-                    return Result(
-                        content = (interruptedTextPrefix.toString() + assistantMessage.optString("content")).trim(),
-                        reasoningContent = reasoningSnapshot(),
-                        sensitiveToolCallIds = sensitiveToolCallIds.toSet(),
-                    )
-                }
+                    // No tool was executed: remove the batch before maintenance can inspect history.
+                    val historyAssistantIndex = messages.length() - 1
+                    messages.put(historyAssistantIndex, AgentConversationCodec.assistantHistoryMessage(
+                        source = assistantMessage, toolCalls = emptyList(),
+                    ).put(AgentTurnIdentity.JSON_KEY, turnId))
+                } else {
                 val outcomes = mutableListOf<ToolOutcome>()
                 try {
                     when (providerResponse.stopReason) {
@@ -385,6 +384,7 @@ internal class AgentLoop(
                 interruptedTextPrefix.setLength(0)
                 round += 1
                 continue
+                }
             }
 
             // Natural completion is not an interrupted reply. Drain queued maintenance
@@ -695,16 +695,22 @@ internal class AgentLoop(
     }
 
     private fun appendPendingSteeringMessage(): Boolean {
-        val supplement = runController.pollSteeringInput() ?: return false
-        supplementStartsNewBlock = true
-        messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
-        return true
+        var appended = false
+        // Drain at a safe boundary, before opening another model request.
+        while (true) {
+            val supplement = runController.pollSteeringInput() ?: break
+            supplementStartsNewBlock = true
+            messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
+            appended = true
+        }
+        return appended
     }
 
     private fun appendPendingSteeringOrSeal(): Boolean {
         val supplement = runController.pollSteeringInputOrSeal() ?: return false
         supplementStartsNewBlock = true
         messages.put(AgentSupplementMedia.userMessage(steeringPrompt(supplement.text), supplement.imagesJson).put(AgentTurnIdentity.JSON_KEY, turnId))
+        appendPendingSteeringMessage()
         return true
     }
 

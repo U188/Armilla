@@ -46,6 +46,9 @@ import io.github.mangi.eta.config.Prefs
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.ModuleConfig
 import io.github.mangi.eta.core.safeLogType
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
@@ -114,6 +117,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        lifecycleScope.launch {
+            AgentChildTaskGroups.revision.collect { stopIfRuntimeIdle() }
+        }
     }
 
     override fun onBind(intent: Intent): IBinder? {
@@ -122,7 +128,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_KEEP_ALIVE || sessions.isEmpty()) {
+        if (intent?.action != ACTION_KEEP_ALIVE || (sessions.isEmpty() && !AgentChildTaskGroups.hasAnyActive())) {
             stopSelf(startId)
         }
         return START_NOT_STICKY
@@ -138,6 +144,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     override fun onDestroy() {
+        // Do not enqueue a future global stop: a replacement service may already own new groups.
+        retireChildTargets(AgentChildTaskGroups.captureActiveStopTargets())
         failPendingStarts("Agent Runtime 服务已停止")
         sessions.cancelAll("Agent Runtime 服务已停止")
         overlaySession = null
@@ -196,6 +204,11 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 AgentRuntimeWire.MSG_CANCEL -> {
                     val runId = msg.data?.let(AgentRuntimeWire::runIdFromBundle).orEmpty()
                     if (runId.isNotBlank()) cancelRun(runId)
+                }
+
+                AgentRuntimeWire.MSG_STOP_MAIN_RUN -> {
+                    val runId = msg.data?.let(AgentRuntimeWire::runIdFromBundle).orEmpty()
+                    if (runId.isNotBlank()) stopMainRun(runId)
                 }
 
                 AgentRuntimeWire.MSG_ACK_RESULT -> {
@@ -327,8 +340,9 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         )
         // Root 入口保留原有绑定服务生命周期；新增 FGS 不能成为厂商后台入口的新前置权限。
         val allowBoundFallback = RootAccess.isGranted
+        val runLease = AgentRuntimeRunLease.create(request.runId)
         val executionHeld = AgentExecutionService.acquire(
-            this, "run:${request.runId}", allowBoundFallback = allowBoundFallback,
+            this, runLease.id, allowBoundFallback = allowBoundFallback,
         ) { session.cancel("已停止") }
         if (!executionHeld && (!allowBoundFallback || AgentExecutionService.backupMaintenance)) {
             session.complete(AgentRuntimeWire.RunResult(
@@ -377,12 +391,23 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
             supplementsByRunId[request.runId] = extras
         }
 
-        thread(name = "agent-runtime") {
-            try {
-                executeRun(session, request)
-            } finally {
-                AgentExecutionService.release("run:${request.runId}")
+        try {
+            thread(name = "agent-runtime") {
+                try {
+                    executeRun(session, request)
+                } finally {
+                    AgentExecutionService.release(runLease.id)
+                }
             }
+        } catch (failure: Throwable) {
+            AgentExecutionService.release(runLease.id)
+            val result = AgentRuntimeWire.RunResult(
+                runId = request.runId, ok = false, content = "", error = "Agent Runtime 无法启动执行线程",
+            )
+            AndroidAgentLogger.error("Agent runtime thread start failed: type=${failure.safeLogType()}")
+            runCatching { persistCompletedRun(request, result) }
+            session.complete(result) {}
+            postTerminalOverlay(session, result, null)
         }
     }
 
@@ -495,7 +520,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 !AgentOverlayVisibilityPolicy.allowsOverlay(session.taskSurfaceMode) ||
                 overlaySession !== session
             ) {
-                if (sessions.isEmpty() && pendingStartRequests.isEmpty() &&
+                if (sessions.isEmpty() && pendingStartRequests.isEmpty() && !AgentChildTaskGroups.hasAnyActive() &&
                     orbView == null && bubbleView == null && resultCardView == null
                 ) {
                     stopSelf()
@@ -720,7 +745,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         )
         // Preparation failures have no session/overlay ownership. They must not
         // reuse another run's foreground-execution flag or terminal windows.
-        if (sessions.isEmpty() && pendingStartRequests.isEmpty() &&
+        if (sessions.isEmpty() && pendingStartRequests.isEmpty() && !AgentChildTaskGroups.hasAnyActive() &&
             orbView == null && bubbleView == null && resultCardView == null
         ) {
             stopSelf()
@@ -736,16 +761,36 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         cancelRun(runId)
     }
 
-    private fun cancelRun(runId: String) {
+    private fun stopMainRun(runId: String) {
         if (runId.isBlank()) return
-        pendingStartRequests.remove(runId)?.let { pending ->
-            failPendingStart(pending, "已停止")
-            return
-        }
+        pendingStartRequests.remove(runId)?.let { pending -> failPendingStart(pending, "已停止") }
         val session = sessions.get(runId) ?: return
         if (session.requestStop() && overlaySession === session) {
             state.value = state.value.copy(status = AgentOverlayStatus.Stopping)
         }
+    }
+
+    private fun cancelRun(runId: String) {
+        if (runId.isBlank()) return
+        val targets = AgentChildTaskGroups.captureRunStopTargets(runId)
+        stopMainRun(runId)
+        retireChildTargets(targets)
+    }
+
+    private fun retireChildTargets(targets: List<AgentChildTaskGroups.StopTarget>) {
+        if (targets.isEmpty()) return
+        childCleanup.execute {
+            targets.forEach { captured ->
+                runCatching { AgentChildTaskGroups.stop(captured) }.onFailure { failure ->
+                    AndroidAgentLogger.error("Child task cleanup failed: type=${failure.safeLogType()}")
+                }
+            }
+        }
+    }
+
+    private fun stopIfRuntimeIdle() {
+        if (sessions.isEmpty() && pendingStartRequests.isEmpty() && !AgentChildTaskGroups.hasAnyActive() &&
+            orbView == null && bubbleView == null && resultCardView == null) stopSelf()
     }
 
     private fun requestPause() {
@@ -1123,7 +1168,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         windowManager = null
         overlaySession = null
         hasExecutedForegroundTool = false
-        if (sessions.isEmpty() && pendingStartRequests.isEmpty()) {
+        if (sessions.isEmpty() && pendingStartRequests.isEmpty() && !AgentChildTaskGroups.hasAnyActive()) {
             stopSelf()
         }
     }
@@ -1194,6 +1239,10 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private companion object {
+        // Independent of this service's lifecycle: onDestroy must not cancel its own cleanup.
+        val childCleanup = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "agent-child-cleanup").apply { isDaemon = true }
+        }
         const val ACTION_KEEP_ALIVE = "io.github.mangi.eta.agent.runtime.KEEP_ALIVE"
         const val HIDE_DELAY_MS = 2_500L
         const val RESULT_REVIEW_DELAY_MS = 120_000L

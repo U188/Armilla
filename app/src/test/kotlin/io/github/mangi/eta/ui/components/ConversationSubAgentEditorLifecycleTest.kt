@@ -16,7 +16,7 @@ import java.util.UUID
 @Config(application = Application::class, sdk = [34])
 class ConversationSubAgentEditorLifecycleTest {
     private fun repository() = ConversationSubAgentPreferences(
-        RuntimeEnvironment.getApplication<Application>().getSharedPreferences("editor-${UUID.randomUUID()}", Context.MODE_PRIVATE))
+        RuntimeEnvironment.getApplication().getSharedPreferences("editor-${UUID.randomUUID()}", Context.MODE_PRIVATE))
 
     @Test fun existingEditorExposesLaterLifecycleFailureAndExplicitRecovery() {
         val repo = repository()

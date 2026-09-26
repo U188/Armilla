@@ -18,7 +18,7 @@ import kotlinx.coroutines.runBlocking
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class BackupRecoveryP1Test {
-    private val app get() = RuntimeEnvironment.getApplication<Application>()
+    private val app get() = RuntimeEnvironment.getApplication()
 
     /** A false commit can still change SharedPreferences memory. Never treat memory as durable. */
     private class FalseCommit(private val real: SharedPreferences) : SharedPreferences by real {

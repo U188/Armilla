@@ -24,6 +24,7 @@ sealed interface AppRoute : NavKey {
     data object AgentTaskPreference : AppRoute
 
     @Serializable
+    // Deserialization compatibility only; renders AgentTaskPreference, with no separate entry in UI.
     data object VirtualDisplayRecovery : AppRoute
 
     @Serializable

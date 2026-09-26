@@ -6,6 +6,11 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -15,6 +20,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -117,61 +124,75 @@ internal fun VirtualDisplayRecoveryControls(
                 if (receipt.optString("message").isNotBlank()) Text(receipt.optString("message"))
             }
         }
-        TextButton(
-            text = stringResource(R.string.vd_preview_control_open),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            enabled = installed == true && !working && snapshot?.optBoolean("present") == true,
-            onClick = {
-                if (!working) {
-                    TouchHaptics.click(view)
-                    setWorking(true)
-                    scope.launch {
-                        try {
-                            val uri = withContext(Dispatchers.IO) { VirtualDisplayWebPreview.openWithManualClose(context) }
-                            val stillInstalled = withContext(Dispatchers.IO) { AgentTaskSurface.moduleInstalled() }
-                            check(stillInstalled) { "Backend module removed" }
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        } catch (ex: CancellationException) {
-                            VirtualDisplayWebPreview.stop()
-                            throw ex
-                        } catch (_: Exception) {
-                            VirtualDisplayWebPreview.stop()
-                            result = JSONObject().put("ok", false).put("error", "WEB_PREVIEW_OPEN_FAILED")
-                        } finally { setWorking(false) }
+        Row(
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.vd_preview_open),
+                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 56.dp),
+                minWidth = 0.dp,
+                insideMargin = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                textStyle = MiuixTheme.textStyles.button.copy(textAlign = TextAlign.Center),
+                enabled = installed == true && !working && snapshot?.optBoolean("present") == true,
+                onClick = {
+                    if (!working) {
+                        TouchHaptics.click(view)
+                        setWorking(true)
+                        scope.launch {
+                            try {
+                                val uri = withContext(Dispatchers.IO) { VirtualDisplayWebPreview.openWithManualClose(context) }
+                                val stillInstalled = withContext(Dispatchers.IO) { AgentTaskSurface.moduleInstalled() }
+                                check(stillInstalled) { "Backend module removed" }
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            } catch (ex: CancellationException) {
+                                VirtualDisplayWebPreview.stop()
+                                throw ex
+                            } catch (_: Exception) {
+                                VirtualDisplayWebPreview.stop()
+                                result = JSONObject().put("ok", false).put("error", "WEB_PREVIEW_OPEN_FAILED")
+                            } finally { setWorking(false) }
+                        }
                     }
-                }
-            },
-        )
-        TextButton(
-            text = stringResource(R.string.vd_recovery_refresh),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            enabled = installed == true && !working,
-            onClick = { TouchHaptics.click(view); refresh() },
-        )
-        TextButton(
-            text = stringResource(if (working) R.string.vd_recovery_working else R.string.vd_recovery_action),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            enabled = installed == true && !working && snapshot != null && snapshot.optBoolean("ok") &&
-                snapshot.optBoolean("present") && snapshot.optBoolean("recoverable"),
-            onClick = {
-                if (!working) {
-                    TouchHaptics.click(view)
-                    setWorking(true)
-                    result = null
-                    scope.launch {
-                        try {
-                            val receipt = withContext(Dispatchers.IO) { recover(context.applicationContext) }
-                            result = receipt
-                            state = withContext(Dispatchers.IO) { readStatus(context.applicationContext) }
-                        } catch (ex: CancellationException) {
-                            throw ex
-                        } catch (_: Exception) {
-                            result = JSONObject().put("ok", false).put("error", "RECOVERY_OPERATION_FAILED")
-                        } finally { setWorking(false) }
+                },
+            )
+            TextButton(
+                text = stringResource(R.string.vd_recovery_refresh),
+                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 56.dp),
+                minWidth = 0.dp,
+                insideMargin = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                textStyle = MiuixTheme.textStyles.button.copy(textAlign = TextAlign.Center),
+                enabled = installed == true && !working,
+                onClick = { TouchHaptics.click(view); refresh() },
+            )
+            TextButton(
+                text = stringResource(if (working) R.string.vd_recovery_working else R.string.vd_recovery_action),
+                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 56.dp),
+                minWidth = 0.dp,
+                insideMargin = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                textStyle = MiuixTheme.textStyles.button.copy(textAlign = TextAlign.Center),
+                enabled = installed == true && !working && snapshot != null && snapshot.optBoolean("ok") &&
+                    snapshot.optBoolean("present") && snapshot.optBoolean("recoverable"),
+                onClick = {
+                    if (!working) {
+                        TouchHaptics.click(view)
+                        setWorking(true)
+                        result = null
+                        scope.launch {
+                            try {
+                                val receipt = withContext(Dispatchers.IO) { recover(context.applicationContext) }
+                                result = receipt
+                                state = withContext(Dispatchers.IO) { readStatus(context.applicationContext) }
+                            } catch (ex: CancellationException) {
+                                throw ex
+                            } catch (_: Exception) {
+                                result = JSONObject().put("ok", false).put("error", "RECOVERY_OPERATION_FAILED")
+                            } finally { setWorking(false) }
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        }
     }
 }

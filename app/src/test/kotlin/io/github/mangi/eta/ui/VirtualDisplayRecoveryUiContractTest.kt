@@ -18,13 +18,16 @@ class VirtualDisplayRecoveryUiContractTest {
         assertTrue(source.contains("VirtualDisplayRecoveryControls("))
     }
 
-    @Test fun inlineRecoveryHasThreeFullWidthMiuixActionsAndManualClosePreview() {
+    @Test fun inlineRecoveryHasThreeEqualWidthHorizontalActionsAndManualClosePreview() {
         val source = File(ui, "VirtualDisplayRecoveryScreen.kt").readText()
         assertEquals(3, Regex("TextButton\\(").findAll(source).count())
-        assertEquals(3, Regex("Modifier\\.fillMaxWidth\\(\\)\\.heightIn\\(min = 56\\.dp\\)").findAll(source).count())
+        assertEquals(3, Regex("""Modifier\.weight\(1f\)\.fillMaxHeight\(\)\.heightIn\(min = 56\.dp\)""").findAll(source).count())
+        assertTrue(source.contains("height(IntrinsicSize.Min)"))
+        assertTrue(source.contains("TextAlign.Center"))
         assertTrue(source.contains("VirtualDisplayWebPreview.openWithManualClose(context)"))
         assertFalse(source.contains("VirtualDisplayWebPreview.open(context)"))
-        assertFalse(source.contains("vd_preview_open"))
+        assertTrue(source.contains("vd_preview_open"))
+        assertFalse(source.contains("vd_preview_control_open"))
         for (explanation in listOf("vd_recovery_explanation", "vd_recovery_scope", "vd_preview_note")) {
             assertFalse(source.contains(explanation))
         }

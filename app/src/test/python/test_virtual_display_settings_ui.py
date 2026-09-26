@@ -11,14 +11,18 @@ class VirtualDisplaySettingsUiTest(unittest.TestCase):
         self.assertNotIn("VirtualDisplayRecoveryPreference", settings)
         self.assertNotIn("vd_recovery_title", settings)
         self.assertIn("if (taskBackendInstalled == true)", settings)
-        self.assertIn("onClick = onOpenRecovery", task)
-        self.assertIn("if (moduleInstalled != true)", task)
+        self.assertNotIn("onOpenRecovery", task)
+        self.assertIn("VirtualDisplayRecoveryControls(", task)
+        self.assertIn("moduleInstalled != true", task)
 
-    def test_recovery_is_material_page_not_dialog(self):
+    def test_recovery_is_inline_horizontal_controls_not_separate_page(self):
         page = (UI / "VirtualDisplayRecoveryScreen.kt").read_text()
-        self.assertIn("import androidx.compose.material3.*", page)
-        self.assertIn("Scaffold(", page)
-        self.assertIn("TopAppBar(", page)
+        self.assertNotIn("Scaffold(", page)
+        self.assertNotIn("TopAppBar(", page)
+        self.assertIn("Row(", page)
+        self.assertEqual(3, page.count("Modifier.weight(1f).fillMaxHeight()"))
+        self.assertIn("VirtualDisplayWebPreview.openWithManualClose(context)", page)
+        self.assertNotIn("vd_preview_control_open", page)
         self.assertNotIn("WindowDialog", page)
         self.assertNotIn("AlertDialog", page)
         self.assertIn("LaunchedEffect(Unit) { refresh() }", page)
@@ -27,7 +31,8 @@ class VirtualDisplaySettingsUiTest(unittest.TestCase):
         self.assertIn("VirtualDisplayWebPreview.stop()", page)
         root = (UI / "app/AgentAppRoot.kt").read_text()
         self.assertIn("entry<AppRoute.VirtualDisplayRecovery>", root)
-        self.assertIn("VirtualDisplayRecoveryScreen(onBack = ::popRoute)", root)
+        self.assertNotIn("VirtualDisplayRecoveryScreen(onBack = ::popRoute)", root)
+        self.assertIn("AgentTaskPreferenceScreen(onBack = ::popRoute)", root)
 
     def test_installation_is_rechecked_on_resume_not_live_backend_status(self):
         source = (UI / "TaskBackendInstallation.kt").read_text()
@@ -40,7 +45,8 @@ class VirtualDisplaySettingsUiTest(unittest.TestCase):
     def test_leaving_recovery_revokes_preview_without_stopping_on_pause(self):
         page = (UI / "VirtualDisplayRecoveryScreen.kt").read_text()
         cleanup = page.split("DisposableEffect(Unit) {", 1)[1].split("val snapshot", 1)[0]
-        self.assertIn("onDispose { VirtualDisplayWebPreview.stop() }", cleanup)
+        self.assertIn("onDispose {", cleanup)
+        self.assertIn("VirtualDisplayWebPreview.stop()", cleanup)
         self.assertNotIn("Lifecycle.Event.ON_PAUSE", page)
         self.assertNotIn("Lifecycle.Event.ON_STOP", page)
 

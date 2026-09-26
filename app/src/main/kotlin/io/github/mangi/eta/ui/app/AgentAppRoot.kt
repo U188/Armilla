@@ -62,7 +62,6 @@ import io.github.mangi.eta.data.model.AppUpdateOffer
 import io.github.mangi.eta.data.repository.AppUpdateRepository
 import io.github.mangi.eta.data.repository.RuntimeConfigRepository
 import io.github.mangi.eta.ui.AgentTaskPreferenceScreen
-import io.github.mangi.eta.ui.VirtualDisplayRecoveryScreen
 import io.github.mangi.eta.ui.AgentTaskSurfacePrompt
 import io.github.mangi.eta.ui.AppearanceSettingsScreen
 import io.github.mangi.eta.ui.HapticsSettingsScreen
@@ -648,14 +647,12 @@ fun AgentAppRoot(
             entry<AppRoute.Haptics>(swipeDismiss = swipeDismiss) {
                 HapticsSettingsScreen(onBack = ::popRoute)
             }
-            entry<AppRoute.AgentTaskPreference>(swipeDismiss = swipeDismiss) {
-                AgentTaskPreferenceScreen(
-                    onBack = ::popRoute,
-                    onOpenRecovery = { pushRoute(AppRoute.VirtualDisplayRecovery) },
-                )
+            entry<AppRoute.AgentTaskPreference>(swipeDismiss = null) {
+                AgentTaskPreferenceScreen(onBack = ::popRoute)
             }
+            // Compatibility alias for a restored old back stack; there is no separate recovery page.
             entry<AppRoute.VirtualDisplayRecovery>(swipeDismiss = null) {
-                VirtualDisplayRecoveryScreen(onBack = ::popRoute)
+                AgentTaskPreferenceScreen(onBack = ::popRoute)
             }
             entry<AppRoute.Tools>(swipeDismiss = swipeDismiss) {
                 AgentToolsScreen(

@@ -182,6 +182,11 @@ internal class ConversationSubAgentPreferences(
     }
     private fun read(owner: SubAgentConfigKey): ConversationSubAgentConfig = stored(key(owner))?.let(::decode) ?: initial(owner)
     fun snapshot(owner: SubAgentConfigKey): ConversationSubAgentConfig = synchronized(lock) { read(owner).detached() }
+    /** No seed fallback: pointer recovery must distinguish absence from unreadable storage. */
+    fun existingDraftOrNull(owner: SubAgentConfigKey.Draft): ConversationSubAgentConfig? = synchronized(lock) {
+        stored(key(owner))?.let { decode(it).detached() }
+    }
+
     fun createConversation(owner: SubAgentConfigKey.Conversation, source: SubAgentConfigKey? = null): ConversationSubAgentConfig = synchronized(lock) {
         stored(key(owner))?.let { return@synchronized decode(it).detached() }
         val config = (source?.let { read(it) } ?: initial(owner)).detached()

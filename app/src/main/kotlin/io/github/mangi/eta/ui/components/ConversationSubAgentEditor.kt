@@ -30,30 +30,33 @@ internal class ConversationSubAgentEditor(
     val canEdit: () -> Boolean,
 ) {
     private class LostOwner : RuntimeException()
-    var state: SubAgentEditorState by mutableStateOf(SubAgentEditorState.Loading)
-        private set
+    private var storedState: SubAgentEditorState by mutableStateOf(SubAgentEditorState.Loading)
+    private var lifecycleFailure: (() -> String?)? = null
+    val state: SubAgentEditorState
+        get() = lifecycleFailure?.invoke()?.let { SubAgentEditorState.Error(it) } ?: storedState
     private var retryVersion by mutableIntStateOf(0)
     val enabled: Boolean get() = state is SubAgentEditorState.Loaded && canEdit()
     private fun fail(failure: Exception) {
         if (failure is CancellationException) throw failure
-        state = SubAgentEditorState.Error(failure.message ?: failure.javaClass.simpleName)
+        storedState = SubAgentEditorState.Error(failure.message ?: failure.javaClass.simpleName)
     }
     private var lifecycleRecovery: (() -> Boolean)? = null
     init {
-        try { state = SubAgentEditorState.Loaded(repository.snapshot(owner)) }
+        try { storedState = SubAgentEditorState.Loaded(repository.snapshot(owner)) }
         catch (failure: Exception) { fail(failure) }
     }
-    fun setLifecycleFailure(reason: String, recovery: () -> Boolean) {
-        state = SubAgentEditorState.Error(reason)
+    fun bindLifecycleState(reason: () -> String?, recovery: () -> Boolean) {
+        lifecycleFailure = reason
         lifecycleRecovery = recovery
     }
     /** Explicitly recover the durability fence, then restart the snapshot + live subscription. */
     fun retry() {
         try {
             check(repository.recoverDurability()) { "子代理配置恢复失败；请重试" }
-            check(lifecycleRecovery?.invoke() != false) { "会话配置尚未恢复，原配置已保留" }
-            lifecycleRecovery = null
-            state = SubAgentEditorState.Loading
+            if (lifecycleFailure?.invoke() != null) {
+                check(lifecycleRecovery?.invoke() == true) { "会话配置尚未恢复，原配置已保留" }
+            }
+            storedState = SubAgentEditorState.Loading
             retryVersion++
         } catch (failure: Exception) { fail(failure) }
     }
@@ -64,9 +67,9 @@ internal class ConversationSubAgentEditor(
             // Opening another page cannot silently clear an error: only the retry action may do so.
             if (state is SubAgentEditorState.Error) return@LaunchedEffect
             try {
-                state = SubAgentEditorState.Loaded(repository.snapshot(owner))
+                storedState = SubAgentEditorState.Loaded(repository.snapshot(owner))
                 repository.flow(owner).collect { config ->
-                    if (state !is SubAgentEditorState.Error) state = SubAgentEditorState.Loaded(config)
+                    if (state !is SubAgentEditorState.Error) storedState = SubAgentEditorState.Loaded(config)
                 }
             } catch (failure: Exception) { fail(failure) }
         }

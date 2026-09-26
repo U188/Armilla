@@ -82,4 +82,27 @@ class AgentChildTaskGroupsTest {
             }
         } finally { synchronized(owner) { claims.remove(predecessor); groups().remove(generation) } }
     }
+    @Test
+    fun retiringSuccessorKeepsSuccessfulAndUnknownPredecessorClaims() {
+        val (generation, _) = install("claim-retention-owner")
+        val claimClass = owner.javaClass.declaredClasses.single { it.simpleName == "Claim" }
+        val constructor = claimClass.declaredConstructors.single { it.parameterCount == 3 }.apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val claims = owner.javaClass.getDeclaredField("claimed").apply { isAccessible = true }.get(owner) as MutableMap<String, Any>
+        val forget = owner.javaClass.declaredMethods.single { it.name == "forgetGeneration" }.apply { isAccessible = true }
+        val predecessor = "retained-${UUID.randomUUID()}"
+        val successor = "successor-${UUID.randomUUID()}"
+        try {
+            synchronized(owner) {
+                for (outcome in listOf("unknown", "successor-task")) {
+                    claims[predecessor] = constructor.newInstance(generation, successor, outcome)
+                    forget.invoke(owner, successor)
+                    assertTrue("closing successor must not permit replay: $outcome", claims.containsKey(predecessor))
+                    forget.invoke(owner, generation)
+                    assertFalse(claims.containsKey(predecessor))
+                }
+            }
+        } finally { synchronized(owner) { claims.remove(predecessor); groups().remove(generation) } }
+    }
+
 }

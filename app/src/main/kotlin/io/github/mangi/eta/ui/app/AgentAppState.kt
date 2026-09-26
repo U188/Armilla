@@ -287,19 +287,31 @@ internal class AgentAppState(
     val conversationSubAgentPreferences = ConversationSubAgentPreferences(canEdit = ::canEditSubAgentSettings)
     private val pendingSubAgentDraftBindings = mutableMapOf<String, SubAgentConfigKey.Draft>()
     private var subAgentDraftReady by mutableStateOf(true)
+    private var subAgentDraftPointerReloadPending = false
     private var subAgentRestoreBlocked by mutableStateOf(false)
     private var subAgentConfigFailure by mutableStateOf<String?>(null)
     private var pendingSubAgentDraftSource: SubAgentConfigKey? = selectedConversationId?.let { SubAgentConfigKey.Conversation(it) }
     private var draftSubAgentOwner by mutableStateOf(initializeSubAgentDraft())
 
+    private fun readSubAgentDraftPointer(source: SubAgentConfigKey?): SubAgentConfigKey.Draft {
+        val pointer = Prefs.getString("agent_conversation_child_ui_draft_v1")
+        if (pointer.isNotBlank()) {
+            val existing = SubAgentConfigKey.Draft(pointer)
+            if (conversationSubAgentPreferences.existingDraftOrNull(existing) != null) return existing
+            // A promoted draft may have been retired, but its selected conversation is authoritative.
+            check(source is SubAgentConfigKey.Conversation) { "原草稿配置缺失，不能替换为默认配置" }
+        }
+        val created = conversationSubAgentPreferences.createDraft(source)
+        Prefs.putString("agent_conversation_child_ui_draft_v1", created.value)
+        return created
+    }
+
     private fun initializeSubAgentDraft(): SubAgentConfigKey.Draft = try {
-        Prefs.getString("agent_conversation_child_ui_draft_v1").takeIf { it.isNotBlank() }
-            ?.let { SubAgentConfigKey.Draft(it) }
-            ?: conversationSubAgentPreferences.createDraft(pendingSubAgentDraftSource)
-                .also { Prefs.putString("agent_conversation_child_ui_draft_v1", it.value) }
+        readSubAgentDraftPointer(pendingSubAgentDraftSource)
     } catch (failure: Exception) {
         if (failure is CancellationException) throw failure
         subAgentDraftReady = false
+        subAgentDraftPointerReloadPending = true
         subAgentConfigFailure = "草稿配置读取失败；原数据未覆盖，请在子代理设置中重试。"
         SubAgentConfigKey.Draft(java.util.UUID.randomUUID().toString())
     }
@@ -320,11 +332,14 @@ internal class AgentAppState(
 
     fun subAgentEditor(owner: SubAgentConfigKey): ConversationSubAgentEditor =
         ConversationSubAgentEditor(owner, conversationSubAgentPreferences) { canEditSubAgentSettings(owner) }.also { editor ->
-            if (subAgentRestoreBlocked || (owner is SubAgentConfigKey.Draft && !subAgentDraftReady)) {
-                editor.setLifecycleFailure(subAgentConfigFailure ?: "会话配置尚未恢复") {
-                    owner == subAgentConfigOwner && ensureSubAgentConfigurationReady()
-                }
-            }
+            editor.bindLifecycleState(
+                reason = {
+                    if (subAgentRestoreBlocked || (owner is SubAgentConfigKey.Draft && !subAgentDraftReady))
+                        subAgentConfigFailure ?: "会话配置尚未恢复"
+                    else null
+                },
+                recovery = { owner == subAgentConfigOwner && ensureSubAgentConfigurationReady() },
+            )
         }
 
     private fun subAgentConfigFailed(failure: Exception) {
@@ -334,8 +349,9 @@ internal class AgentAppState(
         Toast.makeText(appContext, subAgentConfigFailure, Toast.LENGTH_LONG).show()
     }
 
-    private fun beginNewSubAgentDraft(): Boolean {
-        val source = if (!subAgentDraftReady) pendingSubAgentDraftSource else subAgentConfigOwner
+    private fun beginNewSubAgentDraft(source: SubAgentConfigKey? = subAgentConfigOwner): Boolean {
+        // A NEW user operation always captures the currently selected owner, never a stale pending source.
+        subAgentDraftPointerReloadPending = false
         return try {
             val next = conversationSubAgentPreferences.createDraft(source)
             Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
@@ -355,15 +371,21 @@ internal class AgentAppState(
     private fun ensureSubAgentConfigurationReady(): Boolean = try {
         if (subAgentRestoreBlocked) {
             conversationSubAgentPreferences.refreshAfterRestore()
-            val next = Prefs.getString("agent_conversation_child_ui_draft_v1")
-                .takeIf { it.isNotBlank() }?.let { SubAgentConfigKey.Draft(it) }
-                ?: conversationSubAgentPreferences.createDraft(selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
+            val next = readSubAgentDraftPointer(selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
             draftSubAgentOwner = next
             subAgentDraftReady = true
             subAgentRestoreBlocked = false
             Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
         }
-        if (selectedConversationId == null && !subAgentDraftReady && !beginNewSubAgentDraft()) false
+        if (selectedConversationId == null && !subAgentDraftReady && subAgentDraftPointerReloadPending) {
+            val recovered = readSubAgentDraftPointer(pendingSubAgentDraftSource)
+            draftSubAgentOwner = recovered
+            subAgentDraftPointerReloadPending = false
+            subAgentDraftReady = true
+            subAgentConfigFailure = null
+        }
+        // Only recovery of the same unselected draft resumes its saved source.
+        if (selectedConversationId == null && !subAgentDraftReady && !beginNewSubAgentDraft(pendingSubAgentDraftSource)) false
         else {
             conversationSubAgentPreferences.snapshot(subAgentConfigOwner)
             true
@@ -880,9 +902,7 @@ internal class AgentAppState(
         withContext(Dispatchers.Main.immediate) {
             try {
                 conversationSubAgentPreferences.refreshAfterRestore()
-                val next = Prefs.getString("agent_conversation_child_ui_draft_v1")
-                    .takeIf { it.isNotBlank() }?.let { SubAgentConfigKey.Draft(it) }
-                    ?: conversationSubAgentPreferences.createDraft(snapshot.selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
+                val next = readSubAgentDraftPointer(snapshot.selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
                 Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
                 draftSubAgentOwner = next
                 subAgentDraftReady = true

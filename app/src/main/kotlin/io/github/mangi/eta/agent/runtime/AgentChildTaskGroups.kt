@@ -176,7 +176,8 @@ internal object AgentChildTaskGroups {
         }
     }
     private fun forgetGeneration(generation: String) {
-        claimed.entries.removeAll { (_, claim) -> claim.predecessorGeneration == generation || claim.successorGeneration == generation }
+        // A successful or uncertain successor must not become replayable when its group closes.
+        claimed.entries.removeAll { (_, claim) -> claim.predecessorGeneration == generation }
         replacedBy.entries.removeAll { (_, lineage) -> lineage.predecessorGeneration == generation || lineage.successorGeneration == generation }
     }
     private fun prune() {

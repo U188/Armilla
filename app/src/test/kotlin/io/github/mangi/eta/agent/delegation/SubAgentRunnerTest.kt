@@ -22,7 +22,8 @@ class SubAgentRunnerTest {
             override fun complete(request: ProviderRequest, runController: AgentRunController, onEvent: (ProviderEvent) -> Unit): ProviderResponse {
                 assertFalse(request.messages.toString().contains("PRIVATE ASSISTANT INSTRUCTIONS"))
                 assertFalse(request.config.hostedWebSearchEnabled)
-                assertEquals(1, request.tools.length())
+                assertEquals(2, request.tools.length())
+                assertEquals("report_task_progress", request.tools.getJSONObject(1).getJSONObject("function").getString("name"))
                 if (++rounds == 1) {
                     assertEquals(2, request.messages.length())
                     assertEquals("inspect device", request.messages.getJSONObject(1).getString("content"))
@@ -88,6 +89,27 @@ class SubAgentRunnerTest {
             })
         assertEquals("done", result)
         assertEquals(2, calls)
+    }
+
+    @Test fun checkpointToolStaysLocalAndDoesNotGrantMutation() {
+        val model = AgentModelClient.ModelConfig(baseUrl = "https://example.com", apiKey = "private", model = "child", systemPrompt = "")
+        val controller = AgentRunController()
+        var reported = ""
+        controller.setTaskProgressReporter { reported = it; true }
+        var round = 0
+        val provider = scripted { request, _ ->
+            if (++round == 1) {
+                assertEquals("report_task_progress", request.tools.getJSONObject(0).getJSONObject("function").getString("name"))
+                ProviderResponse(JSONObject().put("role", "assistant").put("content", "").put("finish_reason", "tool_calls")
+                    .put("tool_calls", JSONArray().put(JSONObject().put("id", "checkpoint").put("type", "function")
+                        .put("function", JSONObject().put("name", "report_task_progress")
+                            .put("arguments", JSONObject().put("summary", "verified step; next inspect").toString())))))
+            } else ProviderResponse(JSONObject().put("role", "assistant").put("content", "done").put("finish_reason", "stop"))
+        }
+        val result = SubAgentRunner.run(model, "task", JSONArray(), { error("Must not forward report to child executor") },
+            controller, provider, compactPolicy = AgentLoop.CompactPolicy.Disabled)
+        assertEquals("done", result)
+        assertEquals("verified step; next inspect", reported)
     }
 
     private fun scripted(block: (ProviderRequest, (ProviderEvent) -> Unit) -> ProviderResponse) = object : AgentProviderClient {

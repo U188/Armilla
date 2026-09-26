@@ -446,11 +446,6 @@ internal fun SettingsScreen(
                     if (taskBackendInstalled == true) {
                         ArrowPreference(
                             title = stringResource(R.string.agent_task_surface_title),
-                            summary = stringResource(
-                                io.github.mangi.eta.agent.device.AgentTaskSurface.settingsSummaryRes(
-                                    io.github.mangi.eta.agent.device.AgentTaskSurface.stored(),
-                                ),
-                            ),
                             startAction = { PreferenceIcon(Icons.Rounded.Layers) },
                             onClick = { onNavigate(AppRoute.AgentTaskPreference) },
                         )

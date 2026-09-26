@@ -74,38 +74,59 @@ internal fun AgentModelPickerButton(
     onModelSelected: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showCollaboration by remember { mutableStateOf(false) }
-    var collaboration by remember(conversationId) {
-        mutableStateOf(io.github.mangi.eta.agent.delegation.SubAgentPreferences.enabled(conversationId))
-    }
+    // Draft tokens are real owners too: a nullable conversationId cannot fence a popup.
+    val owner = LocalConversationSubAgentEditor.current?.owner
+    val popup = remember(owner) { OwnerBoundPopup(owner) }
+    val currentPopup by androidx.compose.runtime.rememberUpdatedState(popup)
+    val menuState = remember(owner) { EtaMenuState() }
+    var menuTicket by remember(popup) { mutableStateOf<Any?>(null) }
+    var dialogTicket by remember(popup) { mutableStateOf<Any?>(null) }
+    val capturedDialogTicket = dialogTicket
     ConversationCollaborationDialog(
-        show = showCollaboration,
-        enabled = collaboration,
+        show = popup.isCurrent(capturedDialogTicket, currentPopup),
+        enabled = false, // The dialog reads the scoped repository, never this legacy argument.
         taskRunning = collaborationTaskRunning,
-        onEnabledChange = {
-            collaboration = it
-            io.github.mangi.eta.agent.delegation.SubAgentPreferences.setEnabled(conversationId, it)
+        ownerMatches = { popup.isCurrent(capturedDialogTicket, currentPopup) },
+        onEnabledChange = {},
+        onDismiss = {
+            popup.dispatch(capturedDialogTicket, currentPopup) {
+                popup.dismiss()
+                dialogTicket = null
+            }
         },
-        onDismiss = { showCollaboration = false },
     )
-    val menuState = rememberEtaMenuState()
-    var expandedProviderIds by remember { mutableStateOf(emptySet<String>()) }
+    var expandedProviderIds by remember(owner) { mutableStateOf(emptySet<String>()) }
     val selected = state.selectedModel
     val pickerAvailable = (!isStreaming || isPaused) && state.providerGroups.isNotEmpty()
     LaunchedEffect(pickerAvailable) {
-        if (!pickerAvailable) menuState.dismiss()
+        if (!pickerAvailable) {
+            popup.dismiss()
+            menuTicket = null
+            dialogTicket = null
+            menuState.dismiss()
+        }
     }
     val currentModel = selected?.displayName ?: stringResource(R.string.model_not_selected)
     val switchModelDescription = stringResource(R.string.model_switch_current, currentModel)
     Box(modifier = modifier) {
         ChatInputNonFocusableIconButton(
             onClick = {
-                if (!pickerAvailable) return@ChatInputNonFocusableIconButton
+                if (!pickerAvailable || owner == null) return@ChatInputNonFocusableIconButton
                 expandedProviderIds = defaultExpandedModelProviderIds(state.selectedModel)
                 menuState.onAnchorClick()
+                menuTicket = if (menuState.expanded) popup.open() else {
+                    popup.dismiss()
+                    null
+                }
             },
             contentDescription = switchModelDescription,
-            onLongClick = { menuState.dismiss(); showCollaboration = true },
+            onLongClick = {
+                if (owner != null) {
+                    menuState.dismiss()
+                    menuTicket = null
+                    dialogTicket = popup.open()
+                }
+            },
         ) {
             ModelBrandMark(
                 modelId = selected?.modelId,
@@ -114,10 +135,16 @@ internal fun AgentModelPickerButton(
                 modifier = Modifier.graphicsLayer(alpha = if (pickerAvailable) 1f else 0.38f),
             )
         }
-
+        val capturedMenuTicket = menuTicket
         EtaDropdownMenu(
-            expanded = menuState.expanded && pickerAvailable,
-            onDismissRequest = menuState::dismiss,
+            expanded = menuState.expanded && pickerAvailable && popup.isCurrent(capturedMenuTicket, currentPopup),
+            onDismissRequest = {
+                popup.dispatch(capturedMenuTicket, currentPopup) {
+                    popup.dismiss()
+                    menuTicket = null
+                    menuState.dismiss()
+                }
+            },
             alignEnd = true,
             preferAbove = true,
             focusable = false,
@@ -129,10 +156,14 @@ internal fun AgentModelPickerButton(
                 state = state,
                 expandedProviderIds = expandedProviderIds,
                 onProviderExpandedChange = { providerId, expanded ->
-                    expandedProviderIds = if (expanded) setOf(providerId) else emptySet()
+                    popup.dispatch(capturedMenuTicket, currentPopup) {
+                        expandedProviderIds = if (expanded) setOf(providerId) else emptySet()
+                    }
                 },
                 onModelSelected = { providerId, modelId ->
-                    if (!state.isChanging) onModelSelected(providerId, modelId)
+                    popup.dispatch(capturedMenuTicket, currentPopup) {
+                        if (!state.isChanging && pickerAvailable) onModelSelected(providerId, modelId)
+                    }
                 },
             )
         }

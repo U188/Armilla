@@ -184,7 +184,9 @@ internal object AgentConversationStore {
                 messages = messagesByConversation[conversation.id]
                     .orEmpty()
                     .sortedBy { it.sortIndex }
-                    .mapNotNull { it.toMessageOrNull() },
+                    .mapNotNull { it.toMessageOrNull() }
+                    // Old sessions may hold persisted retry markers; never re-show them.
+                    .filterNot { it is SystemNoticeMessageUi && it.code == SystemNoticeCode.ModelRetry },
                 history = history,
             )
             states[conversation.id] = AgentChatHomeUiState(
@@ -276,15 +278,21 @@ internal object AgentConversationStore {
                 }
             }
 
-            is SystemNoticeMessageUi -> ConversationMessageEntity(
-                id = id,
-                conversationId = conversationId,
-                sortIndex = sortIndex,
-                type = TYPE_SYSTEM_NOTICE,
-                content = code.wireValue,
-                resultSummary = detail,
-                renderMarkdown = false,
-            )
+            is SystemNoticeMessageUi ->
+                // Retry markers are transient and stay only in the in-flight in-memory list.
+                if (code == SystemNoticeCode.ModelRetry) {
+                    null
+                } else {
+                    ConversationMessageEntity(
+                        id = id,
+                        conversationId = conversationId,
+                        sortIndex = sortIndex,
+                        type = TYPE_SYSTEM_NOTICE,
+                        content = code.wireValue,
+                        resultSummary = detail,
+                        renderMarkdown = false,
+                    )
+                }
 
             is ThinkingMessageUi -> ConversationMessageEntity(
                 id = id,

@@ -366,6 +366,9 @@
   <string name="tool_write_file">寫入檔案</string>
   <string name="tool_list_directory">列出目錄</string>
   <string name="system_notice_stopped">已停止</string>
+  <string name="model_retry_in_progress">正在重試… 第 %1$d/%2$d 次</string>
+  <string name="context_optimized_toast">上下文已優化</string>
+  <string name="context_optimized_divider">上下文已優化</string>
   <string name="system_notice_empty_result">執行已完成，但沒有文字回覆。</string>
   <string name="system_notice_runtime_failed">Runtime 執行失敗</string>
   <string name="conversation_persistence_failed">無法儲存對話，請重試</string>

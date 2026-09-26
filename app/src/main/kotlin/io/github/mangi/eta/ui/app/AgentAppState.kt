@@ -2556,12 +2556,21 @@ internal class AgentAppState(
         val count = AgentContextCompactionUi.completedMessageCount(
             originalHistory, compressedHistory, compressorLabel,
         )
-        if (count <= 0) return
-        Toast.makeText(
-            appContext,
-            appContext.resources.getQuantityString(R.plurals.context_compacted_messages, count, count),
-            Toast.LENGTH_SHORT,
-        ).show()
+        when {
+            count > 0 -> Toast.makeText(
+                appContext,
+                appContext.resources.getQuantityString(R.plurals.context_compacted_messages, count, count),
+                Toast.LENGTH_SHORT,
+            ).show()
+            // Maintenance/pruning compression trims tokens without dropping whole messages.
+            // A non-blank compressor label means a real compression happened; surface it.
+            compressorLabel.isNotBlank() -> Toast.makeText(
+                appContext,
+                R.string.context_optimized_toast,
+                Toast.LENGTH_SHORT,
+            ).show()
+            else -> return
+        }
     }
 
     private fun showRevisionHistoryUnavailableNotice() {
@@ -2900,6 +2909,7 @@ internal class AgentAppState(
         if (imageGen) directMediaRuns.cancel(runId)
         flushPendingRunDelta(runId)
         val retrying = modelRetryState.isWaiting(runId)
+        setConversationRetry(conversationIdForRun(runId), 0, 0)
         if (!imageGen) {
             stoppingRuns[runId] = retrying
             scope.launch(Dispatchers.IO) {
@@ -3803,6 +3813,7 @@ internal class AgentAppState(
                 updateRunTrace(runId) { messages ->
                     runMessageProjector.scheduleModelRetry(runId, event, messages)
                 }
+                setConversationRetry(conversationIdForRun(runId), event.attempt, event.maxAttempts)
             }
 
             is AgentEvent.RunFailed -> {
@@ -3812,6 +3823,7 @@ internal class AgentAppState(
                     runMessageProjector.failRunningTools(event.reason, finalizedText)
                 }
                 runMessageProjector.seal(runId)
+                setConversationRetry(conversationIdForRun(runId), 0, 0)
             }
 
             is AgentEvent.AssistantReceived -> {
@@ -3835,6 +3847,7 @@ internal class AgentAppState(
                     stampCompletedReply(finalized, runId, event.generatedAtMillis)
                 }
                 runMessageProjector.seal(runId)
+                setConversationRetry(conversationIdForRun(runId), 0, 0)
             }
 
             is AgentEvent.ContextCompactionStarted -> {
@@ -3850,6 +3863,7 @@ internal class AgentAppState(
                     if (contextBudgetPrompt?.runId == runId) contextBudgetPrompt = null
                     conversationIdForRun(runId)?.let { id -> conversationsById[id]?.let { updateConversation(id, it.copy(isPaused = false)) } }
                 }
+                setConversationRetry(conversationIdForRun(runId), 0, 0)
             }
 
             is AgentEvent.RunStarted -> {
@@ -4345,6 +4359,16 @@ internal class AgentAppState(
         }
         val current = conversationsById[conversationId] ?: return
         updateConversation(conversationId, current.copy(isCompressingContext = compressing, isWaitingForCompression = false, compactingModelName = if (compressing) modelName else ""))
+    }
+
+    /** Transient retry indicator state; mirrors AgentRunRetryState lifecycle, never persisted. */
+    private fun setConversationRetry(conversationId: String?, attempt: Int, max: Int) {
+        if (conversationId == null) {
+            homeState = homeState.copy(retryAttempt = attempt, retryMax = max)
+            return
+        }
+        val current = conversationsById[conversationId] ?: return
+        updateConversation(conversationId, current.copy(retryAttempt = attempt, retryMax = max), updateTimestamp = false)
     }
 
     private fun setConversationStreaming(runId: String, isStreaming: Boolean) {

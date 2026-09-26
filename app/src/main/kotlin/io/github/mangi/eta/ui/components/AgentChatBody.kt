@@ -169,6 +169,8 @@ internal fun AgentChatBody(
     canContinueDisconnected: Boolean = false,
     isCompressingContext: Boolean = false,
     isWaitingForCompression: Boolean = false,
+    retryAttempt: Int = 0,
+    retryMax: Int = 0,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -252,8 +254,8 @@ internal fun AgentChatBody(
             io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop()
         }
     }
-    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression, childContexts) {
-        visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression || childContexts.isNotEmpty()) 1 else 0
+    val initialBottomItemIndex = remember(visibleMessages, isCompressingContext, isWaitingForCompression, retryAttempt, isStreaming, childContexts) {
+        visibleMessages.toTimelineEntries().size + if (isCompressingContext || isWaitingForCompression || (retryAttempt > 0 && isStreaming) || childContexts.isNotEmpty()) 1 else 0
     }
     val scrollState = rememberLazyListState(initialFirstVisibleItemIndex = initialBottomItemIndex)
     val currentBrowserMessageId = remember(
@@ -334,6 +336,8 @@ internal fun AgentChatBody(
                 isPaused = isPaused,
                 isCompressingContext = isCompressingContext,
                 isWaitingForCompression = isWaitingForCompression,
+                retryAttempt = retryAttempt,
+                retryMax = retryMax,
                 reasoningEffort = reasoningEffort,
                 availableReasoningEfforts = availableReasoningEfforts,
                 pendingImages = pendingImages,
@@ -412,6 +416,8 @@ private fun AgentChatScaffold(
     isPaused: Boolean = false,
     isCompressingContext: Boolean = false,
     isWaitingForCompression: Boolean = false,
+    retryAttempt: Int = 0,
+    retryMax: Int = 0,
     reasoningEffort: ReasoningEffort,
     availableReasoningEfforts: List<ReasoningEffort>,
     pendingImages: List<PendingImageUi>,
@@ -546,6 +552,8 @@ private fun AgentChatScaffold(
                 isPaused = isPaused,
                 isCompressingContext = isCompressingContext,
                 isWaitingForCompression = isWaitingForCompression,
+                retryAttempt = retryAttempt,
+                retryMax = retryMax,
                 bottomInset = bottomPadding,
                 keepBottomAnchored = keepBottomAnchored,
                 onBottomAnchorChanged = onBottomAnchorChanged,
@@ -581,6 +589,8 @@ internal fun AgentConversationMessages(
     isPaused: Boolean = false,
     isCompressingContext: Boolean = false,
     isWaitingForCompression: Boolean = false,
+    retryAttempt: Int = 0,
+    retryMax: Int = 0,
     bottomInset: Dp,
     keepBottomAnchored: Boolean,
     onBottomAnchorChanged: (Boolean) -> Unit,
@@ -653,7 +663,8 @@ internal fun AgentConversationMessages(
     val telemetry = LocalAgentContextTelemetry.current
     // 尾部槽位同时承载主代理压缩指示与每张子任务卡片；保持单条目以沿用下方的底部哨兵索引计算。
     val subAgentContexts = telemetry.children
-    val compressingItemCount = if (isCompressingContext || isWaitingForCompression || subAgentContexts.isNotEmpty()) 1 else 0
+    val showRetryIndicator = retryAttempt > 0 && isStreaming
+    val compressingItemCount = if (isCompressingContext || isWaitingForCompression || showRetryIndicator || subAgentContexts.isNotEmpty()) 1 else 0
     val bottomItemIndex = timelineEntries.size + compressingItemCount
     val userMessageTargets = remember(timelineEntries) { timelineEntries.userMessageIndices() }
     val directionThreshold = with(LocalDensity.current) { 12.dp.toPx() }
@@ -1021,6 +1032,15 @@ internal fun AgentConversationMessages(
                         if (isCompressingContext || isWaitingForCompression) ContextCompressingIndicator(
                             modelName = "${telemetry.compactingModelName.ifBlank { telemetry.mainModelName }}（主代理）",
                             waiting = isWaitingForCompression && !isCompressingContext,
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = tween(durationMillis = 180),
+                                placementSpec = null,
+                                fadeOutSpec = null,
+                            ),
+                        )
+                        if (showRetryIndicator) ModelRetryIndicator(
+                            attempt = retryAttempt,
+                            max = retryMax,
                             modifier = Modifier.animateItem(
                                 fadeInSpec = tween(durationMillis = 180),
                                 placementSpec = null,
@@ -1412,6 +1432,25 @@ private fun ContextCompressingIndicator(waiting: Boolean = false, modelName: Str
         Text(
             text = if (waiting) stringResource(R.string.compress_conversation_waiting) else
                 "${modelName.ifBlank { "主代理" }} • 正在压缩上下文",
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun ModelRetryIndicator(attempt: Int, max: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+        Text(
+            text = stringResource(R.string.model_retry_in_progress, attempt, max),
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(start = 8.dp),

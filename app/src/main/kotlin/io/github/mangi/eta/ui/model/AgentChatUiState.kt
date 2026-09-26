@@ -31,6 +31,8 @@ internal data class AgentChatUiState(
     val childContexts: List<io.github.mangi.eta.agent.delegation.SubAgentContextStats> = emptyList(),
     val childContextRunId: String = "",
     val selectedContextTaskId: String? = null,
+    val retryAttempt: Int = 0,
+    val retryMax: Int = 0,
 )
 
 @Immutable

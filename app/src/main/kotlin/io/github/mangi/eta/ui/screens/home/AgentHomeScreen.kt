@@ -58,6 +58,8 @@ internal fun AgentHomeScreen(
             isPaused = state.isPaused,
             isCompressingContext = state.isCompressingContext,
             isWaitingForCompression = state.isWaitingForCompression,
+            retryAttempt = state.retryAttempt,
+            retryMax = state.retryMax,
             reasoningEffort = state.reasoningEffort,
             availableReasoningEfforts = state.availableReasoningEfforts,
             pendingImages = state.pendingImages,

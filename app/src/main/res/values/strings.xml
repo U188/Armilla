@@ -361,6 +361,9 @@
   <string name="system_notice_empty_result">The run completed without a text response.</string>
   <string name="system_notice_runtime_failed">Runtime failed</string>
   <string name="system_notice_model_retry">模型请求重试</string>
+  <string name="model_retry_in_progress">Retrying… (%1$d/%2$d)</string>
+  <string name="context_optimized_toast">Context optimized</string>
+  <string name="context_optimized_divider">Context optimized</string>
   <string name="conversation_persistence_failed">Couldn’t save the conversation. Please try again.</string>
   <string name="system_notice_interrupted">The run was interrupted. Partial output is preserved; unfinished actions were not retried.</string>
   <string name="tool_status_unknown">Result unknown</string>

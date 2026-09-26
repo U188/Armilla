@@ -328,7 +328,11 @@ internal fun ChatMessageItem(
             onBranch = { actions.onBranchMessage(message.id) },
             modifier = modifier,
         )
-        is SystemNoticeMessageUi -> AgentMessageBlock(
+        is SystemNoticeMessageUi -> if (message.code == SystemNoticeCode.ModelRetry) {
+            // Retry markers stay in the in-memory list to keep run invariants, but are not
+            // drawn as chat bubbles; a transient status bar surfaces the retry instead.
+            Spacer(modifier = Modifier.height(0.dp))
+        } else AgentMessageBlock(
             message = AgentMessageUi(
                 id = message.id,
                 content = buildString {
@@ -3111,9 +3115,9 @@ private fun ContextCompactedDivider(
     message: ContextCompactedMessageUi,
     modifier: Modifier = Modifier,
 ) {
-    // Zero-count maintenance markers keep token accounting, but have no user-facing notice.
-    // This also hides pruning notices saved by older versions.
-    if (message.compactedCount <= 0) return
+    // Zero-count maintenance markers with no compressor label keep token accounting only.
+    // A real compression (non-blank compressor label) still surfaces a lightweight notice.
+    if (message.compactedCount <= 0 && message.compressorLabel.isBlank()) return
     val view = LocalView.current
     var showSummary by remember { mutableStateOf(false) }
     val lineColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.55f)
@@ -3152,11 +3156,15 @@ private fun ContextCompactedDivider(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = pluralStringResource(
-                    R.plurals.context_compacted_messages,
-                    message.compactedCount,
-                    message.compactedCount,
-                ),
+                text = if (message.compactedCount > 0) {
+                    pluralStringResource(
+                        R.plurals.context_compacted_messages,
+                        message.compactedCount,
+                        message.compactedCount,
+                    )
+                } else {
+                    stringResource(R.string.context_optimized_divider)
+                },
                 style = MiuixTheme.textStyles.footnote2,
                 color = labelColor,
                 maxLines = 1,

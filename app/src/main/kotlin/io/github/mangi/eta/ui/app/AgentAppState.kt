@@ -1,6 +1,11 @@
 package io.github.mangi.eta.ui.app
 
 import android.content.ComponentName
+import io.github.mangi.eta.agent.delegation.ConversationSubAgentPreferences
+import io.github.mangi.eta.agent.delegation.SubAgentConfigKey
+import io.github.mangi.eta.agent.runtime.AgentChildTaskGroups
+import io.github.mangi.eta.ui.components.AgentStopSelection
+import io.github.mangi.eta.ui.components.ConversationSubAgentEditor
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -175,7 +180,7 @@ internal class AgentAppState(
     private val runMessageProjector = AgentRunMessageProjector()
     private val runEventCoalescer = AgentRunEventCoalescer()
     private val runEventFlushJobs = mutableMapOf<String, Job>()
-    private val runJobs = mutableMapOf<String, Job>()
+    private val runJobs = androidx.compose.runtime.mutableStateMapOf<String, Job>()
     private val imageGenerationRunIds = mutableSetOf<String>()
     private val directMediaRuns = DirectMediaRunControl()
     private val timedOutChildVisibility = TimedOutChildVisibility()
@@ -276,6 +281,96 @@ internal class AgentAppState(
         conversationFolderIds = initialConversations.folderIds
         conversationPinned = initialConversations.pinnedIds
         conversationFolders = initialConversations.folders
+    }
+
+    // UI and Runtime use explicit owners. A selected UI owner is never a Runtime lookup key.
+    val conversationSubAgentPreferences = ConversationSubAgentPreferences(canEdit = ::canEditSubAgentSettings)
+    private val pendingSubAgentDraftBindings = mutableMapOf<String, SubAgentConfigKey.Draft>()
+    private var draftSubAgentOwner by mutableStateOf(
+        Prefs.getString("agent_conversation_child_ui_draft_v1").takeIf { it.isNotBlank() }
+            ?.let { SubAgentConfigKey.Draft(it) }
+            ?: conversationSubAgentPreferences.createDraft(selectedConversationId?.let { SubAgentConfigKey.Conversation(it) })
+                .also { Prefs.putString("agent_conversation_child_ui_draft_v1", it.value) },
+    )
+    val subAgentConfigOwner: SubAgentConfigKey
+        get() = selectedConversationId?.let { SubAgentConfigKey.Conversation(it) } ?: draftSubAgentOwner
+
+    fun canEditSubAgentSettings(owner: SubAgentConfigKey): Boolean {
+        if (owner != subAgentConfigOwner || conversationArchiveBusy) return false
+        // Paused/stopping parents still own their run. Children and other conversations do not lock this owner.
+        if (homeState.isStreaming || homeState.isPaused) return false
+        val id = selectedConversationId
+        return runConversationIds.none { (runId, conversation) ->
+            conversation == id && (runJobs[runId]?.isActive == true || stoppingRuns.containsKey(runId))
+        }
+    }
+
+    fun subAgentEditor(owner: SubAgentConfigKey): ConversationSubAgentEditor =
+        ConversationSubAgentEditor(owner, conversationSubAgentPreferences) { canEditSubAgentSettings(owner) }
+
+    private fun beginNewSubAgentDraft() {
+        val next = conversationSubAgentPreferences.createDraft(subAgentConfigOwner)
+        draftSubAgentOwner = next
+        Prefs.putString("agent_conversation_child_ui_draft_v1", next.value)
+    }
+
+    private fun bindSubAgentDraft(conversationId: String) {
+        val draft = draftSubAgentOwner
+        conversationSubAgentPreferences.bindDraft(draft, SubAgentConfigKey.Conversation(conversationId))
+        pendingSubAgentDraftBindings[conversationId] = draft
+    }
+
+    data class StopRequest(
+        val selection: AgentStopSelection<AgentChildTaskGroups.StopTarget>,
+        val mainRunning: Boolean,
+        val childrenRunning: Boolean,
+    )
+
+    fun captureStopRequest(): StopRequest? {
+        val owner = selectedConversationId ?: return null
+        val runId = activeRunIdForSelectedConversation()
+        val children = AgentChildTaskGroups.captureStopTarget(owner)
+        if (runId == null && children == null) return null
+        return StopRequest(AgentStopSelection(owner, runId, children), runId != null, AgentChildTaskGroups.hasActive(owner))
+    }
+
+    private fun stopSelectionMatches(target: StopRequest, checkChildren: Boolean): Boolean {
+        val saved = target.selection
+        if (saved.ownerId != selectedConversationId || saved.runId != activeRunIdForSelectedConversation()) return false
+        return !checkChildren || saved.groupTarget == AgentChildTaskGroups.captureStopTarget(saved.ownerId)
+    }
+
+    fun stopMainReply(target: StopRequest): Boolean {
+        if (!stopSelectionMatches(target, checkChildren = false)) return false
+        val runId = target.selection.runId ?: return false
+        contextBudgetBlockedRuns.remove(runId)
+        if (contextBudgetPrompt?.runId == runId) contextBudgetPrompt = null
+        stopRun(runId, keepChildren = true)
+        return true
+    }
+
+    fun stopEntireTask(target: StopRequest): Boolean {
+        if (!stopSelectionMatches(target, checkChildren = true)) return false
+        val selection = target.selection
+        selection.groupTarget?.let { if (!AgentChildTaskGroups.stop(it)) return false }
+        // Stop the captured group above, then only the captured parent. A late control message
+        // must not cancel a new generation of children created after this confirmation.
+        selection.runId?.let { runId ->
+            contextBudgetBlockedRuns.remove(runId)
+            if (contextBudgetPrompt?.runId == runId) contextBudgetPrompt = null
+            stopRun(runId, keepChildren = true)
+        }
+        return true
+    }
+
+    fun canPauseStopRequest(target: StopRequest): Boolean =
+        stopSelectionMatches(target, checkChildren = false) && target.selection.runId != null &&
+            target.selection.runId !in imageGenerationRunIds && !homeState.isPaused
+
+    fun pauseStopRequest(target: StopRequest): Boolean {
+        if (!canPauseStopRequest(target)) return false
+        pauseCurrentRun()
+        return true
     }
 
     private var selectedFolderId: String? = null
@@ -726,6 +821,7 @@ internal class AgentAppState(
             AgentConversationStore.load(appContext, selectedOnly = true)
         }
         withContext(Dispatchers.Main.immediate) {
+            conversationSubAgentPreferences.refreshAfterRestore()
             selectedConversationId = snapshot.selectedConversationId
             conversationsById = snapshot.conversationsById
             conversationTitles = snapshot.titles
@@ -1202,6 +1298,7 @@ internal class AgentAppState(
         if (rejectConversationArchiveMutation()) return
         if (homeState.messageEdit != null) cancelMessageEdit()
         fileAttachmentOwnerVersion += 1
+        beginNewSubAgentDraft()
         selectedConversationId = null
         pendingNewConversationFolderId = selectedFolderId
         homeState = newDraftChatState()
@@ -1331,6 +1428,7 @@ internal class AgentAppState(
                             conversationFolderIds = emptyMap()
                             conversationPinned = emptySet()
                             fileAttachmentOwnerVersion += 1
+                            beginNewSubAgentDraft()
                             selectedConversationId = null
                             pendingNewConversationFolderId = selectedFolderId
                             homeState = newDraftChatState()
@@ -1377,6 +1475,7 @@ internal class AgentAppState(
                 homeState = requireNotNull(conversationState(nextId))
                 conversationsById = conversationsById + (nextId to homeState)
             } else {
+                beginNewSubAgentDraft()
                 selectedConversationId = null
                 homeState = newDraftChatState()
             }
@@ -1502,7 +1601,7 @@ internal class AgentAppState(
         }
         val conversationId = selectedConversationId ?: newConversationId().also { id ->
             conversationDrafts.promote(id)
-            io.github.mangi.eta.agent.delegation.SubAgentPreferences.promote(id)
+            bindSubAgentDraft(id)
             selectedConversationId = id
             conversationPaneState = conversationPaneState.copy(selectedConversationId = id)
             assignPendingFolder(id)
@@ -1759,6 +1858,7 @@ internal class AgentAppState(
             conversationPinned = conversationPinned - conversationId
             scope.launch(Dispatchers.IO) { chatImageCache.deleteConversation(conversationId) }
             fileAttachmentOwnerVersion += 1
+            beginNewSubAgentDraft()
             selectedConversationId = null
             homeState = newDraftChatState()
             conversationPaneState = conversationPaneState.copy(selectedConversationId = null)
@@ -1813,6 +1913,9 @@ internal class AgentAppState(
         conversationFolderIds[sourceId]?.let { folderId ->
             conversationFolderIds = conversationFolderIds + (newId to folderId)
         }
+        conversationSubAgentPreferences.createConversation(
+            SubAgentConfigKey.Conversation(newId), SubAgentConfigKey.Conversation(sourceId),
+        )
         fileAttachmentOwnerVersion += 1
         selectedConversationId = newId
         homeState = branched
@@ -3011,7 +3114,7 @@ internal class AgentAppState(
         stopRun(runId)
     }
 
-    private fun stopRun(runId: String) {
+    private fun stopRun(runId: String, keepChildren: Boolean = false) {
         if (activeRunIdForSelectedConversation() == runId) io.github.mangi.eta.agent.voice.tts.SpeechPlayback.stop()
         if (stoppingRuns.containsKey(runId)) return
         val imageGen = imageGenerationRunIds.remove(runId)
@@ -3021,7 +3124,20 @@ internal class AgentAppState(
         if (!imageGen) {
             stoppingRuns[runId] = retrying
             scope.launch(Dispatchers.IO) {
-                AgentRuntimeClient(appContext, AndroidAgentLogger).cancelRun(runId)
+                val client = AgentRuntimeClient(appContext, AndroidAgentLogger)
+                val accepted = if (keepChildren) client.stopMainRun(runId) else { client.cancelRun(runId); true }
+                if (!accepted) withContext(Dispatchers.Main.immediate) {
+                    stoppingRuns.remove(runId)
+                    conversationIdForRun(runId)?.let { owner ->
+                        conversationState(owner)?.let { current ->
+                            updateConversation(owner, current.copy(isStreaming = true, isPaused = false), updateTimestamp = false)
+                        }
+                    }
+                    AndroidAgentLogger.warn("Stop request not confirmed for run=$runId")
+                    Toast.makeText(appContext, "停止请求尚未确认，请重试或检查任务状态。", Toast.LENGTH_SHORT).show()
+                    // Do not unlock settings or drop the result subscriber on an uncertain outcome.
+                    refreshRuntimeResults()
+                }
             }
             updateRunTrace(runId) { messages ->
                 val thinking = runMessageProjector.finalizeThinking(runId, messages)
@@ -4437,6 +4553,7 @@ internal class AgentAppState(
     private fun moveCurrentDraftToNewConversation() {
         val draft = homeState.copy(input = currentDraftField().text.toString())
         conversationDrafts.replace(null, draft.input)
+        beginNewSubAgentDraft()
         selectedConversationId = null
         homeState = emptyChatState(defaultThinkingEnabled).copy(
             input = draft.input,
@@ -4729,6 +4846,13 @@ internal class AgentAppState(
             }
             withContext(Dispatchers.Main.immediate) {
                 releasePersistedConversationContent(snapshot.conversations)
+                pendingSubAgentDraftBindings.toMap().forEach { (id, draft) ->
+                    if (id in snapshot.conversations && id in conversationsById) {
+                        if (conversationSubAgentPreferences.confirmBoundDraft(draft, SubAgentConfigKey.Conversation(id))) {
+                            pendingSubAgentDraftBindings.remove(id)
+                        }
+                    }
+                }
             }
             lastConversationPersistenceError = null
             return true

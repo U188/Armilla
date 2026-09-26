@@ -15,32 +15,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import io.github.mangi.eta.agent.delegation.SubAgentPreferences
+import io.github.mangi.eta.agent.delegation.SubAgentParallelModel
 import io.github.mangi.eta.agent.delegation.SubAgentProfile
 import io.github.mangi.eta.agent.model.AgentModelClient
 import io.github.mangi.eta.ui.haptics.TouchHaptics
 
-/** The entry belongs to this agent; the limit still belongs to its provider/API-model pool. */
+/** Limits belong to this conversation's provider/API model pool, not the global preferences. */
 @Composable
-internal fun SubAgentParallelLimitRow(
-    profile: SubAgentProfile,
-    config: AgentModelClient.ModelConfig?,
-    enabled: Boolean = true,
-) {
+internal fun SubAgentParallelLimitRow(profile: SubAgentProfile, config: AgentModelClient.ModelConfig?, enabled: Boolean = true) {
+    val editor = LocalConversationSubAgentEditor.current
     val view = LocalView.current
-    val usable = enabled && config != null && config.providerId.isNotBlank() && config.model.isNotBlank()
+    val usable = enabled && editor?.enabled == true && config != null && config.providerId.isNotBlank() && config.model.isNotBlank()
     val currentUsable by rememberUpdatedState(usable)
-    // Changing binding, role or availability closes any old editor instead of retargeting it.
-    key(profile.id, profile.providerId, profile.modelId, profile.role, config?.providerId, config?.model, usable) {
+    key(editor, profile.id, profile.providerId, profile.modelId, profile.role, config?.providerId, config?.model, usable) {
         var open by remember { mutableStateOf(false) }
         var value by remember { mutableStateOf("") }
-        val limit = if (config != null) {
-            val flow = remember(config.providerId, config.model) {
-                SubAgentPreferences.parallelLimitFlow(config.providerId, config.model)
-            }
-            val current by flow.collectAsState(initial = SubAgentPreferences.parallelLimit(config.providerId, config.model))
+        val ownerConfig = if (editor != null) {
+            val flow = remember(editor) { editor.repository.flow(editor.owner) }
+            val current by flow.collectAsState(initial = editor.repository.snapshot(editor.owner))
             current
-        } else 1
+        } else null
+        val limit = config?.let { cfg ->
+            ownerConfig?.parallelLimit(SubAgentParallelModel(cfg.providerId, cfg.model))
+        } ?: 1
         SubAgentSettingRow("并行上限", when {
             config == null -> if (profile.modelId.isBlank()) "未选择模型" else "模型不可用"
             limit == 0 -> "不限"
@@ -49,7 +46,7 @@ internal fun SubAgentParallelLimitRow(
             onClick = {
                 if (currentUsable && config != null) {
                     TouchHaptics.click(view)
-                    value = SubAgentPreferences.parallelLimit(config.providerId, config.model).toString()
+                    value = limit.toString()
                     open = true
                 }
             })
@@ -58,15 +55,15 @@ internal fun SubAgentParallelLimitRow(
             AlertDialog(onDismissRequest = { open = false }, title = { Text("${profile.name} · 并行上限") },
                 text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${config.providerName} · ${config.modelDisplayName.ifBlank { config.model }}")
-                    OutlinedTextField(value, { value = it }, label = { Text("0 为不限，或输入正整数") },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true, isError = number == null,
+                    OutlinedTextField(value, { if (currentUsable) value = it }, label = { Text("0 为不限，或输入正整数") },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, isError = number == null, enabled = usable,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    Text("只设置此代理当前使用的模型。同一提供商下使用相同 API 模型的代理共用此上限；0 表示不限。调低不会取消正在执行的任务，后续任务等待空位。")
+                    Text("同一会话下相同提供商/API 模型共用此上限；0 表示不限。调低不会取消正在执行的任务。")
                 } },
                 dismissButton = { TextButton(onClick = { open = false }) { Text("取消") } },
-                confirmButton = { TextButton(enabled = number != null, onClick = {
+                confirmButton = { TextButton(enabled = usable && number != null, onClick = {
                     if (currentUsable && number != null) {
-                        SubAgentPreferences.saveProfileParallelLimit(profile.id, profile.providerId, profile.modelId, config.model, number)
+                        editor?.saveParallelLimit(profile.id, profile.providerId, profile.modelId, config.model, number)
                         open = false
                     }
                 }) { Text("保存") } })

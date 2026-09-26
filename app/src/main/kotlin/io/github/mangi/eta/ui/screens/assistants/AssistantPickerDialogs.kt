@@ -131,7 +131,7 @@ internal fun AssistantPickerDialog(
     actionProfile?.let { profile ->
         AssistantActionsDialog(
             profile = profile,
-            canDelete = profiles.size > 1,
+            canDelete = profiles.size > 1 && !io.github.mangi.eta.data.model.AssistantPrompt.isBuiltin(profile.id),
             onCopy = {
                 actionProfile = null
                 scope.launch {

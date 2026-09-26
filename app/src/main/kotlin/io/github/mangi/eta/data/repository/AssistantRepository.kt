@@ -161,6 +161,7 @@ internal object AssistantRepository {
 
     @Synchronized
     fun delete(id: String) {
+        require(!AssistantPrompt.isBuiltin(id)) { "内置助手不可删除" }
         val nextActive = withIndexLock {
             ensureReady()
             val remaining = profiles.value.filterNot { it.id == id }
@@ -284,23 +285,29 @@ internal object AssistantRepository {
     }
 
     private fun seedDefault(): Snapshot {
+        val now = System.currentTimeMillis()
         val seeded = Snapshot(
             activeId = AssistantPrompt.DEFAULT_ID,
-            profiles = listOf(defaultProfile(System.currentTimeMillis())),
+            profiles = AssistantPrompt.BUILTINS.mapIndexed { index, builtin ->
+                builtinProfile(builtin.id, builtin.name, createdAt = now + index)
+            },
         )
         writeIndex(seeded)
         return seeded
     }
 
-    private fun defaultProfile(createdAt: Long = 0L) = AssistantProfile(
-        id = AssistantPrompt.DEFAULT_ID,
-        name = AssistantPrompt.DEFAULT_NAME,
+    private fun defaultProfile(createdAt: Long = 0L) =
+        builtinProfile(AssistantPrompt.DEFAULT_ID, AssistantPrompt.DEFAULT_NAME, createdAt)
+
+    private fun builtinProfile(id: String, name: String, createdAt: Long = 0L) = AssistantProfile(
+        id = id,
+        name = name,
         prompt = "",
         createdAt = createdAt,
     )
 
     /** 旧版内置助手的默认名；升级后统一换成 [AssistantPrompt.DEFAULT_NAME]。 */
-    private val LEGACY_DEFAULT_NAMES = setOf("Eta", "代鱼")
+    private val LEGACY_DEFAULT_NAMES = setOf("Eta", "代鱼", "晚枫")
 
     private fun migrateDefaultPrompt(snapshot: Snapshot): Snapshot {
         val profiles = snapshot.profiles.map { profile ->
@@ -315,8 +322,15 @@ internal object AssistantRepository {
             }
             next
         }
-        if (profiles == snapshot.profiles) return snapshot
-        val migrated = snapshot.copy(profiles = profiles)
+        // 升级补种：补齐尚不存在的内置助手（如新增的 hacker「小枫」），已存在的尊重用户改动不动。
+        val existingIds = profiles.map { it.id }.toSet()
+        val now = System.currentTimeMillis()
+        val added = AssistantPrompt.BUILTINS
+            .filter { it.id !in existingIds }
+            .mapIndexed { index, builtin -> builtinProfile(builtin.id, builtin.name, createdAt = now + index) }
+        val merged = profiles + added
+        if (merged == snapshot.profiles) return snapshot
+        val migrated = snapshot.copy(profiles = merged)
         writeIndex(migrated)
         return migrated
     }

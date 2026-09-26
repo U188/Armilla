@@ -19,7 +19,7 @@ class AssistantPromptTest {
     @Test
     fun blankNameFallsBackToDefaultName() {
         val prompt = AssistantPrompt.build("  ", "")
-        assertTrue(prompt.startsWith("你是 晚枫"))
+        assertTrue(prompt.startsWith("你是 小蝶"))
         assertFalse(prompt.contains("人格设定"))
     }
 
@@ -40,7 +40,7 @@ class AssistantPromptTest {
             prompt = "只回答天气。",
         )
         val prompt = AssistantPrompt.build(profile)
-        assertTrue(prompt.startsWith("你是 晚枫"))
+        assertTrue(prompt.startsWith("你是 小蝶"))
         assertTrue(prompt.contains(AssistantPrompt.DEFAULT_PERSONA))
         assertTrue(prompt.endsWith("只回答天气。"))
         assertTrue(prompt.indexOf(AssistantPrompt.DEFAULT_PERSONA) < prompt.indexOf("只回答天气。"))
@@ -65,6 +65,27 @@ class AssistantPromptTest {
         val prompt = AssistantPrompt.build(profile)
         assertTrue(prompt.startsWith("你是 小助手"))
         assertTrue(prompt.endsWith("只回答天气。"))
+    }
+
+    @Test
+    fun hackerBuiltinUsesFixedHackerPersona() {
+        val profile = AssistantProfile(
+            id = AssistantPrompt.HACKER_ID,
+            name = AssistantPrompt.HACKER_NAME,
+            prompt = "",
+        )
+        val prompt = AssistantPrompt.build(profile)
+        assertTrue(prompt.startsWith("你是 小枫"))
+        assertTrue(prompt.contains(AssistantPrompt.HACKER_PERSONA))
+        assertTrue(AssistantPrompt.isBuiltin(AssistantPrompt.HACKER_ID))
+        assertTrue(AssistantPrompt.isBuiltin(AssistantPrompt.DEFAULT_ID))
+        assertFalse(AssistantPrompt.isBuiltin("custom"))
+    }
+
+    @Test
+    fun builtinsContainDefaultAndHacker() {
+        val ids = AssistantPrompt.BUILTINS.map { it.id }
+        assertEquals(listOf(AssistantPrompt.DEFAULT_ID, AssistantPrompt.HACKER_ID), ids)
     }
 
 }

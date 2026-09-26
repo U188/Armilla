@@ -34,10 +34,29 @@ internal fun AssistantAvatar(
     size: Dp,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val bitmap = remember(assistant?.id, assistant?.avatarFileName) {
         AssistantRepository.avatarBitmap(assistant?.avatarFileName)
     }
-    AssistantAvatar(bitmap = bitmap, size = size, modifier = modifier)
+    // 用户未设头像时，内置助手回退到随包分发的固定头像资源。
+    val builtinRes = remember(assistant?.id, assistant?.avatarFileName) {
+        if (bitmap != null || assistant == null) null
+        else builtinAvatarResource(assistant.id)
+    }
+    val builtinBitmap = remember(builtinRes, context) {
+        builtinRes?.let { rasterizeDrawable(context, it) }
+    }
+    if (bitmap == null && builtinBitmap != null) {
+        AssistantAvatarImage(imageBitmap = builtinBitmap, size = size, modifier = modifier)
+    } else {
+        AssistantAvatar(bitmap = bitmap, size = size, modifier = modifier)
+    }
+}
+
+private fun builtinAvatarResource(assistantId: String): Int? = when (assistantId) {
+    io.github.mangi.eta.data.model.AssistantPrompt.DEFAULT_ID -> R.drawable.assistant_avatar_default
+    io.github.mangi.eta.data.model.AssistantPrompt.HACKER_ID -> R.drawable.assistant_avatar_hacker
+    else -> null
 }
 
 @Composable
@@ -53,6 +72,15 @@ internal fun AssistantAvatar(
             ?.let { runCatching { it.asImageBitmap() }.getOrNull() }
             ?: rasterizeDefaultAvatar(context)
     }
+    AssistantAvatarImage(imageBitmap = imageBitmap, size = size, modifier = modifier)
+}
+
+@Composable
+private fun AssistantAvatarImage(
+    imageBitmap: ImageBitmap?,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
     Box(
         modifier = modifier
             .size(size)
@@ -81,6 +109,18 @@ private fun rasterizeDefaultAvatar(context: Context): ImageBitmap? {
     val drawable = ContextCompat.getDrawable(context, R.drawable.ic_assistant_default)
         ?: ContextCompat.getDrawable(context, R.mipmap.ic_launcher)
         ?: return null
+    val size = maxOf(drawable.intrinsicWidth, drawable.intrinsicHeight, 128)
+    return runCatching {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, size, size)
+        drawable.draw(canvas)
+        bitmap.asImageBitmap()
+    }.getOrNull()
+}
+
+private fun rasterizeDrawable(context: Context, resId: Int): ImageBitmap? {
+    val drawable = ContextCompat.getDrawable(context, resId) ?: return null
     val size = maxOf(drawable.intrinsicWidth, drawable.intrinsicHeight, 128)
     return runCatching {
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)

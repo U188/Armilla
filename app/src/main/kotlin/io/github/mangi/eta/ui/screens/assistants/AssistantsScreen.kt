@@ -133,7 +133,7 @@ internal fun AssistantsScreen(
     actionProfile?.let { profile ->
         AssistantActionsDialog(
             profile = profile,
-            canDelete = profiles.size > 1,
+            canDelete = profiles.size > 1 && !io.github.mangi.eta.data.model.AssistantPrompt.isBuiltin(profile.id),
             onCopy = {
                 actionProfile = null
                 scope.launch {
@@ -157,7 +157,7 @@ internal fun AssistantsScreen(
     deleteProfile?.let { profile ->
         AssistantDeleteDialog(
             profile = profile,
-            canDelete = profiles.size > 1,
+            canDelete = profiles.size > 1 && !io.github.mangi.eta.data.model.AssistantPrompt.isBuiltin(profile.id),
             onDismiss = { deleteProfile = null },
             onConfirm = {
                 val target = profile

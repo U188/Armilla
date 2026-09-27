@@ -824,8 +824,8 @@ internal fun AgentConversationMessages(
                 enabled = shouldFollowBottom,
                 bottomItemIndex = currentBottomItemIndex,
                 sentinelBottom = sentinel?.let { it.offset + it.size },
-                // 输入器高度属于滚动内容的 bottom inset，而不是滚动容器高度。
-                // 跟底目标应是 afterContentPadding 之前的正文边界。
+                // 视口已扣除底栏高度；这里只扣列表自身的尾部留白。
+                // 跟底目标仍是 afterContentPadding 之前的正文边界。
                 viewportEnd = layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding,
                 lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index,
                 viewportSizePx = layoutInfo.viewportSize.height,
@@ -910,9 +910,9 @@ internal fun AgentConversationMessages(
         }
     }
 
-    // 滚动层保持整屏，输入器作为后绘制浮层；输入器高度进入列表的
-    // afterContentPadding，确保跟到底部时最后一行停在输入器上方。
-    Box(modifier = modifier.clipToBounds()) {
+    // 底栏（含输入器和 IME）高度只在外层消费一次，缩小真实滚动视口。
+    // 先留出底栏空间再裁剪，避免长回复或滚动追赶期间的正文绘制到输入器后面。
+    Box(modifier = modifier.padding(bottom = bottomInset).clipToBounds()) {
         val speechPrefaces = remember(visibleMessages, finalResultMessageIds) {
             StreamPerformanceDiagnostics.measure("timeline.prefaces", visibleMessages.size.toLong()) {
                 visibleTurnSpeechPrefaces(visibleMessages, finalResultMessageIds)
@@ -950,7 +950,7 @@ internal fun AgentConversationMessages(
                 .overScrollVertical(),
             contentPadding = PaddingValues(
                 top = 14.dp,
-                bottom = bottomInset + 14.dp,
+                bottom = 14.dp,
             ),
             overscrollEffect = null,
         ) {
@@ -1117,7 +1117,7 @@ internal fun AgentConversationMessages(
             onEdge = { navigateUserMessage(toEdge = true) },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = bottomInset + 12.dp),
+                .padding(bottom = 12.dp),
         )
     }
 }

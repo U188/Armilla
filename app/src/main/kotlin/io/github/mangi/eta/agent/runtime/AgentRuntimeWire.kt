@@ -106,6 +106,7 @@ internal object AgentRuntimeWire {
     private const val KEY_MODEL_DISPLAY_NAME = "model_display_name"
     private const val KEY_CONTEXT_WINDOW = "context_window"
     private const val KEY_SYSTEM_PROMPT = "system_prompt"
+    private const val KEY_PERSONA_ONLY_SYSTEM_PROMPT = "persona_only_system_prompt"
     private const val KEY_ANTHROPIC_VERSION = "anthropic_version"
     private const val KEY_OPENAI_ENDPOINT_MODE = "openai_endpoint_mode"
     private const val KEY_RESPONSES_STRIP_REASONING_STATUS = "responses_strip_reasoning_status"
@@ -295,6 +296,7 @@ internal object AgentRuntimeWire {
         putString(KEY_MODEL_DISPLAY_NAME, request.config.modelDisplayName)
         request.config.contextWindow?.let { putInt(KEY_CONTEXT_WINDOW, it) }
         putString(KEY_SYSTEM_PROMPT, request.config.systemPrompt)
+        putBoolean(KEY_PERSONA_ONLY_SYSTEM_PROMPT, request.config.personaOnlySystemPrompt)
         putString(KEY_ANTHROPIC_VERSION, request.config.anthropicVersion)
         putString(KEY_OPENAI_ENDPOINT_MODE, request.config.openAiEndpointMode)
         putBoolean(KEY_RESPONSES_STRIP_REASONING_STATUS, request.config.responsesStripReasoningStatus)
@@ -404,6 +406,7 @@ internal object AgentRuntimeWire {
                 modelDisplayName = bundle.getString(KEY_MODEL_DISPLAY_NAME).orEmpty(),
                 contextWindow = bundle.optionalInt(KEY_CONTEXT_WINDOW),
                 systemPrompt = bundle.getString(KEY_SYSTEM_PROMPT).orEmpty(),
+                personaOnlySystemPrompt = bundle.getBoolean(KEY_PERSONA_ONLY_SYSTEM_PROMPT, false),
                 anthropicVersion = bundle.getString(KEY_ANTHROPIC_VERSION).orEmpty()
                     .ifBlank { io.github.mangi.eta.data.model.AnthropicProviderSetting.DEFAULT_ANTHROPIC_VERSION },
                 openAiEndpointMode = bundle.getString(KEY_OPENAI_ENDPOINT_MODE).orEmpty()

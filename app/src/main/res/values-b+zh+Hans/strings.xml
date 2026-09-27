@@ -510,6 +510,11 @@
   <string name="update_downloading">正在下载…</string>
   <string name="update_download_failed">下载更新失败</string>
   <string name="update_install_permission">请允许安装未知应用后再更新</string>
+  <string name="persona_refresh_title">刷新小枫人格</string>
+  <string name="persona_refreshing">正在刷新…</string>
+  <string name="persona_refresh_summary">从服务器拉取最新小枫人格</string>
+  <string name="persona_refresh_success">小枫人格已更新（%1$d 字）</string>
+  <string name="persona_refresh_failed">刷新失败：%1$s</string>
   <string name="ui_click_to_reinstall_dc60de">点击重新安装</string>
   <string name="ui_environmental_status_5b32a1">环境状态</string>
   <string name="ui_user_skills_748e7f">用户安装</string>

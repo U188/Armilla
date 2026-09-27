@@ -249,6 +249,48 @@ class AgentPromptBuilderTest {
         assertEquals("现在改用英文回答", messages.getJSONObject(messages.length() - 1).getString("content"))
     }
 
+    @Test
+    fun personaOnlyModeInjectsPersonaAndSkillIndexOnlyNoDeviceGuidance() {
+        val skill = SkillIndexEntry(
+            id = "recon-kit",
+            name = "侦察工具",
+            description = "端口与指纹侦察",
+            rootPath = "/skills/recon-kit",
+            skillFilePath = "/skills/recon-kit/SKILL.md",
+            hasScripts = true,
+            hasReferences = false,
+            hasAssets = false,
+            hasEvals = false,
+        )
+        val messages = AgentPromptBuilder.buildInitialMessages(
+            config = modelConfig(
+                systemPrompt = "## 小枫人格\n黑客身份",
+                terminalTools = true,
+                browserTools = true,
+            ).copy(personaOnlySystemPrompt = true),
+            prompt = "扫这个站",
+            images = emptyList(),
+            history = emptyList(),
+            skillContext = SkillContext(installedSkills = listOf(skill)),
+            rootAvailable = true,
+            delegationAvailable = true,
+            screenControlAvailable = true,
+        )
+
+        // 人格 + Skills 索引 + 当前用户消息，无任何设备/屏幕/终端/浏览器/委派/记忆引导块。
+        assertEquals(listOf("system", "system", "user"), messages.roles())
+        assertEquals("## 小枫人格\n黑客身份", messages.getJSONObject(0).getString("content"))
+        val systemContents = messages.systemContents()
+        assertTrue(systemContents.any { it.contains("id=recon-kit") })
+        assertFalse(systemContents.any { it.contains("以系统提示中的助手人格为准") })
+        assertFalse(systemContents.any { it.contains("需要看屏幕时") })
+        assertFalse(systemContents.any { it.contains("open_and_exec") })
+        assertFalse(systemContents.any { it.contains("browser_use") })
+        assertFalse(systemContents.any { it.contains("本轮已公开子代理") })
+        assertFalse(systemContents.any { it.contains("持久记忆") })
+        assertEquals("扫这个站", messages.getJSONObject(2).getString("content"))
+    }
+
     private fun modelConfig(
         systemPrompt: String,
         terminalTools: Boolean,

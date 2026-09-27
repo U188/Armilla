@@ -499,6 +499,11 @@
   <string name="update_downloading">Downloading…</string>
   <string name="update_download_failed">Couldn\'t download the update</string>
   <string name="update_install_permission">Allow installing unknown apps to update</string>
+  <string name="persona_refresh_title">Refresh 小枫 persona</string>
+  <string name="persona_refreshing">Refreshing…</string>
+  <string name="persona_refresh_summary">Pull the latest 小枫 persona from the server</string>
+  <string name="persona_refresh_success">小枫 persona updated (%1$d chars)</string>
+  <string name="persona_refresh_failed">Refresh failed: %1$s</string>
   <string name="ui_click_to_reinstall_dc60de">Click to reinstall</string>
   <string name="ui_environmental_status_5b32a1">Environment status</string>
   <string name="ui_user_skills_748e7f">Installed by you</string>

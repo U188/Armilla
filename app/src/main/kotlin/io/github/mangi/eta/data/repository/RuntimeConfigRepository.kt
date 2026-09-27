@@ -130,6 +130,9 @@ internal object RuntimeConfigRepository {
         ) ?: ReasoningEffort.OFF
         return AgentModelClient.ModelConfig(
             assistantId = assistant?.id.orEmpty(),
+            personaOnlySystemPrompt = assistant?.id?.let {
+                io.github.mangi.eta.data.model.AssistantPrompt.personaOnlySystemPrompt(it)
+            } == true,
             providerId = provider.id,
             providerName = provider.name,
             providerType = provider.runtimeProviderType,

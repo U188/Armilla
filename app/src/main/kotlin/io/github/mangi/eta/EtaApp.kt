@@ -68,6 +68,14 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         AgentMemoryRepository.init(this)
         ProviderRepository.init(this)
         AssistantRepository.init(this)
+        io.github.mangi.eta.data.repository.RemotePersonaStore.init(this)
+        io.github.mangi.eta.data.model.AssistantPrompt.personaOverrideResolver = { id ->
+            if (id == io.github.mangi.eta.data.model.AssistantPrompt.HACKER_ID) {
+                io.github.mangi.eta.data.repository.RemotePersonaStore.hackerPersona()
+            } else {
+                null
+            }
+        }
         McpServerRepository.init(this)
         runBlocking(Dispatchers.IO) {
             runCatching {
@@ -93,6 +101,7 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
                 )
             }
         }
+
     }
 
     override fun onServiceBind(service: XposedService) {

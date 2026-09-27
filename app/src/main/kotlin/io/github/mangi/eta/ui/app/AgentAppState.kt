@@ -1988,7 +1988,7 @@ internal class AgentAppState(
             RuntimeConfigRepository.configForProviderAndModel(resolvedProviderId, resolvedModelId, assistant)
                 ?.let { model ->
                     fallback?.let { source ->
-                        model.copy(assistantId = source.assistantId, systemPrompt = source.systemPrompt)
+                        model.copy(assistantId = source.assistantId, systemPrompt = source.systemPrompt, personaOnlySystemPrompt = source.personaOnlySystemPrompt)
                     } ?: model
                 }
                 ?: fallback

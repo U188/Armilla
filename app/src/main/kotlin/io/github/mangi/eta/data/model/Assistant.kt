@@ -107,7 +107,7 @@ internal object AssistantPrompt {
      */
     val BUILTINS: List<BuiltinAssistant> = listOf(
         BuiltinAssistant(DEFAULT_ID, DEFAULT_NAME, DEFAULT_PERSONA),
-        BuiltinAssistant(HACKER_ID, HACKER_NAME, HACKER_PERSONA),
+        BuiltinAssistant(HACKER_ID, HACKER_NAME, HACKER_PERSONA, personaOnlySystemPrompt = true),
     )
 
     private val builtinById: Map<String, BuiltinAssistant> = BUILTINS.associateBy { it.id }
@@ -115,6 +115,18 @@ internal object AssistantPrompt {
     fun isBuiltin(id: String): Boolean = id in builtinById
 
     fun builtin(id: String): BuiltinAssistant? = builtinById[id]
+
+    fun personaOnlySystemPrompt(id: String): Boolean = builtinById[id]?.personaOnlySystemPrompt == true
+
+    /**
+     * 内置人格的运行时覆盖解析器（如服务器下发）。返回非空即替换对应 id 的编译常量人格；
+     * 返回 null 时退回 [BuiltinAssistant.persona]。由上层在启动时注入，模型层不依赖具体来源。
+     */
+    @Volatile
+    var personaOverrideResolver: ((String) -> String?)? = null
+
+    private fun effectivePersona(builtin: BuiltinAssistant): String =
+        personaOverrideResolver?.invoke(builtin.id)?.takeIf { it.isNotBlank() } ?: builtin.persona
 
     fun identity(name: String): String {
         val safe = name.trim().ifBlank { DEFAULT_NAME }
@@ -135,8 +147,14 @@ internal object AssistantPrompt {
      */
     fun build(profile: AssistantProfile): String {
         val builtin = builtinById[profile.id] ?: return build(profile.name, profile.prompt)
-        val base = build(profile.name, builtin.persona)
         val extra = profile.prompt.trim()
+        val persona = effectivePersona(builtin)
+        // 仅人格模式：直接下发人格原文（含运行时覆盖），不加身份句与「人格设定」包装。
+        if (builtin.personaOnlySystemPrompt) {
+            val trimmed = persona.trim()
+            return if (extra.isEmpty()) trimmed else trimmed + "\n\n" + extra
+        }
+        val base = build(profile.name, persona)
         return if (extra.isEmpty()) base else base + "\n\n" + extra
     }
 }
@@ -146,6 +164,11 @@ internal data class BuiltinAssistant(
     val id: String,
     val name: String,
     val persona: String,
+    /**
+     * 仅下发人格系统提示：跳过设备能力、屏幕、终端、浏览器、委派与记忆等引导块，
+     * 只保留人格与 Skills 索引。工具本身仍按开关公开。
+     */
+    val personaOnlySystemPrompt: Boolean = false,
 )
 
 internal object AssistantStorage {

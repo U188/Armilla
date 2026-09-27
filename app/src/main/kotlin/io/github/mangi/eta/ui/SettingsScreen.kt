@@ -132,6 +132,7 @@ internal fun SettingsScreen(
     var installingSystemizer by remember { mutableStateOf(false) }
     val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
     var checkingUpdate by remember { mutableStateOf(false) }
+    var refreshingPersona by remember { mutableStateOf(false) }
     var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
     val appSettings by SettingsDataStore.settingsFlow().collectAsState(
         initial = io.github.mangi.eta.data.model.Settings(),
@@ -901,6 +902,36 @@ internal fun SettingsScreen(
                                         ).show()
                                     },
                                 )
+                            }
+                        },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.persona_refresh_title),
+                        summary = if (refreshingPersona) {
+                            stringResource(R.string.persona_refreshing)
+                        } else {
+                            stringResource(R.string.persona_refresh_summary)
+                        },
+                        startAction = {
+                            PreferenceIcon(
+                                icon = Icons.Rounded.CloudDownload,
+                            )
+                        },
+                        onClick = {
+                            if (refreshingPersona) return@ArrowPreference
+                            refreshingPersona = true
+                            coroutineScope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    io.github.mangi.eta.data.repository.RemotePersonaStore.refresh(context)
+                                }
+                                refreshingPersona = false
+                                val message = when (result) {
+                                    is io.github.mangi.eta.data.repository.RemotePersonaStore.RefreshResult.Success ->
+                                        context.getString(R.string.persona_refresh_success, result.chars)
+                                    is io.github.mangi.eta.data.repository.RemotePersonaStore.RefreshResult.Failure ->
+                                        context.getString(R.string.persona_refresh_failed, result.reason)
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                             }
                         },
                     )

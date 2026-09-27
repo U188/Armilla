@@ -40,6 +40,11 @@ internal object AgentPromptBuilder {
         if (config.systemPrompt.isNotBlank()) {
             messages.put(systemMessage(config.systemPrompt))
         }
+        // 仅人格模式：只保留人格与 Skills 索引，跳过委派、设备能力、屏幕、终端、浏览器、记忆等引导块。
+        if (config.personaOnlySystemPrompt) {
+            buildSkillSystemMessage(skillContext)?.let(messages::put)
+            return messages
+        }
         if (delegationAvailable) {
             messages.put(systemMessage(DELEGATION_RULE))
         }

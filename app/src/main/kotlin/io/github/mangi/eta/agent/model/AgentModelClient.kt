@@ -316,6 +316,7 @@ internal object AgentModelClient {
         val supportsVision: Boolean = false,
         val supportsVideo: Boolean = false,
         val assistantId: String = "",
+        val personaOnlySystemPrompt: Boolean = false,
     ) {
         val effectiveReasoningEffort: ReasoningEffort
             get() = reasoningEffort ?: ReasoningEffort.fromLegacy(thinkingEnabled)

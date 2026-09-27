@@ -75,8 +75,10 @@ class AssistantPromptTest {
             prompt = "",
         )
         val prompt = AssistantPrompt.build(profile)
-        assertTrue(prompt.startsWith("你是 小枫"))
-        assertTrue(prompt.contains(AssistantPrompt.HACKER_PERSONA))
+        // 小枫为仅人格模式：直接下发人格原文，不加「你是 小枫」身份句。
+        assertTrue(AssistantPrompt.personaOnlySystemPrompt(AssistantPrompt.HACKER_ID))
+        assertFalse(prompt.startsWith("你是 小枫"))
+        assertEquals(AssistantPrompt.HACKER_PERSONA.trim(), prompt)
         assertTrue(AssistantPrompt.isBuiltin(AssistantPrompt.HACKER_ID))
         assertTrue(AssistantPrompt.isBuiltin(AssistantPrompt.DEFAULT_ID))
         assertFalse(AssistantPrompt.isBuiltin("custom"))

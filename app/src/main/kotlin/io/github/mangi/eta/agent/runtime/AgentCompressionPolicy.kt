@@ -49,7 +49,7 @@ internal object AgentCompressionPolicy {
             }
             runCatching {
                 RuntimeConfigRepository.configForProviderAndModel(providerId, modelId, assistant)
-            }.getOrNull()?.copy(assistantId = fallback.assistantId, systemPrompt = fallback.systemPrompt)
+            }.getOrNull()?.copy(assistantId = fallback.assistantId, systemPrompt = fallback.systemPrompt, personaOnlySystemPrompt = fallback.personaOnlySystemPrompt)
                 ?: fallback
         }
         val compressed = AgentRuntimePolicy.forCompression(resolved)

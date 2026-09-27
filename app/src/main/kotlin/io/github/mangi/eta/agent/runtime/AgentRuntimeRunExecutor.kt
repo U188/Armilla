@@ -168,7 +168,15 @@ internal class AgentRuntimeRunExecutor(
             } else emptyList()
             val childModels = configuredChildren.map { it.second }
             val frozenParallelLimits = childModels.map { childConfig.parallelLimit(SubAgentParallelModel(it.providerId, it.model)) }
-            val childWorkspace = if (allowTerminal && currentPermissions().terminalTools) SubAgentWorkspace(appContext, executor) else null
+            val workspaceEnvironment = LinuxEnvironmentSettingsRepository.current(appContext).wireName
+            val childWorkspace = if (allowTerminal && currentPermissions().terminalTools) SubAgentWorkspace(
+                appContext, executor, ownerId = childSessionId, initialEnvironment = workspaceEnvironment,
+                environment = { when (LinuxEnvironmentSettingsRepository.current(appContext)) {
+                    LinuxDistribution.ALPINE -> "alpine"
+                    LinuxDistribution.DEBIAN -> "debian"
+                } },
+                legacyIds = { project -> AgentChildTaskGroups.ownedWorkspaceIds(childSessionId, project, workspaceEnvironment) },
+            ) else null
             if (childModels.isNotEmpty()) {
                 // Retain BEFORE construction, which allocates scheduler and pool leases. Transfer only after registration.
                 check(ownership.retain()) { "父任务已终止，无法创建子任务" }
@@ -232,7 +240,7 @@ internal class AgentRuntimeRunExecutor(
                         SubAgentRunner.run(config, prompt, readTools, executor, controller, sessionId = childSessionId)
                     }
                     val registered = AgentChildTaskGroups.register(appContext, request.effectiveModelSessionId, request.runId, children,
-                        releaseTools = { ownership.release() }, workers = configuredChildren.map { (profile, model) ->
+                        releaseTools = { ownership.release() }, workspaceEnvironment = workspaceEnvironment, workers = configuredChildren.map { (profile, model) ->
                             AgentChildTaskGroups.Worker(profile.id, profile.role, model.providerId)
                         })
                     if (registered == null) error("无法启动子代理前台执行服务，请返回 Eta 后重试")
@@ -254,20 +262,25 @@ internal class AgentRuntimeRunExecutor(
             val delegatedExecutor = AgentModelClient.ToolExecutor { call ->
                 if (call.name == "manage_agent_workspace") {
                     val backend = childWorkspace
-                    val payload = AgentWorkspaceAccessPolicy.execute(
+                    val payload = try { AgentWorkspaceAccessPolicy.execute(
                         argumentsJson = call.argumentsJson,
                         requestAllowsTerminal = allowTerminal,
                         runtimeAllowsTerminal = currentPermissions().terminalTools,
                         backendAvailable = backend != null,
                         ownsWorkspace = { project, id ->
-                            AgentChildTaskGroups.ownsWorkspace(childSessionId, project, id)
+                            requireNotNull(backend).ownsWorkspace(project, id)
                         },
                         backendOperation = { workspaceRequest ->
                             requireNotNull(backend).operation(
                                 workspaceRequest.project, workspaceRequest.action, workspaceRequest.workspaceId,
+                                org.json.JSONObject().put("offset", workspaceRequest.offset).put("limit", workspaceRequest.limit),
                             )
                         },
-                    )
+                    ) } catch (_: io.github.mangi.eta.agent.delegation.WorkspaceOwnershipException) {
+                        runController.throwIfCancelled()
+                        org.json.JSONObject().put("ok", false).put("code", "WORKSPACE_OWNERSHIP_STORE_UNAVAILABLE")
+                            .put("shell_executed", false).put("message", "工作区归属账本不可用，未执行 shell。")
+                    }
                     AgentModelClient.ToolResult(payload.toString(), sensitive = true)
                 } else if (call.name in SubAgentTools.names) {
                     AgentChildTaskGroups.execute(childSessionId, groupGeneration, call)

@@ -52,6 +52,8 @@ internal class SubAgentCoordinator(
     private var resourcesReleased = false
 
     private class Task(val id: String, val worker: Int, val role: String, val project: String, @Volatile var workspaceId: String? = null) {
+        // Runtime evidence only: a caller-supplied workspace ID must never authorize its own review.
+        @Volatile var workspaceOwnershipVerified = false
         lateinit var context: SubAgentContextTracker
         lateinit var clock: SubAgentExecutionClock
         val journal = SubAgentEventJournal()
@@ -249,14 +251,21 @@ internal class SubAgentCoordinator(
                         if (t.workspaceId == null) {
                             diagnostic(t, "workspace_prepare")
                             val prepared = workspace!!.requireOperation(project, "prepare")
-                            t.workspaceId = prepared.getString("id"); t.workspacePath = prepared.getString("path")
+                            synchronized(t) {
+                                t.workspaceId = prepared.getString("id"); t.workspacePath = prepared.getString("path")
+                                t.workspaceOwnershipVerified = true
+                            }
                         }
                         ownsWorkspaceLease = true
                     } else if (workspaceId != null) {
                         diagnostic(t, "workspace_begin_review")
                         val existing = workspace!!.requireOperation(project, "begin_review", workspaceId)
                         check(existing.getString("state") == "reviewing")
-                        ownsWorkspaceLease = true; t.workspacePath = existing.getString("path")
+                        ownsWorkspaceLease = true
+                        synchronized(t) {
+                            t.workspacePath = existing.getString("path")
+                            t.workspaceOwnershipVerified = true
+                        }
                     }
                     if (ownsWorkspaceLease) t.leaseRenewal = timer.scheduleWithFixedDelay({
                         if (t.state in ACTIVE && !t.finalizing) {
@@ -356,7 +365,10 @@ internal class SubAgentCoordinator(
             try {
                 val backend = requireNotNull(workspace)
                 val prepared = backend.requireOperation(task.project, "prepare")
-                synchronized(task) { task.workspaceId = prepared.getString("id"); task.workspacePath = prepared.getString("path") }
+                synchronized(task) {
+                    task.workspaceId = prepared.getString("id"); task.workspacePath = prepared.getString("path")
+                    task.workspaceOwnershipVerified = true
+                }
                 if (task.state != "queued") {
                     backend.operation(task.project, "fail", task.workspaceId)
                     return snapshot(task)
@@ -512,6 +524,7 @@ internal class SubAgentCoordinator(
                 isCompacting = task.state in ACTIVE && task.context.value.isCompacting).toJson())
             .put("role", task.role).put("project", task.project).put("error_code", task.errorCode)
             .put("workspace_id", task.workspaceId ?: JSONObject.NULL).put("workspace_path", task.workspacePath)
+            .put("workspace_ownership_verified", task.workspaceOwnershipVerified)
             .put("review_required", true).put("can_continue", task.state == "awaiting_decision")
             .put("can_replace", task.successorId == null && task.workspaceId == null && replaceReason in setOf("failed", "blocked_no_progress", "blocked_stopped"))
             .put("successor_task_id", task.successorId ?: JSONObject.NULL)

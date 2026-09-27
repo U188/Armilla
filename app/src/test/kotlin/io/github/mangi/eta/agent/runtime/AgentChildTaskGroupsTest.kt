@@ -39,11 +39,17 @@ class AgentChildTaskGroupsTest {
     fun archivedWorkspaceAuthorizationIsOwnerProjectAndWorkspaceScoped() {
         val (generation, group) = install("owner-a")
         try {
-            synchronized(owner) { set(group, "snapshots", mapOf("task-a" to record("task-a", "project-a", "ws-a"))) }
-            assertTrue(owner.ownsWorkspace("owner-a", "project-a", "ws-a"))
+            val snapshot = record("task-a", "project-a", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            synchronized(owner) { set(group, "snapshots", mapOf("task-a" to snapshot)) }
+            assertFalse(owner.ownsWorkspace("owner-a", "project-a", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+            assertFalse(owner.ownsWorkspace("owner-a", "project-a", null))
+
+            val verifiedSnapshot = JSONObject(snapshot).put("workspace_ownership_verified", true).toString()
+            synchronized(owner) { set(group, "snapshots", mapOf("task-a" to verifiedSnapshot)) }
+            assertTrue(owner.ownsWorkspace("owner-a", "project-a", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
             assertTrue(owner.ownsWorkspace("owner-a", "project-a", null))
-            assertFalse(owner.ownsWorkspace("owner-b", "project-a", "ws-a"))
-            assertFalse(owner.ownsWorkspace("owner-a", "project-b", "ws-a"))
+            assertFalse(owner.ownsWorkspace("owner-b", "project-a", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+            assertFalse(owner.ownsWorkspace("owner-a", "project-b", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
             assertFalse(owner.ownsWorkspace("owner-a", "project-a", "ws-b"))
             assertFalse(owner.ownsWorkspace("owner-a", "project-a", ""))
         } finally { synchronized(owner) { groups().remove(generation) } }

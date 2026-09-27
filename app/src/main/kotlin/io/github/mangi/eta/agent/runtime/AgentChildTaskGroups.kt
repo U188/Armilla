@@ -25,6 +25,7 @@ internal object AgentChildTaskGroups {
         var inFlight = 0
         var operationVersion = 0L
         var leaseHeld = true
+        var workspaceEnvironment: String? = null
         var snapshots: Map<String, String> = emptyMap()
         var snapshotBytes = 0
     }
@@ -47,7 +48,7 @@ internal object AgentChildTaskGroups {
 
     /** Acquire binding on the executor worker: acquire waits for service callbacks on main. */
     fun register(context: Context, ownerId: String, runId: String, coordinator: SubAgentCoordinator,
-        releaseTools: () -> Unit, workers: List<Worker> = emptyList()): String? {
+        releaseTools: () -> Unit, workers: List<Worker> = emptyList(), workspaceEnvironment: String? = null): String? {
         val binding = AgentRuntimeConnection.acquire(context, AndroidAgentLogger) ?: return null
         val generation = UUID.randomUUID().toString()
         val leaseId = "child:$generation"
@@ -62,6 +63,7 @@ internal object AgentChildTaskGroups {
         try {
             synchronized(this) {
                 groups[generation] = Group(ownerId, runId, generation, leaseId, coordinator, releaseTools, workers, binding)
+                    .also { it.workspaceEnvironment = workspaceEnvironment }
                 changed()
             }
         } catch (failure: Throwable) {
@@ -135,7 +137,7 @@ internal object AgentChildTaskGroups {
         val snapshot = JSONObject()
         listOf("ok", "task_id", "worker", "agent_id", "agent_name", "model", "model_display_name",
             "provider_id", "provider_name", "status", "role", "project", "error_code", "workspace_id",
-            "workspace_path", "review_required", "can_continue", "can_replace", "replace_reason",
+            "workspace_path", "workspace_ownership_verified", "review_required", "can_continue", "can_replace", "replace_reason",
             "continuation_count", "parallel_limit").forEach { key -> if (json.has(key)) snapshot.put(key, json.get(key)) }
         snapshot.put("result", json.optString("result").take(MAX_RESULT_CHARS))
         snapshot.put("result_truncated", json.optString("result").length > MAX_RESULT_CHARS)
@@ -262,35 +264,47 @@ internal object AgentChildTaskGroups {
         }
     }
     /** Workspace authorization uses only this owner's task records, never an old coordinator's workspace backend. */
-    fun ownsWorkspace(ownerId: String, project: String, workspaceId: String?): Boolean {
-        if (project.isBlank() || (workspaceId != null && workspaceId.isBlank())) return false
+    fun ownedWorkspaceIds(ownerId: String, project: String, environment: String? = null): Set<String> {
+        if (project.isBlank()) return emptySet()
+        val ids = linkedSetOf<String>()
         for (group in ownerGroups(ownerId)) {
+            if (environment != null && group.workspaceEnvironment != environment) continue
             val archived = synchronized(this) { group.snapshots.values.toList() }
-            if (archived.any { matchesWorkspace(it, project, workspaceId) }) return true
+            archived.forEach { workspaceIdFor(it, project)?.let(ids::add) }
             val coordinator = begin(group)
             if (coordinator == null) {
-                synchronized(this) {
-                    if (groups[group.generation] === group && group.retiring && !group.closed && group.coordinator != null)
-                        (this as java.lang.Object).wait(HANDOFF_WAIT_MS)
-                    if (group.snapshots.values.any { matchesWorkspace(it, project, workspaceId) }) return true
+                val handedOff = synchronized(this) {
+                    if (groups[group.generation] === group && group.retiring &&
+                        !group.closed && group.coordinator != null
+                    ) (this as java.lang.Object).wait(HANDOFF_WAIT_MS)
+                    group.snapshots.values.toList()
                 }
+                handedOff.forEach { workspaceIdFor(it, project)?.let(ids::add) }
                 continue
             }
             try {
                 for (id in coordinator.taskIds()) {
-                    val dto = coordinator.execute(AgentModelClient.ToolCall("workspace-check-$id", "get_task_result",
-                        JSONObject().put("task_id", id).toString())).content
-                    if (matchesWorkspace(dto, project, workspaceId)) return true
+                    val dto = coordinator.execute(AgentModelClient.ToolCall(
+                        "workspace-check-$id", "get_task_result",
+                        JSONObject().put("task_id", id).toString()
+                    )).content
+                    workspaceIdFor(dto, project)?.let(ids::add)
                 }
             } finally { end(group) }
         }
-        return false
+        return ids
     }
-    private fun matchesWorkspace(dto: String, project: String, workspaceId: String?): Boolean {
-        val json = runCatching { JSONObject(dto) }.getOrNull() ?: return false
-        return json.optBoolean("ok", true) && json.optString("project") == project &&
-            json.optString("workspace_id").isNotBlank() &&
-            (workspaceId == null || json.optString("workspace_id") == workspaceId)
+    fun ownsWorkspace(ownerId: String, project: String, workspaceId: String?): Boolean {
+        val ids = ownedWorkspaceIds(ownerId, project)
+        return if (workspaceId == null) ids.isNotEmpty() else workspaceId in ids
+    }
+    private val workspaceIdPattern = Regex("[0-9a-f]{32}")
+    private fun workspaceIdFor(dto: String, project: String): String? {
+        val json = runCatching { JSONObject(dto) }.getOrNull() ?: return null
+        if (!json.optBoolean("ok", true) || json.optString("project") != project) return null
+        // Missing/legacy fields and caller-supplied IDs are not ownership evidence.
+        if (json.opt("workspace_ownership_verified") != true) return null
+        return json.optString("workspace_id").takeIf(workspaceIdPattern::matches)
     }
     fun execute(ownerId: String, currentGeneration: String?, call: AgentModelClient.ToolCall): AgentModelClient.ToolResult {
         val args = runCatching { JSONObject(call.argumentsJson) }.getOrNull() ?: return error("INVALID_TASK_ARGUMENTS")

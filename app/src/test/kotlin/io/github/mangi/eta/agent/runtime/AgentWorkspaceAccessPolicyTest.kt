@@ -8,6 +8,31 @@ import org.junit.Test
 
 class AgentWorkspaceAccessPolicyTest {
     @Test
+    fun listPaginationIsValidatedAndReachesBackendUnchanged() {
+        val allowed = AgentWorkspaceAccessPolicy.execute(
+            argumentsJson = """{"project":"/workspace/Project","action":"list","offset":50,"limit":10}""",
+            requestAllowsTerminal = true, runtimeAllowsTerminal = true, backendAvailable = true,
+            ownsWorkspace = { _, _ -> error("empty list must not require existing ownership") },
+            backendOperation = { request ->
+                assertEquals(50, request.offset)
+                assertEquals(10, request.limit)
+                JSONObject().put("ok", true)
+            },
+        )
+        assertTrue(allowed.getBoolean("ok"))
+        for ((key, value) in listOf("offset" to -1, "limit" to 0, "limit" to 51, "offset" to "50", "limit" to 1.5)) {
+            val denied = AgentWorkspaceAccessPolicy.execute(
+                argumentsJson = JSONObject().put("project", "/workspace/Project").put("action", "list").put(key, value).toString(),
+                requestAllowsTerminal = true, runtimeAllowsTerminal = true, backendAvailable = true,
+                ownsWorkspace = { _, _ -> error("invalid page must not check ownership") },
+                backendOperation = { error("invalid page must not execute backend") },
+            )
+            assertEquals("WORKSPACE_INVALID_ARGUMENTS", denied.getString("code"))
+            assertFalse(denied.getBoolean("shell_executed"))
+        }
+    }
+
+    @Test
     fun invalidProjectNeverReachesOwnershipOrBackend() {
         for (project in listOf("/workspace", "/workspace/.", "/workspace/..", "/workspace/a/b", "/tmp/project")) {
             val result = AgentWorkspaceAccessPolicy.execute(
@@ -105,7 +130,7 @@ class AgentWorkspaceAccessPolicyTest {
     }
 
     @Test
-    fun validListChecksOwnershipThenReturnsBackendResultUnchanged() {
+    fun validListDoesNotRequireExistingOwnershipAndReturnsScopedBackendResult() {
         var ownershipArguments: Pair<String, String?>? = null
         var backendCalls = 0
         val expected = JSONObject().put("ok", true).put("items", "backend-value")
@@ -126,7 +151,7 @@ class AgentWorkspaceAccessPolicyTest {
             },
         )
 
-        assertEquals("/workspace/Project", ownershipArguments?.first)
+        assertEquals(null, ownershipArguments)
         assertEquals(null, ownershipArguments?.second)
         assertEquals(1, backendCalls)
         assertEquals(expected.toString(), result.toString())

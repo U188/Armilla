@@ -10,6 +10,8 @@ internal object AgentWorkspaceAccessPolicy {
         val project: String,
         val action: String,
         val workspaceId: String?,
+        val offset: Int = 0,
+        val limit: Int = 50,
     )
 
     data class Decision(
@@ -48,7 +50,8 @@ internal object AgentWorkspaceAccessPolicy {
             code = "WORKSPACE_BACKEND_UNAVAILABLE",
             message = "工作区 backend 不可用，未执行 shell",
         )
-        if (!ownsWorkspace(request.project, request.workspaceId)) return reject(
+        // Listing is allowed to return an empty, scoped result. The bound backend filters exact IDs.
+        if (request.action != "list" && !ownsWorkspace(request.project, request.workspaceId)) return reject(
             code = "WORKSPACE_NOT_OWNED",
             message = "当前会话没有对应工作区的所有权记录，未执行 shell",
         )
@@ -91,8 +94,19 @@ internal object AgentWorkspaceAccessPolicy {
         }
         if (!Regex("/workspace/[^/]+").matches(project) ||
             project.substringAfterLast('/') in setOf(".", "..") || action.isBlank()) return null
-        Request(project = project, action = action, workspaceId = workspaceId)
+        val offset = pageNumber(args, "offset", 0, 0..4096)
+        val limit = pageNumber(args, "limit", 50, 1..50)
+        Request(project = project, action = action, workspaceId = workspaceId, offset = offset, limit = limit)
     }.getOrNull()
+
+    private fun pageNumber(args: JSONObject, key: String, default: Int, range: IntRange): Int {
+        if (!args.has(key)) return default
+        val raw = args.get(key)
+        require(raw is Int || raw is Long)
+        val value = (raw as Number).toLong()
+        require(value in range.first.toLong()..range.last.toLong())
+        return value.toInt()
+    }
 
     private fun requiredString(args: JSONObject, key: String): String {
         require(args.has(key) && !args.isNull(key))

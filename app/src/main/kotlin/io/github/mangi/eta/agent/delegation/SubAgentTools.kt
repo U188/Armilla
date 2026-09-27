@@ -61,8 +61,10 @@ internal object SubAgentTools {
         tools.put(tool("cancel_task", "Actually cancel one child task in this session; does not affect other children or the parent. Stop a blocked old instance before explicit replacement.",
             JSONObject().put("task_id", text(80)), JSONArray().put("task_id")))
         if (workspaceEnabled) tools.put(tool("manage_agent_workspace",
-            "Main agent only: list/inspect persistent project workspaces; merge only after review and independent verification. Fast-forward only; merge cleans the worktree. discard drops a finished/failed workspace. No automatic push.",
+            "Main agent only: list/inspect persistent workspaces owned by this conversation; list supports offset/limit and returns next_offset, empty is success; merge only after review and independent verification. Fast-forward only; merge cleans the worktree. discard drops a finished/failed workspace. No automatic push.",
             JSONObject().put("project", text(500)).put("workspace_id", text(80))
+                .put("offset", JSONObject().put("type", "integer").put("minimum", 0).put("maximum", 4096))
+                .put("limit", JSONObject().put("type", "integer").put("minimum", 1).put("maximum", 50))
                 .put("action", JSONObject().put("type", "string").put("enum", JSONArray(listOf("list", "inspect", "merge", "discard")))),
             JSONArray().put("project").put("action")))
     }

@@ -17,11 +17,14 @@ internal object ExistingChildTaskTools {
         add("get_task_result", "Read an old task's status, actual model and result; omit task_id to list this conversation's tasks. wait_ms up to 10000, after_seq/event_limit page supervision events.",
             JSONObject().put("task_id", id).put("offset", number).put("wait_ms", number)
                 .put("after_seq", number).put("event_limit", number))
-        add("manage_agent_workspace", "Inspect or manage workspaces belonging to this conversation's retained child tasks; do not discard useful unmerged work without user intent.",
+        add("manage_agent_workspace", "Inspect or manage persistently owned workspaces from this conversation, including after restart. list accepts offset/limit and returns next_offset; empty is success; do not discard useful unmerged work without user intent.",
             JSONObject().put("action", JSONObject().put("type", "string")
                 .put("enum", JSONArray(listOf("list", "inspect", "merge", "discard"))))
                 .put("project", JSONObject().put("type", "string").put("minLength", 1))
-                .put("workspace_id", id), JSONArray().put("action").put("project"))
+                .put("workspace_id", id)
+                .put("offset", JSONObject().put("type", "integer").put("minimum", 0).put("maximum", 4096))
+                .put("limit", JSONObject().put("type", "integer").put("minimum", 1).put("maximum", 50)),
+            JSONArray().put("action").put("project"))
         add("cancel_task", "Cancel an old background child by task_id without stopping the parent.",
             JSONObject().put("task_id", id), JSONArray().put("task_id"))
         add("continue_task", "Resume an old child awaiting a safe decision boundary using its original task ID, model, context and workspace.",

@@ -73,10 +73,11 @@ class AgentPromptBuilderTest {
             ),
             skillContext = SkillContext.EMPTY,
             rootAvailable = true,
+            screenControlAvailable = true,
         )
 
         assertEquals(
-            listOf("system", "system", "system", "system", "system", "user", "assistant", "user"),
+            listOf("system", "system", "system", "system", "system", "system", "user", "assistant", "user"),
             messages.roles(),
         )
         assertEquals("自定义系统约束", messages.getJSONObject(0).getString("content"))
@@ -110,17 +111,17 @@ class AgentPromptBuilderTest {
         assertTrue(messages.systemContents().any { it.contains("合法且克制的 GitHub Flavored Markdown") })
         assertTrue(messages.systemContents().any { it.contains("不用整句粗体冒充标题") })
         assertTrue(messages.systemContents().any { it.contains("表格前后留空行") })
-        assertTrue(messages.getJSONObject(2).getString("content").contains("open_and_exec"))
-        assertTrue(messages.getJSONObject(2).getString("content").contains("同一轮模型回复最多调用一次 read_image"))
-        assertTrue(messages.getJSONObject(2).getString("content").contains("read_image 可直接读取 Linux 的 /workspace"))
-        assertTrue(messages.getJSONObject(2).getString("content").contains("再在下一轮调用下一张"))
+        assertTrue(messages.getJSONObject(3).getString("content").contains("open_and_exec"))
+        assertTrue(messages.getJSONObject(3).getString("content").contains("同一轮模型回复最多调用一次 read_image"))
+        assertTrue(messages.getJSONObject(3).getString("content").contains("read_image 可直接读取 Linux 的 /workspace"))
+        assertTrue(messages.getJSONObject(3).getString("content").contains("再在下一轮调用下一张"))
         assertFalse(messages.systemContents().any { it.contains("网页浏览、读取") })
         assertTrue(messages.systemContents().any { it.contains("持久记忆已关闭") })
         assertTrue(messages.systemContents().any { it.contains("当前助手未开启 Skills") })
-        assertEquals("旧问题", messages.getJSONObject(5).getString("content"))
-        assertEquals("旧回答", messages.getJSONObject(6).getString("content"))
+        assertEquals("旧问题", messages.getJSONObject(6).getString("content"))
+        assertEquals("旧回答", messages.getJSONObject(7).getString("content"))
 
-        val currentContent = messages.getJSONObject(7).getJSONArray("content")
+        val currentContent = messages.getJSONObject(8).getJSONArray("content")
         assertEquals("当前问题", currentContent.getJSONObject(0).getString("text"))
         assertEquals(
             image.reference,
@@ -136,6 +137,7 @@ class AgentPromptBuilderTest {
             memoryContext = AgentMemoryContext.DISABLED,
             rootAvailable = false,
             delegationAvailable = false,
+            screenControlAvailable = true,
         )
         assertFalse(without.systemContents().any { it.contains("本轮已公开子代理") })
 
@@ -145,6 +147,7 @@ class AgentPromptBuilderTest {
             memoryContext = AgentMemoryContext.DISABLED,
             rootAvailable = false,
             delegationAvailable = true,
+            screenControlAvailable = true,
         )
         val contents = messages.systemContents()
         val delegationAt = contents.indexOfFirst { it.contains("本轮已公开子代理") }

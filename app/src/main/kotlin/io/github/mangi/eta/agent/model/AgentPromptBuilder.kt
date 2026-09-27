@@ -16,8 +16,11 @@ internal object AgentPromptBuilder {
         memoryContext: AgentMemoryContext = AgentMemoryContext.DISABLED,
         rootAvailable: Boolean = false,
         delegationAvailable: Boolean = false,
+        screenControlAvailable: Boolean = false,
     ): JSONArray {
-        val messages = buildSystemMessages(config, skillContext, memoryContext, rootAvailable, delegationAvailable)
+        val messages = buildSystemMessages(
+            config, skillContext, memoryContext, rootAvailable, delegationAvailable, screenControlAvailable,
+        )
         history.forEach { item ->
             runCatching { AgentConversationCodec.toJsonObject(item) }.getOrNull()?.let(messages::put)
         }
@@ -31,6 +34,7 @@ internal object AgentPromptBuilder {
         memoryContext: AgentMemoryContext,
         rootAvailable: Boolean,
         delegationAvailable: Boolean = false,
+        screenControlAvailable: Boolean = false,
     ): JSONArray {
         val messages = JSONArray()
         if (config.systemPrompt.isNotBlank()) {
@@ -76,25 +80,31 @@ internal object AgentPromptBuilder {
                     "大型工具结果优先有界查询、分页或定向筛选；压缩与恢复由运行时负责，不绕过当前的整轮保护策略。" +
                     "最终答复使用合法且克制的 GitHub Flavored Markdown：普通交流默认用简短自然段；" +
                     "只有分组、步骤或比较确实提升可读性时才使用标题、列表或表格，不用整句粗体冒充标题；" +
-                    "表格的表头、分隔行和每个数据行必须各自独占一行，表格前后留空行；不要为了显得结构化而滥用格式。" +
-                    "需要看屏幕时先按默认参数调用 observe_screen，只读取 UI 树，不附截图；" +
-                    "节点为空、目标无法唯一识别、界面以 Canvas、地图、图片或二维码等视觉内容为主，或任务依赖颜色、图像、空间布局时，" +
-                    "再显式设置 include_screenshot=true；补截图时保持 include_ui_tree=true，让截图、节点与新的 observation_id 来自同一次观察，" +
-                    "禁止把新截图与旧节点混用；树被截断但节点语义仍有效时，优先提高 max_nodes，不要仅因截断请求截图；" +
-                    "点击可见控件优先用 tap_element/tap_area，" +
-                    "调用节点工具时必须把该节点与同一次观察的 observation_id 一起传回，过期就重新观察；" +
-                    "scroll 的方向表示要显示的内容方向，例如 down 显示下方内容；" +
-                    "任何工具返回 ACTION_OUTCOME_UNKNOWN 或 DIRECTION_MISMATCH 时，必须先重新观察，禁止直接重放动作；" +
-                    "输入精确文本优先用 replace_text 或 paste_text，长文本/中文/特殊字符优先用 paste_text；" +
-                    "用户明确要求发送消息时，直接使用通用 GUI 工具完成输入和点击发送，不让用户手动完成，也不追加二次确认；" +
-                    "成功的点击、输入或打开应用后，不要例行调用 observe_screen、wait、wait_for_text 或 wait_for_package；" +
-                    "只有任务需要读取或汇总屏幕信息、后续目标或界面状态未知、工具报告节点过期或结果不确定，" +
-                    "以及任务结束前确实需要确认最终结果时，才观察屏幕；仅当后续操作依赖特定文本或应用出现时使用 wait_for_text/wait_for_package。" +
-                    "屏幕观察与 GUI 操作前会确认 浑天 无障碍服务；只有系统保护后端可用时才会请求有限重绑。" +
-                    "若工具返回 ACCESSIBILITY_UNAVAILABLE、ACCESSIBILITY_PROTECTION_UNAVAILABLE 或 ACCESSIBILITY_REPAIR_TIMEOUT，说明动作未执行，" +
-                    "不要改用坐标或 Shell 重放 GUI 动作。"
+                    "表格的表头、分隔行和每个数据行必须各自独占一行，表格前后留空行；不要为了显得结构化而滥用格式。"
             )
         )
+        if (screenControlAvailable) {
+            messages.put(
+                systemMessage(
+                    "需要看屏幕时先按默认参数调用 observe_screen，只读取 UI 树，不附截图；" +
+                        "节点为空、目标无法唯一识别、界面以 Canvas、地图、图片或二维码等视觉内容为主，或任务依赖颜色、图像、空间布局时，" +
+                        "再显式设置 include_screenshot=true；补截图时保持 include_ui_tree=true，让截图、节点与新的 observation_id 来自同一次观察，" +
+                        "禁止把新截图与旧节点混用；树被截断但节点语义仍有效时，优先提高 max_nodes，不要仅因截断请求截图；" +
+                        "点击可见控件优先用 tap_element/tap_area，" +
+                        "调用节点工具时必须把该节点与同一次观察的 observation_id 一起传回，过期就重新观察；" +
+                        "scroll 的方向表示要显示的内容方向，例如 down 显示下方内容；" +
+                        "任何工具返回 ACTION_OUTCOME_UNKNOWN 或 DIRECTION_MISMATCH 时，必须先重新观察，禁止直接重放动作；" +
+                        "输入精确文本优先用 replace_text 或 paste_text，长文本/中文/特殊字符优先用 paste_text；" +
+                        "用户明确要求发送消息时，直接使用通用 GUI 工具完成输入和点击发送，不让用户手动完成，也不追加二次确认；" +
+                        "成功的点击、输入或打开应用后，不要例行调用 observe_screen、wait、wait_for_text 或 wait_for_package；" +
+                        "只有任务需要读取或汇总屏幕信息、后续目标或界面状态未知、工具报告节点过期或结果不确定，" +
+                        "以及任务结束前确实需要确认最终结果时，才观察屏幕；仅当后续操作依赖特定文本或应用出现时使用 wait_for_text/wait_for_package。" +
+                        "屏幕观察与 GUI 操作前会确认 浑天 无障碍服务；只有系统保护后端可用时才会请求有限重绑。" +
+                        "若工具返回 ACCESSIBILITY_UNAVAILABLE、ACCESSIBILITY_PROTECTION_UNAVAILABLE 或 ACCESSIBILITY_REPAIR_TIMEOUT，说明动作未执行，" +
+                        "不要改用坐标或 Shell 重放 GUI 动作。"
+                )
+            )
+        }
         if (config.terminalTools) {
             messages.put(
                 systemMessage(

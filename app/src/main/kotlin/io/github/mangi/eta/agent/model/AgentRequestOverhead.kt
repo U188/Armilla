@@ -24,6 +24,7 @@ internal object AgentRequestOverhead {
             memoryContext = memoryContext,
             rootAvailable = capabilities.rootAvailable,
             delegationAvailable = AgentPromptBuilder.delegationToolsAvailable(additionalTools),
+            screenControlAvailable = capabilities.accessibilityAvailable || capabilities.accessibilityRecoveryAvailable,
         )
         var tokens = 0
         for (index in 0 until systemMessages.length()) {

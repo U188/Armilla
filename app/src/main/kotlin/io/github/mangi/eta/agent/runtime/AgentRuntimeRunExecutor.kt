@@ -253,16 +253,21 @@ internal class AgentRuntimeRunExecutor(
             }
             val delegatedExecutor = AgentModelClient.ToolExecutor { call ->
                 if (call.name == "manage_agent_workspace") {
-                    val args = org.json.JSONObject(call.argumentsJson)
-                    val project = args.getString("project")
-                    val id = args.optString("workspace_id").ifBlank { null }
-                    val action = args.getString("action")
-                    val allowed = action in setOf("list", "inspect", "merge", "discard") &&
-                        AgentChildTaskGroups.ownsWorkspace(childSessionId, project, id)
                     val backend = childWorkspace
-                    val payload = if (allowed && backend != null && currentPermissions().terminalTools)
-                        backend.operation(project, action, id)
-                    else org.json.JSONObject().put("ok", false).put("code", "WORKSPACE_UNAVAILABLE")
+                    val payload = AgentWorkspaceAccessPolicy.execute(
+                        argumentsJson = call.argumentsJson,
+                        requestAllowsTerminal = allowTerminal,
+                        runtimeAllowsTerminal = currentPermissions().terminalTools,
+                        backendAvailable = backend != null,
+                        ownsWorkspace = { project, id ->
+                            AgentChildTaskGroups.ownsWorkspace(childSessionId, project, id)
+                        },
+                        backendOperation = { workspaceRequest ->
+                            requireNotNull(backend).operation(
+                                workspaceRequest.project, workspaceRequest.action, workspaceRequest.workspaceId,
+                            )
+                        },
+                    )
                     AgentModelClient.ToolResult(payload.toString(), sensitive = true)
                 } else if (call.name in SubAgentTools.names) {
                     AgentChildTaskGroups.execute(childSessionId, groupGeneration, call)

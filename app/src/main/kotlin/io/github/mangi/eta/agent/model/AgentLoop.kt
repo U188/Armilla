@@ -68,6 +68,8 @@ internal class AgentLoop(
 
     private var toolCallValidator = AgentToolCallValidator(tools)
     private val delegationArgumentRepair = AgentDelegationArgumentRepair()
+    private var shellFailureState = AgentShellFailureGuard.State()
+    private var shellFailureStopMessage: String? = null
     private var delegationRepairNotifiedRound: Int? = null
     private val accumulatedReasoning = StringBuilder()
     private val sensitiveToolCallIds = linkedSetOf<String>()
@@ -380,6 +382,11 @@ internal class AgentLoop(
                     }
                 } finally {
                     appendToolOutcomes(round, outcomes)
+                }
+                // Stop only after every tool result in this batch has been paired.
+                // This is a bounded repair budget, not a limit on legitimate long tasks.
+                shellFailureStopMessage?.let { message ->
+                    throw AgentModelFailure(AgentShellFailureGuard.STOP_CODE, false, message)
                 }
                 interruptedTextPrefix.setLength(0)
                 round += 1
@@ -774,7 +781,7 @@ internal class AgentLoop(
             )
         )
 
-        val result = try {
+        val rawResult = try {
             if (toolCall.name == AgentCompactionArchive.TOOL && compactionArchive != null) {
                 compactionArchive.read(toolCall.argumentsJson)
             } else toolExecutor.execute(toolCall)
@@ -788,6 +795,10 @@ internal class AgentLoop(
                     .toString(),
             )
         }
+        val shellDecision = AgentShellFailureGuard.observe(shellFailureState, toolCall, rawResult)
+        shellFailureState = shellDecision.state
+        if (shellFailureStopMessage == null) shellFailureStopMessage = shellDecision.stopMessage
+        val result = shellDecision.result
         if (result.sensitive || AgentSensitiveToolPolicy.isSensitive(toolCall.name)) {
             sensitiveToolCallIds += toolCall.id
         }

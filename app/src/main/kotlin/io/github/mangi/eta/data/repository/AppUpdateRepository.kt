@@ -68,12 +68,16 @@ internal object AppUpdateRepository {
     suspend fun downloadApk(context: Context, offer: AppUpdateOffer): File = withContext(Dispatchers.IO) {
         val url = offer.apkUrl?.takeIf { it.startsWith("http") }
             ?: error("没有可下载的安装包")
-        val name = offer.apkName
-            ?.substringAfterLast('/')
-            ?.takeIf { it.endsWith(".apk", ignoreCase = true) }
-            ?: "armilla-${AppVersion.normalize(offer.versionName).ifBlank { "update" }}.apk"
-        val dir = File(context.applicationContext.cacheDir, "updates").apply { mkdirs() }
-        val destination = File(dir, name)
+        // 强制使用带版本号的本地文件名，忽略远程资源名（多个 release 的资源都叫 app-release.apk，
+        // 固定名会导致新旧包在缓存目录里互相串包）。下载前清空目录，避免安装到残留的旧 APK。
+        val stamp = AppVersion.normalize(offer.versionName)
+            .ifBlank { AppVersion.normalize(offer.tagName) }
+            .ifBlank { System.currentTimeMillis().toString() }
+            .replace(Regex("[^0-9A-Za-z._-]"), "_")
+        val dir = File(context.applicationContext.cacheDir, "updates")
+        dir.deleteRecursively()
+        dir.mkdirs()
+        val destination = File(dir, "armilla-$stamp.apk")
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/octet-stream")

@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.overlay
 
+import io.github.mangi.eta.agent.device.AgentTaskSurfaceMode
 import io.github.mangi.eta.agent.runtime.AgentEvent
 
 /**
@@ -8,9 +9,24 @@ import io.github.mangi.eta.agent.runtime.AgentEvent
  * Chat, reasoning, shell diagnostics, file reads, skill reads and app search
  * all have good homes in the main conversation UI. The global overlay is
  * reserved for tools that actively inspect or drive the foreground Android
- * interface.
+ * interface. Tool names alone cannot distinguish foreground and virtual runs;
+ * runtime callers must also pass the originating session's frozen surface mode.
  */
 internal object AgentOverlayVisibilityPolicy {
+    fun allowsOverlay(taskSurfaceMode: AgentTaskSurfaceMode): Boolean =
+        taskSurfaceMode == AgentTaskSurfaceMode.FOREGROUND
+
+    fun shouldRevealFor(event: AgentEvent, taskSurfaceMode: AgentTaskSurfaceMode): Boolean =
+        allowsOverlay(taskSurfaceMode) && shouldRevealFor(event)
+
+    fun shouldDismissEntrySurfaceFor(event: AgentEvent, taskSurfaceMode: AgentTaskSurfaceMode): Boolean =
+        allowsOverlay(taskSurfaceMode) && shouldDismissEntrySurfaceFor(event)
+
+    fun shouldShowResultCard(
+        taskSurfaceMode: AgentTaskSurfaceMode,
+        hasExecutedForegroundTool: Boolean,
+    ): Boolean = allowsOverlay(taskSurfaceMode) && hasExecutedForegroundTool
+
     /**
      * 是否因“前台驱动类工具”而需要显示操作浮层。这是原有的默认行为：
      * 仅当 agent 主动点击/滑动/看屏幕等驱动前台界面时才现身。
@@ -58,8 +74,10 @@ internal object AgentOverlayVisibilityPolicy {
     internal fun shouldRecordForegroundExecution(
         event: AgentEvent,
         entrySurfaceReady: Boolean,
+        taskSurfaceMode: AgentTaskSurfaceMode = AgentTaskSurfaceMode.FOREGROUND,
     ): Boolean =
-        entrySurfaceReady &&
+        allowsOverlay(taskSurfaceMode) &&
+            entrySurfaceReady &&
             event is AgentEvent.ToolStarted &&
             event.name.isForegroundOperationTool()
 

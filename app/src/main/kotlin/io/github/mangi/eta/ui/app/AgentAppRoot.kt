@@ -1012,7 +1012,7 @@ fun AgentAppRoot(
     }
 
     if (browserSheetVisible) {
-        AgentBrowserScreen(onDismiss = { browserSheetVisible = false })
+        AgentBrowserScreen(onDismiss = { browserSheetVisible = false }, conversationId = agentState.conversationPaneState.selectedConversationId)
     }
 
     conversationRenameTarget?.let { conversation ->

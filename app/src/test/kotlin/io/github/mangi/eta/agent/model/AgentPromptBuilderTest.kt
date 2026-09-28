@@ -250,7 +250,7 @@ class AgentPromptBuilderTest {
     }
 
     @Test
-    fun personaOnlyModeInjectsPersonaAndSkillIndexOnlyNoDeviceGuidance() {
+    fun personaOnlyModeInjectsPersonaMemoryAndSkillIndexOnlyNoDeviceGuidance() {
         val skill = SkillIndexEntry(
             id = "recon-kit",
             name = "侦察工具",
@@ -272,23 +272,33 @@ class AgentPromptBuilderTest {
             images = emptyList(),
             history = emptyList(),
             skillContext = SkillContext(installedSkills = listOf(skill)),
+            memoryContext = AgentMemoryContext(
+                enabled = true,
+                revision = "c".repeat(64),
+                byteSize = 64,
+                coreContent = "# 核心记忆\n用户偏好直给代码",
+                coreTruncated = false,
+                headingIndex = "# 核心记忆",
+                coreBudgetChars = 8_000,
+            ),
             rootAvailable = true,
             delegationAvailable = true,
             screenControlAvailable = true,
         )
 
-        // 人格 + Skills 索引 + 当前用户消息，无任何设备/屏幕/终端/浏览器/委派/记忆引导块。
-        assertEquals(listOf("system", "system", "user"), messages.roles())
+        // 人格 + 记忆 + Skills 索引 + 当前用户消息，无任何设备/屏幕/终端/浏览器/委派引导块。
+        assertEquals(listOf("system", "system", "system", "user"), messages.roles())
         assertEquals("## 小枫人格\n黑客身份", messages.getJSONObject(0).getString("content"))
         val systemContents = messages.systemContents()
         assertTrue(systemContents.any { it.contains("id=recon-kit") })
+        assertTrue(systemContents.any { it.contains("<memory_core>") })
+        assertTrue(systemContents.any { it.contains("用户偏好直给代码") })
         assertFalse(systemContents.any { it.contains("以系统提示中的助手人格为准") })
         assertFalse(systemContents.any { it.contains("需要看屏幕时") })
         assertFalse(systemContents.any { it.contains("open_and_exec") })
         assertFalse(systemContents.any { it.contains("browser_use") })
         assertFalse(systemContents.any { it.contains("本轮已公开子代理") })
-        assertFalse(systemContents.any { it.contains("持久记忆") })
-        assertEquals("扫这个站", messages.getJSONObject(2).getString("content"))
+        assertEquals("扫这个站", messages.getJSONObject(3).getString("content"))
     }
 
     private fun modelConfig(

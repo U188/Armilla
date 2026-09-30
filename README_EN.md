@@ -22,6 +22,8 @@ Armilla brings the agent runtime, system entry points, and tool layer together, 
 
 Requires **Android 14 or later**. The app is not brand-locked; core features work without root. Root and LSPosed unlock more system access and assistant integration, depending on permission and ROM support.
 
+Each release ships two APKs: `app-release.apk` (minSdk 34, Android 14+) and `app-release-android13.apk` (minSdk 33, Android 13 compatible).
+
 [Download APK](https://github.com/U188/Armilla/releases/latest) · [Getting started](#getting-started)
 
 ## See it in action

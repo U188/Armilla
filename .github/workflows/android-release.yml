@@ -65,7 +65,7 @@ jobs:
             > "$RUNNER_TEMP/eta-release.p12"
           test -s "$RUNNER_TEMP/eta-release.p12"
 
-      - name: 构建 Release APK
+      - name: 构建 Release APK（minSdk 34，Android 14+）
         env:
           ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-release.p12
           ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
@@ -75,32 +75,53 @@ jobs:
           ./gradlew --no-daemon --no-configuration-cache
           :app:assembleRelease
 
+      - name: 整理 minSdk 34 产物
+        run: |
+          mkdir -p "$RUNNER_TEMP/apks"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apks/app-release.apk"
+
+      - name: 构建 Release APK（minSdk 33，Android 13+）
+        env:
+          ETA_RELEASE_STORE_FILE: ${{ runner.temp }}/eta-release.p12
+          ETA_RELEASE_STORE_PASSWORD: ${{ secrets.ETA_RELEASE_STORE_PASSWORD }}
+          ETA_RELEASE_KEY_ALIAS: ${{ secrets.ETA_RELEASE_KEY_ALIAS }}
+          ETA_RELEASE_KEY_PASSWORD: ${{ secrets.ETA_RELEASE_KEY_PASSWORD }}
+        run: >-
+          ./gradlew --no-daemon --no-configuration-cache
+          -PminSdkOverride=33
+          :app:assembleRelease
+
+      - name: 整理 minSdk 33 产物
+        run: |
+          mkdir -p "$RUNNER_TEMP/apks"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apks/app-release-android13.apk"
+
       - name: 验证并整理 APK
         id: apk
         run: |
-          release_apk="app/build/outputs/apk/release/app-release.apk"
           output_dir="$RUNNER_TEMP/apks"
+          apk34="$output_dir/app-release.apk"
+          apk33="$output_dir/app-release-android13.apk"
           apksigner_path="$(find "$ANDROID_HOME/build-tools" \
             -type f -name apksigner | sort -V | tail -n 1)"
 
-          if [[ ! -f "$release_apk" ]]; then
-            echo "::error::未找到 Release APK。"
-            exit 1
-          fi
-          if [[ -z "$apksigner_path" ]]; then
-            echo "::error::未找到 apksigner。"
-            exit 1
-          fi
-
-          "$apksigner_path" verify "$release_apk"
-          mkdir -p "$output_dir"
-          cp "$release_apk" "$output_dir/app-release.apk"
-          echo "release_path=$output_dir/app-release.apk" >> "$GITHUB_OUTPUT"
+          for apk in "$apk34" "$apk33"; do
+            if [[ ! -f "$apk" ]]; then
+              echo "::error::未找到 Release APK：$apk"
+              exit 1
+            fi
+            if [[ -z "$apksigner_path" ]]; then
+              echo "::error::未找到 apksigner。"
+              exit 1
+            fi
+            "$apksigner_path" verify "$apk"
+          done
+          echo "release_dir=$output_dir" >> "$GITHUB_OUTPUT"
 
       - name: 上传 Release APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          path: ${{ steps.apk.outputs.release_path }}
+          path: ${{ steps.apk.outputs.release_dir }}
           archive: false
           if-no-files-found: error
           retention-days: 14
@@ -109,6 +130,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2
         with:
-          files: ${{ steps.apk.outputs.release_path }}
+          files: |
+            ${{ steps.apk.outputs.release_dir }}/app-release.apk
+            ${{ steps.apk.outputs.release_dir }}/app-release-android13.apk
           generate_release_notes: true
           fail_on_unmatched_files: true

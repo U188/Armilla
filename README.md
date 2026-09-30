@@ -23,6 +23,8 @@
 
 支持 **Android 14 及以上**。App 本体不限品牌，基础功能不用 Root。Root 和 LSPosed 能再打开系统访问与助手入口，具体取决于授权和 ROM。
 
+Releases 提供两个 APK：`app-release.apk`（minSdk 34，Android 14+）与 `app-release-android13.apk`（minSdk 33，兼容 Android 13）。
+
 [下载 APK](https://github.com/U188/Armilla/releases/latest) · [快速开始](#快速开始)
 
 ## 界面预览

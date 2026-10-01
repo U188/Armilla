@@ -357,13 +357,8 @@ internal object AgentChildTaskGroups {
             return error("WORKER_ID_MISMATCH")
         val originalContext = args.optString("context")
         val previous = "\n\nPrevious failed task $predecessorId (provider $provider, model ${snapshot.optString("model")}) "
-        val evidence = if (checkpoint.isBlank()) {
-            previous + "reported no checkpoint; its progress is unknown. Do the whole task from the start. " +
-                "Never replay uncertain external side effects."
-        } else {
-            previous + "reported this unverified checkpoint: $checkpoint. Continue only unfinished work; " +
-                "verify the checkpoint independently. Never replay uncertain external side effects."
-        }
+        val evidence = previous + "reported this unverified checkpoint: $checkpoint. Continue only unfinished work; " +
+            "verify the checkpoint independently. Never replay uncertain external side effects."
         if (originalContext.length + evidence.length > 20000) return error("INVALID_TASK_ARGUMENTS")
         val next = JSONObject(args.toString()).apply {
             // Keep the predecessor for a same-coordinator replacement: its successorId gate is authoritative.

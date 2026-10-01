@@ -35,6 +35,7 @@ internal object SubAgentErrorHints {
         "REPLACEMENT_DISPATCH_UNKNOWN" to "替换任务是否已经派发不确定，不要再派一次；先用不带 task_id 的 get_task_result 核对。",
         "REPLACEMENT_EVIDENCE_UNAVAILABLE" to "读不到旧任务的状态，无法替换。先用 get_task_result 读旧任务。",
         "HANDOFF_NOT_READ" to "替换前要先对旧任务调用 get_task_result，读到它最新的状态后再替换。",
+        "REPLACEMENT_CHECKPOINT_REQUIRED" to "旧任务没有报过检查点，不能替换。先用 get_task_result 读它的状态，或让接替任务从头做（新建普通任务，不要用 replace_task_id）。",
         "WORKSPACE_HANDOFF_REQUIRES_MANUAL_REVIEW" to "实现任务或带工作区的任务不能用 replace_task_id 替换。先用 manage_agent_workspace inspect 查看工作区，再决定 discard 后重新委派，或交给 review。",
         "MEDIA_DELIVERY_UNCERTAIN" to "付费媒体任务不能替换或重放。",
         "WORKSPACE_IN_USE" to "这个项目或工作区上还有 active_task_ids 里的子任务在跑。用 get_task_result 等它们结束，或先 cancel_task，再操作工作区。",

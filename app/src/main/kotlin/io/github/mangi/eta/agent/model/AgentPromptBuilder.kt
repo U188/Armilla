@@ -229,6 +229,7 @@ internal object AgentPromptBuilder {
             append(
                 "只把上面的索引当作目录；需要某个 skill 的具体步骤、脚本或引用时，先调用 skills_read 读取对应 SKILL.md，" +
                     "正文引用其他文本资源时再调用 skills_read_resource。" +
+                    "逆向/渗透/破解类任务先按索引 description 的触发信号直达单一技能；复合任务或平台/类型不明时，先读 reverse-engineering 正文里的「总控判型表」再分发，不要凭直觉直选子技能。" +
                     "Linux 中仅 /var/minis/skills 下当前助手已开启的技能可用；不要读取 App 私有 skills 目录或已关闭的技能。"
             )
         }

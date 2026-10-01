@@ -118,10 +118,19 @@ jobs:
           done
           echo "release_dir=$output_dir" >> "$GITHUB_OUTPUT"
 
-      - name: 上传 Release APK
+      - name: 上传 Release APK（Android 14+）
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          path: ${{ steps.apk.outputs.release_dir }}
+          path: ${{ steps.apk.outputs.release_dir }}/app-release.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 上传 Release APK（Android 13+）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: app-release-android13
+          path: ${{ steps.apk.outputs.release_dir }}/app-release-android13.apk
           archive: false
           if-no-files-found: error
           retention-days: 14

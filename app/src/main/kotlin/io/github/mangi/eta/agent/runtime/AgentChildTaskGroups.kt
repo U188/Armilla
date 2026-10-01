@@ -437,12 +437,9 @@ internal object AgentChildTaskGroups {
             .toString(), sensitive = true)
     }
     private fun error(code: String) = AgentModelClient.ToolResult(
-        io.github.mangi.eta.agent.delegation.SubAgentErrorHints.annotate(JSONObject().put("ok", false).put("code", code)).also { json ->
-            // 替换策略的拒绝码自带英文原因，没有中文说明时用它。
-            if (json.optString("message").isBlank()) {
-                ChildTaskConfigPolicy.Code.entries.firstOrNull { it.name == code }?.let { json.put("message", it.reason) }
-            }
-        }.toString(),
+        io.github.mangi.eta.agent.delegation.SubAgentErrorHints.annotate(
+            JSONObject().put("ok", false).put("code", code)
+        ).toString(),
         sensitive = true,
     )
 }

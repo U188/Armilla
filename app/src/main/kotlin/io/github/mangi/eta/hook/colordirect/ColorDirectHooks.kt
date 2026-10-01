@@ -1,5 +1,6 @@
 package io.github.mangi.eta.hook.colordirect
 
+import android.os.Build
 import io.github.mangi.eta.core.HookSupport
 import io.github.mangi.eta.core.HookInstallation
 import io.github.mangi.eta.core.HookRegistrar
@@ -114,7 +115,9 @@ internal object ColorDirectHooks {
 
     private fun finishColorDirectActivity(activity: Activity) {
         activity.finishAndRemoveTask()
-        activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        if (Build.VERSION.SDK_INT >= 34) {
+            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
     }
 
     private fun isDoubleFingerCollectIntent(intent: Intent?, startInfoClass: Class<*>?): Boolean {

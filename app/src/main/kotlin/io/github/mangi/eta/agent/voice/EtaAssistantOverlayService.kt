@@ -892,15 +892,26 @@ internal class EtaAssistantOverlayService : Service(), LifecycleOwner, SavedStat
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             creatorOptions.toBundle(),
         )
-        val senderOptions = ActivityOptions.makeBasic().apply {
-            pendingIntentBackgroundActivityStartMode =
-                if (Build.VERSION.SDK_INT >= 36) {
-                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
-                } else {
-                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-                }
+        val senderOptions = if (Build.VERSION.SDK_INT >= 34) {
+            ActivityOptions.makeBasic().apply {
+                pendingIntentBackgroundActivityStartMode =
+                    if (Build.VERSION.SDK_INT >= 36) {
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+                    } else {
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    }
+            }.toBundle()
+        } else {
+            // Android 13 没有 PendingIntent 背景启动模式 API；助手会话处于前台，直接启动即可。
+            null
         }
-        runCatching { pendingIntent.send(senderOptions.toBundle()) }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 34) {
+                pendingIntent.send(requireNotNull(senderOptions))
+            } else {
+                pendingIntent.send()
+            }
+        }
             .onFailure {
                 handoffInProgress = false
                 AndroidAgentLogger.warn("Armilla assistant handoff activity launch failed")

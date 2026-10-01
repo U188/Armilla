@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.accessibility
 
+import android.os.Build
 import android.app.BroadcastOptions
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -112,20 +113,33 @@ internal object AccessibilityProtectionClient {
         }
 
         try {
-            // Android 14 起广播默认不共享发送者身份；保护后端必须取得真实 UID 才接受请求。
-            val options = BroadcastOptions.makeBasic()
-                .setShareIdentityEnabled(true)
-                .toBundle()
-            context.sendOrderedBroadcast(
-                intent,
-                null,
-                options,
-                resultReceiver,
-                scheduler,
-                AccessibilityProtectionProtocol.RESULT_UNAVAILABLE,
-                null,
-                null,
-            )
+            if (Build.VERSION.SDK_INT >= 34) {
+                // Android 14 起广播默认不共享发送者身份；保护后端必须取得真实 UID 才接受请求。
+                val options = BroadcastOptions.makeBasic()
+                    .setShareIdentityEnabled(true)
+                    .toBundle()
+                context.sendOrderedBroadcast(
+                    intent,
+                    null,
+                    options,
+                    resultReceiver,
+                    scheduler,
+                    AccessibilityProtectionProtocol.RESULT_UNAVAILABLE,
+                    null,
+                    null,
+                )
+            } else {
+                // Android 13 及以下没有 shareIdentity API；由接收端降级校验，不传 options。
+                context.sendOrderedBroadcast(
+                    intent,
+                    null,
+                    resultReceiver,
+                    scheduler,
+                    AccessibilityProtectionProtocol.RESULT_UNAVAILABLE,
+                    null,
+                    null,
+                )
+            }
         } catch (_: RuntimeException) {
             scheduler.post {
                 onResult(

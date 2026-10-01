@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.accessibility
 
+import android.os.Build
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.ClipData
@@ -1060,39 +1061,49 @@ open class AgentAccessibilityService : AccessibilityService() {
         val acceptingResults = AtomicBoolean(true)
 
         for (window in captureWindows) {
-            runCatching {
-                takeScreenshotOfWindow(window.id, screenshotExecutor, object : TakeScreenshotCallback {
-                    override fun onSuccess(screenshot: ScreenshotResult) {
-                        try {
-                            val sw = convertToSoftwareBitmap(screenshot)
-                                ?: throw IllegalStateException("screenshot bitmap unavailable")
-                            var retained = false
-                            synchronized(lock) {
-                                if (acceptingResults.get()) {
-                                    screenshots[window.id] = sw to Rect(window.bounds)
-                                    retained = true
+            if (Build.VERSION.SDK_INT >= 34) {
+                runCatching {
+                    takeScreenshotOfWindow(window.id, screenshotExecutor, object : TakeScreenshotCallback {
+                        override fun onSuccess(screenshot: ScreenshotResult) {
+                            try {
+                                val sw = convertToSoftwareBitmap(screenshot)
+                                    ?: throw IllegalStateException("screenshot bitmap unavailable")
+                                var retained = false
+                                synchronized(lock) {
+                                    if (acceptingResults.get()) {
+                                        screenshots[window.id] = sw to Rect(window.bounds)
+                                        retained = true
+                                    }
                                 }
-                            }
-                            if (!retained && !sw.isRecycled) sw.recycle()
-                        } catch (_: Exception) {
-                            synchronized(lock) {
-                                if (acceptingResults.get()) {
-                                    failures[window.id] = ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR
+                                if (!retained && !sw.isRecycled) sw.recycle()
+                            } catch (_: Exception) {
+                                synchronized(lock) {
+                                    if (acceptingResults.get()) {
+                                        failures[window.id] = ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR
+                                    }
                                 }
+                            } finally {
+                                latch.countDown()
                             }
-                        } finally {
+                        }
+
+                        override fun onFailure(errorCode: Int) {
+                            synchronized(lock) {
+                                if (acceptingResults.get()) failures[window.id] = errorCode
+                            }
                             latch.countDown()
                         }
-                    }
-
-                    override fun onFailure(errorCode: Int) {
-                        synchronized(lock) {
-                            if (acceptingResults.get()) failures[window.id] = errorCode
+                    })
+                }.onFailure {
+                    synchronized(lock) {
+                        if (acceptingResults.get()) {
+                            failures[window.id] = ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR
                         }
-                        latch.countDown()
                     }
-                })
-            }.onFailure {
+                    latch.countDown()
+                }
+            } else {
+                // API 33 没有窗口级截图；按内部错误记录，走统一的降级合并逻辑。
                 synchronized(lock) {
                     if (acceptingResults.get()) {
                         failures[window.id] = ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR
@@ -1338,7 +1349,7 @@ open class AgentAccessibilityService : AccessibilityService() {
                 AccessibilityNodeInfo.ACTION_SCROLL_FORWARD in actions ||
                     AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD in actions
                 ) -> 2
-            AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_IN_DIRECTION.id in actions -> 1
+            ACTION_SCROLL_IN_DIRECTION_ID in actions -> 1
             else -> 0
         }
     }
@@ -1404,7 +1415,7 @@ open class AgentAccessibilityService : AccessibilityService() {
                 )
             }
         }
-        val inDirection = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_IN_DIRECTION.id
+        val inDirection = ACTION_SCROLL_IN_DIRECTION_ID
         if (inDirection in actionIds) {
             val args = Bundle().apply {
                 putInt(
@@ -2333,6 +2344,15 @@ open class AgentAccessibilityService : AccessibilityService() {
                 Thread(runnable, "agent-screenshot-callback").apply { isDaemon = true }
             }
 
+        /**
+         * API 34 引入 ACTION_SCROLL_IN_DIRECTION；低版本取 -1，永远不会匹配真实 action id。
+         */
+        private val ACTION_SCROLL_IN_DIRECTION_ID: Int =
+            if (Build.VERSION.SDK_INT >= 34) {
+                AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_IN_DIRECTION.id
+            } else {
+                -1
+            }
         private val SCROLL_ACTION_IDS = setOf(
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id,
@@ -2340,7 +2360,7 @@ open class AgentAccessibilityService : AccessibilityService() {
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.id,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD.id,
-            AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_IN_DIRECTION.id,
+            ACTION_SCROLL_IN_DIRECTION_ID,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_UP.id,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_DOWN.id,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_LEFT.id,

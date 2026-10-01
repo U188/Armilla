@@ -836,7 +836,7 @@ private fun extractTarStream(input: java.io.InputStream, destination: File) {
                 target.parentFile?.mkdirs()
                 Files.deleteIfExists(target.toPath())
                 runCatching {
-                    Files.createSymbolicLink(target.toPath(), java.nio.file.Path.of(entry.linkName))
+                    Files.createSymbolicLink(target.toPath(), File(entry.linkName).toPath())
                 }.getOrElse {
                     target.writeText("")
                 }

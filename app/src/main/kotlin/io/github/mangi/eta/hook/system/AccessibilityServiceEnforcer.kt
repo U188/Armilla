@@ -1,5 +1,6 @@
 package io.github.mangi.eta.hook.system
 
+import android.os.Build
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -276,7 +277,7 @@ internal class AccessibilityServiceEnforcer(
 
     private fun createControlReceiver(): BroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(receiverContext: Context, intent: Intent) {
-            val senderUid = sentFromUid
+            val senderUid = if (Build.VERSION.SDK_INT >= 34) sentFromUid else -1
             val ordered = isOrderedBroadcast
             val action = intent.action
             val protocolVersion = intent.getIntExtra(

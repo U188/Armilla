@@ -1,5 +1,7 @@
 package io.github.mangi.eta.agent.voice
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -119,6 +121,7 @@ class EtaRecognitionService : RecognitionService() {
             releaseRecognizer(callback)
         }
 
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
         override fun onLanguageDetection(results: Bundle) {
             runCatching { callback.languageDetection(results) }
         }

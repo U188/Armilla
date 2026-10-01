@@ -43,8 +43,8 @@ android {
         minSdk = (project.findProperty("minSdkOverride") as String?)?.toInt() ?: 34
         targetSdk = 36
         // versionCode 规则：yyyyMMdd + 两位当日序号（01 起），发版时随 versionName 一起手动递增。
-        versionCode = 2026092705
-        versionName = "5.3.13"
+        versionCode = 2026100101
+        versionName = "5.3.14"
     }
 
     signingConfigs {

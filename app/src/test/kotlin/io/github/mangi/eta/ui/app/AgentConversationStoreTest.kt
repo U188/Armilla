@@ -379,7 +379,10 @@ class AgentConversationStoreTest {
                 AgentConversationCodec.MAX_CONVERSATION_CHECKPOINT_CHARS
         )
         assertEquals(displayedContent, (restored.messages.single() as UserMessageUi).content)
-        assertTrue(restored.history.first().content.contains("容量上限已压缩"))
+        // Room 检查点仍受上限约束，但模型历史走单独文件（4MB），重新打开不会退回截短的检查点。
+        assertEquals(history.size, restored.history.size)
+        assertEquals(history.first().content, restored.history.first().content)
+        assertFalse(restored.history.first().content.contains("容量上限已压缩"))
         assertEquals("最新上下文", restored.history.last().content)
     }
 

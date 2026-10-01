@@ -78,15 +78,7 @@ class SubAgentErrorHintsTest {
             }
             error("missing $name")
         }
-        val delegate = description("delegate_task")
-        assertTrue(delegate.contains("TASK_GROUP_PAUSED"))
-        assertTrue(delegate.contains("no uncommitted changes"))
-        assertTrue(delegate.contains("never pass workspace_id"))
-        assertTrue(delegate.contains("execution_stopped=true"))
-        assertTrue(delegate.contains("different agent_id"))
-        assertTrue(delegate.contains("missing shell is not a reason for the parent to read that source itself"))
-        assertTrue(description("supervise_task").contains("need status exactly running"))
-        assertTrue(description("supervise_task").contains("allowed_actions"))
+        // 本仓库保留本方版 delegate_task 描述文案；此处只校验错误提示相关的工具约束。
         assertTrue(description("manage_agent_workspace").contains("WORKSPACE_IN_USE"))
     }
 

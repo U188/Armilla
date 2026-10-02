@@ -70,10 +70,12 @@ class EtaApp : Application(), XposedServiceHelper.OnServiceListener {
         AssistantRepository.init(this)
         io.github.mangi.eta.data.repository.RemotePersonaStore.init(this)
         io.github.mangi.eta.data.model.AssistantPrompt.personaOverrideResolver = { id ->
-            if (id == io.github.mangi.eta.data.model.AssistantPrompt.HACKER_ID) {
-                io.github.mangi.eta.data.repository.RemotePersonaStore.hackerPersona()
-            } else {
-                null
+            when (id) {
+                io.github.mangi.eta.data.model.AssistantPrompt.DEFAULT_ID ->
+                    io.github.mangi.eta.data.repository.RemotePersonaStore.defaultPersona()
+                io.github.mangi.eta.data.model.AssistantPrompt.HACKER_ID ->
+                    io.github.mangi.eta.data.repository.RemotePersonaStore.hackerPersona()
+                else -> null
             }
         }
         McpServerRepository.init(this)

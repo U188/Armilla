@@ -510,11 +510,11 @@
   <string name="update_downloading">正在下載…</string>
   <string name="update_download_failed">下載更新失敗</string>
   <string name="update_install_permission">請允許安裝未知應用後再更新</string>
-  <string name="persona_refresh_title">重新整理小楓人格</string>
+  <string name="persona_refresh_title">重新整理小蝶和小楓人格</string>
   <string name="persona_refreshing">正在重新整理…</string>
-  <string name="persona_refresh_summary">從伺服器拉取最新小楓人格</string>
-  <string name="persona_refresh_success">小楓人格已更新（%1$d 字）</string>
-  <string name="persona_refresh_failed">重新整理失敗：%1$s</string>
+  <string name="persona_refresh_summary">從伺服器拉取最新的小蝶和小楓人格</string>
+  <string name="persona_refresh_item_success">%1$s人格已更新（%2$d 字）</string>
+  <string name="persona_refresh_item_failed">%1$s重新整理失敗：%2$s</string>
   <string name="ui_click_to_reinstall_dc60de">點選重新安裝</string>
   <string name="ui_environmental_status_5b32a1">環境狀態</string>
   <string name="ui_user_skills_748e7f">使用者安裝</string>

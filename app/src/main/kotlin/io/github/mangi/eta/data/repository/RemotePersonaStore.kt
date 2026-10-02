@@ -24,11 +24,17 @@ internal object RemotePersonaStore {
     private const val DEFAULT_CACHE_FILE_NAME = "remote_persona_default.txt"
     private const val MAX_PERSONA_BYTES = 64 * 1024
 
-    /** 手动拉取结果，供 UI 反馈。 */
-    sealed interface RefreshResult {
-        data class Success(val chars: Int) : RefreshResult
-        data class Failure(val reason: String) : RefreshResult
+    /** 单个人格的拉取结果。 */
+    sealed interface PersonaResult {
+        data class Success(val chars: Int) : PersonaResult
+        data class Failure(val reason: String) : PersonaResult
     }
+
+    /** 小蝶与小枫各自的拉取结果。 */
+    data class RefreshResult(
+        val default: PersonaResult,
+        val hacker: PersonaResult,
+    )
 
     @Volatile
     private var cachedHackerPersona: String? = null
@@ -46,7 +52,7 @@ internal object RemotePersonaStore {
         }
     }
 
-    /** 手动拉取两个内置人格：成功即更新内存并落盘。阻塞调用，请在 IO 线程执行。 */
+    /** 手动拉取两个内置人格：返回小蝶与小枫各自的结果。阻塞调用，请在 IO 线程执行。 */
     fun refresh(context: Context): RefreshResult {
         val hacker = refreshOne(context, HACKER_GIST_RAW_URL, HACKER_CACHE_FILE_NAME) { text ->
             cachedHackerPersona = text
@@ -54,13 +60,7 @@ internal object RemotePersonaStore {
         val default = refreshOne(context, DEFAULT_GIST_RAW_URL, DEFAULT_CACHE_FILE_NAME) { text ->
             cachedDefaultPersona = text
         }
-        return when {
-            hacker is RefreshResult.Failure -> hacker
-            default is RefreshResult.Failure -> default
-            else -> RefreshResult.Success(
-                (hacker as RefreshResult.Success).chars + (default as RefreshResult.Success).chars,
-            )
-        }
+        return RefreshResult(default = default, hacker = hacker)
     }
 
     private fun refreshOne(
@@ -68,24 +68,24 @@ internal object RemotePersonaStore {
         url: String,
         cacheFileName: String,
         onLoaded: (String) -> Unit,
-    ): RefreshResult {
-        if (!url.startsWith("https://")) return RefreshResult.Failure("未配置远程地址")
+    ): PersonaResult {
+        if (!url.startsWith("https://")) return PersonaResult.Failure("未配置远程地址")
         return runCatching {
             val request = Request.Builder().url(url).get().build()
             AgentHttpClient.client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return RefreshResult.Failure("HTTP ${response.code}")
+                    return PersonaResult.Failure("HTTP ${response.code}")
                 }
-                val body = response.body ?: return RefreshResult.Failure("内容为空")
+                val body = response.body ?: return PersonaResult.Failure("内容为空")
                 // 先按声明长度拦截超大响应，避免整体读入内存再拒绝。
                 val declared = body.contentLength()
-                if (declared > MAX_PERSONA_BYTES) return RefreshResult.Failure("内容超过 64KB")
+                if (declared > MAX_PERSONA_BYTES) return PersonaResult.Failure("内容超过 64KB")
                 // 有界读取：最多读 MAX_PERSONA_BYTES+1 字节，超出即判定过大。
                 val source = body.source()
                 source.request((MAX_PERSONA_BYTES + 1).toLong())
-                if (source.buffer.size > MAX_PERSONA_BYTES) return RefreshResult.Failure("内容超过 64KB")
+                if (source.buffer.size > MAX_PERSONA_BYTES) return PersonaResult.Failure("内容超过 64KB")
                 val text = body.string().trim()
-                if (text.isEmpty()) return RefreshResult.Failure("内容为空")
+                if (text.isEmpty()) return PersonaResult.Failure("内容为空")
                 onLoaded(text)
                 val persisted = runCatching { cacheFile(context, cacheFileName).writeText(text) }
                     .onFailure { throwable ->
@@ -94,14 +94,14 @@ internal object RemotePersonaStore {
                     .isSuccess
                 AndroidAgentLogger.info("Remote persona updated: ${text.length} chars, persisted=$persisted")
                 if (persisted) {
-                    RefreshResult.Success(text.length)
+                    PersonaResult.Success(text.length)
                 } else {
-                    RefreshResult.Failure("已生效但缓存写入失败，重启后可能丢失")
+                    PersonaResult.Failure("已生效但缓存写入失败，重启后可能丢失")
                 }
             }
         }.getOrElse { throwable ->
             AndroidAgentLogger.warn("Remote persona fetch failed: type=${throwable.safeLogType()}")
-            RefreshResult.Failure(throwable.message ?: throwable.safeLogType())
+            PersonaResult.Failure(throwable.message ?: throwable.safeLogType())
         }
     }
 

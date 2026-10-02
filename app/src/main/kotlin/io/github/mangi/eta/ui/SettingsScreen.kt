@@ -934,11 +934,40 @@ internal fun SettingsScreen(
                                     io.github.mangi.eta.data.repository.RemotePersonaStore.refresh(context)
                                 }
                                 refreshingPersona = false
-                                val message = when (result) {
-                                    is io.github.mangi.eta.data.repository.RemotePersonaStore.RefreshResult.Success ->
-                                        context.getString(R.string.persona_refresh_success, result.chars)
-                                    is io.github.mangi.eta.data.repository.RemotePersonaStore.RefreshResult.Failure ->
-                                        context.getString(R.string.persona_refresh_failed, result.reason)
+                                val message = buildString {
+                                    append(
+                                        when (val status = result.default) {
+                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Success ->
+                                                context.getString(
+                                                    R.string.persona_refresh_item_success,
+                                                    "小蝶",
+                                                    status.chars,
+                                                )
+                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Failure ->
+                                                context.getString(
+                                                    R.string.persona_refresh_item_failed,
+                                                    "小蝶",
+                                                    status.reason,
+                                                )
+                                        },
+                                    )
+                                    append('\n')
+                                    append(
+                                        when (val status = result.hacker) {
+                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Success ->
+                                                context.getString(
+                                                    R.string.persona_refresh_item_success,
+                                                    "小枫",
+                                                    status.chars,
+                                                )
+                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Failure ->
+                                                context.getString(
+                                                    R.string.persona_refresh_item_failed,
+                                                    "小枫",
+                                                    status.reason,
+                                                )
+                                        },
+                                    )
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                             }

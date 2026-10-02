@@ -134,6 +134,8 @@ internal fun SettingsScreen(
     val currentVersion = remember { AppUpdateRepository.currentVersionName(context) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var refreshingPersona by remember { mutableStateOf(false) }
+    var personaRefreshDetails by remember { mutableStateOf<String?>(null) }
+    var personaRefreshSummary by remember { mutableStateOf(PersonaRefreshFeedback.cachedSummary(context)) }
     var updateOffer by remember { mutableStateOf<AppUpdateOffer?>(null) }
     val appSettings by SettingsDataStore.settingsFlow().collectAsState(
         initial = io.github.mangi.eta.data.model.Settings(),
@@ -919,7 +921,7 @@ internal fun SettingsScreen(
                         summary = if (refreshingPersona) {
                             stringResource(R.string.persona_refreshing)
                         } else {
-                            stringResource(R.string.persona_refresh_summary)
+                            personaRefreshSummary
                         },
                         startAction = {
                             PreferenceIcon(
@@ -930,46 +932,28 @@ internal fun SettingsScreen(
                             if (refreshingPersona) return@ArrowPreference
                             refreshingPersona = true
                             coroutineScope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    io.github.mangi.eta.data.repository.RemotePersonaStore.refresh(context)
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        io.github.mangi.eta.data.repository.RemotePersonaStore.refresh(context)
+                                    }
+                                    val hookStatus = if (EtaApp.serviceInstance == null) {
+                                        context.getString(R.string.persona_hook_disconnected)
+                                    } else {
+                                        val synced = try {
+                                            withContext(Dispatchers.IO) {
+                                                RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+                                            }
+                                        } catch (error: Exception) {
+                                            if (error is CancellationException) throw error
+                                            false
+                                        }
+                                        context.getString(if (synced) R.string.persona_hook_synced else R.string.persona_hook_failed)
+                                    }
+                                    personaRefreshSummary = PersonaRefreshFeedback.summary(context, result)
+                                    personaRefreshDetails = PersonaRefreshFeedback.details(context, result) + "\n\n" + hookStatus
+                                } finally {
+                                    refreshingPersona = false
                                 }
-                                refreshingPersona = false
-                                val message = buildString {
-                                    append(
-                                        when (val status = result.default) {
-                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Success ->
-                                                context.getString(
-                                                    R.string.persona_refresh_item_success,
-                                                    "小蝶",
-                                                    status.chars,
-                                                )
-                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Failure ->
-                                                context.getString(
-                                                    R.string.persona_refresh_item_failed,
-                                                    "小蝶",
-                                                    status.reason,
-                                                )
-                                        },
-                                    )
-                                    append('\n')
-                                    append(
-                                        when (val status = result.hacker) {
-                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Success ->
-                                                context.getString(
-                                                    R.string.persona_refresh_item_success,
-                                                    "小枫",
-                                                    status.chars,
-                                                )
-                                            is io.github.mangi.eta.data.repository.RemotePersonaStore.PersonaResult.Failure ->
-                                                context.getString(
-                                                    R.string.persona_refresh_item_failed,
-                                                    "小枫",
-                                                    status.reason,
-                                                )
-                                        },
-                                    )
-                                }
-                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                             }
                         },
                     )
@@ -983,6 +967,14 @@ internal fun SettingsScreen(
             currentVersion = currentVersion,
             onDismiss = { updateOffer = null },
         )
+
+        personaRefreshDetails?.let { details ->
+            io.github.mangi.eta.ui.components.ItemDescriptionDialog(
+                title = stringResource(R.string.persona_refresh_result_title),
+                description = details,
+                onDismiss = { personaRefreshDetails = null },
+            )
+        }
 
         if (showClearLogsDialog) {
             WindowDialog(

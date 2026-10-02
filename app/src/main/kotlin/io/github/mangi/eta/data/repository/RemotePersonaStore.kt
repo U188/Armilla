@@ -5,114 +5,133 @@ import io.github.mangi.eta.agent.model.AgentHttpClient
 import io.github.mangi.eta.core.AndroidAgentLogger
 import io.github.mangi.eta.core.safeLogType
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import okhttp3.CacheControl
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONObject
 
-/**
- * 内置助手人格的服务器下发覆盖层。
- *
- * 设计：编译进 APK 的内置人格始终是兜底；gist 内容是纯文本人格原文（无 JSON、无版本号、无转义），
- * 用户手动触发 [refresh] 拉取一次，成功即落盘缓存并即时生效。启动时 [init] 只从本地缓存恢复，不触网。
- * 拉取失败或首次无缓存时对应人格返回 null，构建链路退回编译常量。
- */
+/** Manual refresh only. Restore verified disk snapshots at startup without accessing the network. */
 internal object RemotePersonaStore {
-    private const val HACKER_GIST_RAW_URL =
-        "https://gist.githubusercontent.com/U188/1231d6d69cb045a33e8cd434f1e09aec/raw/gistfile1.txt"
-    private const val DEFAULT_GIST_RAW_URL =
-        "https://gist.githubusercontent.com/U188/9a2e1239ac8af01d6f6273b09f31fc31/raw/a78e1d4bbc2ce7387bae33d12f82e7a1b258dbf4/gistfile1.txt"
-
-    private const val HACKER_CACHE_FILE_NAME = "remote_persona.txt"
-    private const val DEFAULT_CACHE_FILE_NAME = "remote_persona_default.txt"
+    private const val DEFAULT_GIST_ID = "9a2e1239ac8af01d6f6273b09f31fc31"
+    private const val HACKER_GIST_ID = "1231d6d69cb045a33e8cd434f1e09aec"
+    private const val FILE_NAME = "gistfile1.txt"
     private const val MAX_PERSONA_BYTES = 64 * 1024
+    private const val MAX_METADATA_BYTES = 512 * 1024
 
-    /** 单个人格的拉取结果。 */
     sealed interface PersonaResult {
-        data class Success(val chars: Int) : PersonaResult
-        data class Failure(val reason: String) : PersonaResult
+        data class Success(
+            val snapshot: RemotePersonaCache.Snapshot,
+            val changed: Boolean,
+        ) : PersonaResult
+        data class Failure(
+            val reason: String,
+            val retained: RemotePersonaCache.Snapshot?,
+        ) : PersonaResult
     }
 
-    /** 小蝶与小枫各自的拉取结果。 */
-    data class RefreshResult(
-        val default: PersonaResult,
-        val hacker: PersonaResult,
-    )
+    data class RefreshResult(val default: PersonaResult, val hacker: PersonaResult)
 
     @Volatile
-    private var cachedHackerPersona: String? = null
-
+    private var defaultCache: RemotePersonaCache? = null
     @Volatile
-    private var cachedDefaultPersona: String? = null
+    private var hackerCache: RemotePersonaCache? = null
 
-    /** 从本地缓存文件恢复到内存；启动早期同步调用，不触网。 */
-    fun init(context: Context) {
-        runCatching {
-            cachedHackerPersona = readCache(cacheFile(context, HACKER_CACHE_FILE_NAME))
-            cachedDefaultPersona = readCache(cacheFile(context, DEFAULT_CACHE_FILE_NAME))
-        }.onFailure { throwable ->
-            AndroidAgentLogger.warn("Remote persona cache load failed: type=${throwable.safeLogType()}")
-        }
+    private val httpClient by lazy {
+        AgentHttpClient.client.newBuilder()
+            .callTimeout(45, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
     }
 
-    /** 手动拉取两个内置人格：返回小蝶与小枫各自的结果。阻塞调用，请在 IO 线程执行。 */
+    fun init(context: Context) = init(context.filesDir)
+
+    @Synchronized
+    internal fun init(filesDir: File) {
+        defaultCache = restore(filesDir, "remote_persona_default", DEFAULT_GIST_ID)
+        hackerCache = restore(filesDir, "remote_persona", HACKER_GIST_ID)
+    }
+
+    private fun restore(filesDir: File, name: String, gistId: String): RemotePersonaCache {
+        val cache = RemotePersonaCache(File(filesDir, "$name.json"))
+        runCatching { cache.restore(File(filesDir, "$name.txt"), source(gistId)) }
+            .onFailure { error ->
+                AndroidAgentLogger.warn("Remote persona cache load failed ($gistId): type=${error.safeLogType()}")
+            }
+        return cache
+    }
+
     fun refresh(context: Context): RefreshResult {
-        val hacker = refreshOne(context, HACKER_GIST_RAW_URL, HACKER_CACHE_FILE_NAME) { text ->
-            cachedHackerPersona = text
-        }
-        val default = refreshOne(context, DEFAULT_GIST_RAW_URL, DEFAULT_CACHE_FILE_NAME) { text ->
-            cachedDefaultPersona = text
-        }
-        return RefreshResult(default = default, hacker = hacker)
+        if (defaultCache == null || hackerCache == null) init(context)
+        return refresh(::fetchText)
+    }
+
+    /** Injectable transport for deterministic latest-version, disk and failure regression tests. */
+    @Synchronized
+    internal fun refresh(
+        fetch: (String, Int) -> String,
+        now: () -> Long = System::currentTimeMillis,
+    ): RefreshResult {
+        val default = refreshOne(defaultCache, DEFAULT_GIST_ID, fetch, now)
+        val hacker = refreshOne(hackerCache, HACKER_GIST_ID, fetch, now)
+        return RefreshResult(default, hacker)
     }
 
     private fun refreshOne(
-        context: Context,
-        url: String,
-        cacheFileName: String,
-        onLoaded: (String) -> Unit,
-    ): PersonaResult {
-        if (!url.startsWith("https://")) return PersonaResult.Failure("未配置远程地址")
-        return runCatching {
-            val request = Request.Builder().url(url).get().build()
-            AgentHttpClient.client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return PersonaResult.Failure("HTTP ${response.code}")
-                }
-                val body = response.body ?: return PersonaResult.Failure("内容为空")
-                // 先按声明长度拦截超大响应，避免整体读入内存再拒绝。
-                val declared = body.contentLength()
-                if (declared > MAX_PERSONA_BYTES) return PersonaResult.Failure("内容超过 64KB")
-                // 有界读取：最多读 MAX_PERSONA_BYTES+1 字节，超出即判定过大。
-                val source = body.source()
-                source.request((MAX_PERSONA_BYTES + 1).toLong())
-                if (source.buffer.size > MAX_PERSONA_BYTES) return PersonaResult.Failure("内容超过 64KB")
-                val text = body.string().trim()
-                if (text.isEmpty()) return PersonaResult.Failure("内容为空")
-                onLoaded(text)
-                val persisted = runCatching { cacheFile(context, cacheFileName).writeText(text) }
-                    .onFailure { throwable ->
-                        AndroidAgentLogger.warn("Remote persona cache write failed: type=${throwable.safeLogType()}")
-                    }
-                    .isSuccess
-                AndroidAgentLogger.info("Remote persona updated: ${text.length} chars, persisted=$persisted")
-                if (persisted) {
-                    PersonaResult.Success(text.length)
-                } else {
-                    PersonaResult.Failure("已生效但缓存写入失败，重启后可能丢失")
-                }
-            }
-        }.getOrElse { throwable ->
-            AndroidAgentLogger.warn("Remote persona fetch failed: type=${throwable.safeLogType()}")
-            PersonaResult.Failure(throwable.message ?: throwable.safeLogType())
+        cache: RemotePersonaCache?,
+        gistId: String,
+        fetch: (String, Int) -> String,
+        now: () -> Long,
+    ): PersonaResult = try {
+        checkNotNull(cache) { "人格缓存未初始化" }
+        // Query the latest gist first; never reuse the user's old immutable raw revision.
+        val metadata = JSONObject(fetch("https://api.github.com/gists/$gistId", MAX_METADATA_BYTES))
+        val revision = metadata.getJSONArray("history").getJSONObject(0).getString("version")
+        check(revision.matches(Regex("[a-fA-F0-9]{40}"))) { "服务器版本无效" }
+        val file = metadata.getJSONObject("files").getJSONObject(FILE_NAME)
+        val rawUrl = file.getString("raw_url")
+        check(rawUrl.startsWith("https://gist.githubusercontent.com/U188/$gistId/raw/")) {
+            "服务器文件来源不匹配"
+        }
+        val text = fetch(rawUrl, MAX_PERSONA_BYTES).trim()
+        check(text.isNotEmpty()) { "内容为空" }
+        check(text.toByteArray(Charsets.UTF_8).size <= MAX_PERSONA_BYTES) { "内容超过 64KB" }
+        // If the API has a complete copy, require the raw download to match it as well.
+        if (!file.optBoolean("truncated", false) && file.has("content")) {
+            check(text == file.getString("content").trim()) { "下载内容与服务器当前版本不一致，请重试" }
+        }
+        val snapshot = RemotePersonaCache.Snapshot(text, source(gistId), revision, now())
+        val changed = cache.commit(snapshot)
+        AndroidAgentLogger.info("Remote persona verified ($gistId): revision=$revision sha256=${snapshot.sha256}")
+        PersonaResult.Success(snapshot, changed)
+    } catch (error: Exception) {
+        AndroidAgentLogger.warn("Remote persona refresh failed ($gistId): type=${error.safeLogType()}")
+        PersonaResult.Failure(error.message ?: error.safeLogType(), cache?.current)
+    }
+
+    private fun fetchText(url: String, maxBytes: Int): String {
+        val request = Request.Builder()
+            .url(url.toHttpUrl().newBuilder().addQueryParameter("_persona_refresh", UUID.randomUUID().toString()).build())
+            .cacheControl(CacheControl.Builder().noCache().noStore().build())
+            .header("Accept", if (url.startsWith("https://api.github.com/")) "application/vnd.github+json" else "text/plain")
+            .get()
+            .build()
+        return httpClient.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "HTTP ${response.code}" }
+            val body = response.body
+            check(body.contentLength() <= maxBytes) { "响应内容过大" }
+            val source = body.source()
+            source.request((maxBytes + 1).toLong())
+            check(source.buffer.size <= maxBytes) { "响应内容过大" }
+            body.string()
         }
     }
 
-    /** 当前生效的小枫人格覆盖；无有效覆盖时返回 null，由调用方退回编译常量。 */
-    fun hackerPersona(): String? = cachedHackerPersona?.takeIf { it.isNotBlank() }
+    fun defaultPersona(): String? = defaultCache?.current?.text
+    fun hackerPersona(): String? = hackerCache?.current?.text
+    fun defaultSnapshot(): RemotePersonaCache.Snapshot? = defaultCache?.current
+    fun hackerSnapshot(): RemotePersonaCache.Snapshot? = hackerCache?.current
 
-    /** 当前生效的小蝶人格覆盖；无有效覆盖时返回 null，由调用方退回编译常量。 */
-    fun defaultPersona(): String? = cachedDefaultPersona?.takeIf { it.isNotBlank() }
-
-    private fun readCache(file: File): String? =
-        if (!file.isFile) null else file.readText().trim().takeIf { it.isNotEmpty() }
-
-    private fun cacheFile(context: Context, name: String): File = File(context.filesDir, name)
+    private fun source(gistId: String): String = "https://gist.github.com/U188/$gistId"
 }

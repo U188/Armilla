@@ -334,12 +334,23 @@ internal fun AssistantEditScreen(
             onConfirm = { cropped ->
                 cropBitmap = null
                 scope.launch {
-                    val updated = withContext(Dispatchers.IO) {
+                    val result = withContext(Dispatchers.IO) { runCatching {
                         AssistantRepository.saveAvatar(assistantId, cropped)
-                    }
-                    avatarFileName = updated.avatarFileName
+                    } }
                     if (cropped !== bitmap) cropped.recycle()
                     bitmap.recycle()
+                    val updated = result.getOrNull()
+                    if (updated != null) {
+                        avatarFileName = updated.avatarFileName
+                    } else {
+                        result.exceptionOrNull()?.let { failure ->
+                            io.github.mangi.eta.core.AndroidAgentLogger.error(
+                                "Assistant avatar save failed: ${failure.javaClass.simpleName}",
+                                failure,
+                            )
+                        }
+                        android.widget.Toast.makeText(context, result.exceptionOrNull()?.message ?: "技能目录发布失败，请重试", android.widget.Toast.LENGTH_LONG).show()
+                    }
                 }
             },
         )

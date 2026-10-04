@@ -1379,8 +1379,8 @@ internal class AgentAppState(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                AndroidAgentLogger.warn("Conversation load failed: ${failure.safeLogType()}")
-                Toast.makeText(appContext, "对话加载失败，请重试。", Toast.LENGTH_SHORT).show()
+                AndroidAgentLogger.error("Conversation selection failed: ${failure.safeLogType()}", failure)
+                Toast.makeText(appContext, "对话切换失败，请重试。", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -5035,7 +5035,9 @@ internal class AgentAppState(
     }
 
     private fun applyConversationAssistant(assistantId: String, persist: Boolean) {
-        if (homeState.assistantId != assistantId) {
+        val conversationId = selectedConversationId
+        val previousAssistantId = homeState.assistantId
+        if (previousAssistantId != assistantId) {
             updateCurrentConversation(homeState.copy(assistantId = assistantId))
             if (persist) persistConversations()
         }
@@ -5045,12 +5047,41 @@ internal class AgentAppState(
             return
         }
         scope.launch(Dispatchers.IO) {
-            AssistantRepository.select(assistantId)
-            RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
-            withContext(Dispatchers.Main) {
-                if (resolvedAssistantId(homeState) != assistantId) return@withContext
-                refreshMemory()
-                refreshRequestOverhead()
+            try {
+                AssistantRepository.select(assistantId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AndroidAgentLogger.error("Assistant switch failed: ${failure.safeLogType()}", failure)
+                withContext(Dispatchers.Main) {
+                    if (selectedConversationId == conversationId && resolvedAssistantId(homeState) == assistantId) {
+                        updateCurrentConversation(homeState.copy(assistantId = previousAssistantId))
+                        if (persist) persistConversations()
+                    }
+                    Toast.makeText(appContext, "助手切换失败，请重试。", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+            try {
+                RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AndroidAgentLogger.warn("Assistant switch remote sync failed: ${failure.safeLogType()}")
+            }
+            try {
+                withContext(Dispatchers.Main) {
+                    if (resolvedAssistantId(homeState) != assistantId) return@withContext
+                    refreshMemory()
+                    refreshRequestOverhead()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AndroidAgentLogger.error("Assistant switch refresh failed: ${failure.safeLogType()}", failure)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "助手已切换，但界面刷新失败，请重试。", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

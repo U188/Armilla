@@ -215,6 +215,9 @@ internal class AgentLocalTools(
                 terminalController.stopOwnedDaemons()
                 return@runCatching textResult(errorResult("ASSISTANT_DELETED", "任务所属助手已删除，工具未执行"))
             }
+            if (skillTreeMutationUncertain.get() && toolCall.name.startsWith("skills_")) {
+                return@runCatching textResult(nextTurnRequired("Skill 树"))
+            }
             val args = JSONObject(toolCall.argumentsJson.ifBlank { "{}" })
             if (AgentToolRequirements.find(toolCall.name) != null &&
                 AgentToolRequirements.rootDenied(toolCall.name, args, rootAvailable())
@@ -346,6 +349,10 @@ internal class AgentLocalTools(
     }
 
     private fun fileVisionTool(block: () -> AgentModelClient.ToolResult): AgentModelClient.ToolResult {
+        liveSkillEntries()
+        if (skillAuthorizationChanged.get() || skillTreeMutationUncertain.get()) {
+            return textResult(nextTurnRequired("Skill 树"))
+        }
         if (!terminalToolsEnabled()) {
             return textResult(errorResult("TERMINAL_TOOLS_DISABLED", "请先启用终端/文件工具"))
         }
@@ -932,6 +939,7 @@ internal class AgentLocalTools(
         liveSkillEntries().filter { runSkillsRoot != null || SkillParser.normalizeSkillLookup(it.id) !in mutatedSkillIds }
 
     private fun liveSkillEntries(): List<SkillIndexEntry> {
+        if (skillTreeMutationUncertain.get()) return emptyList()
         if (runSkillsRoot == null) {
             return runSkillEntries.filter { File(it.skillFilePath).isFile }
         }
@@ -951,7 +959,17 @@ internal class AgentLocalTools(
                     terminalController.stopOwnedDaemons()
                 }
                 if (revoked.isNotEmpty()) {
-                    SkillRuntime.pruneRunSkills(context, runSkillsRoot, entries.map { it.id }.toSet())
+                    try {
+                        SkillRuntime.pruneRunSkills(context, runSkillsRoot, entries.map { it.id }.toSet())
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        logger.error("Skill authorization revoke failed", failure)
+                        skillTreeMutationUncertain.set(true)
+                        terminalController.interruptAll()
+                        terminalController.stopOwnedDaemons()
+                        return emptyList()
+                    }
                 }
                 lastConfirmedSkillEntries = entries
             }

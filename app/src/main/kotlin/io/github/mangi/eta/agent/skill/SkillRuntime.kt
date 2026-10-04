@@ -480,7 +480,11 @@ class SkillIndexService(
         registry: Map<String, SkillRegistryEntry>,
         builtinAssets: Map<String, BuiltinSkillAsset>,
     ): List<SkillIndexEntry> {
-        if (!skillsRoot.exists()) return emptyList()
+        // 根目录在 seedBuiltinSkillsLocked() 中已确保存在；走到这里说明目录被外部删除或不可读，
+        // 属于"无法枚举"而不是"没有已安装技能"。返回空列表会被运行期授权当成全部撤销，
+        // 因此必须上抛，让调用方按读取失败保留原快照。
+        check(skillsRoot.isDirectory) { "Skills 目录不可用，无法枚举已安装技能：${skillsRoot.absolutePath}" }
+
         val canonicalRoot = skillsRoot.canonicalFile.toPath()
         return skillsRoot.walkTopDown()
             .onEnter { dir ->

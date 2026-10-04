@@ -1,5 +1,6 @@
 package io.github.mangi.eta.agent.skill
 
+import io.github.mangi.eta.core.AndroidAgentLogger
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -134,7 +135,6 @@ internal fun moveSkillDirectoryAtomically(source: File, target: File) {
         Files.move(source.toPath(), target.toPath())
     }
 }
-
 /** 删除 Skills 根目录内的路径，但遇到任意符号链接时只删除链接本身。 */
 internal fun deleteSkillPathWithoutFollowingLinks(skillsRoot: File, target: File): Boolean {
     val lexicalRoot = skillsRoot.absoluteFile.toPath().normalize()
@@ -146,10 +146,19 @@ internal fun deleteSkillPathWithoutFollowingLinks(skillsRoot: File, target: File
         val canonicalTarget = target.canonicalFile.toPath()
         if (!canonicalTarget.startsWith(canonicalRoot) || canonicalTarget == canonicalRoot) return false
     }
-    return runCatching {
+    return try {
         deletePathTreeWithoutFollowingLinks(lexicalTarget)
         true
-    }.getOrDefault(false)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        AndroidAgentLogger.error(
+            "Skill path deletion failed: path=${target.absolutePath}, " +
+                "type=${error.javaClass.simpleName}, message=${error.message.orEmpty()}",
+            error,
+        )
+        false
+    }
 }
 
 private fun deletePathTreeWithoutFollowingLinks(path: Path) {

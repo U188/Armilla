@@ -174,11 +174,31 @@ internal object AssistantRepository {
             avatar?.delete()
             next
         }
-        AgentMemoryRepository.delete(id)
+        runCatching { AgentMemoryRepository.delete(id) }
+            .onFailure { failure ->
+                io.github.mangi.eta.core.AndroidAgentLogger.error(
+                    "Assistant memory deletion failed after delete: ${failure.javaClass.simpleName}",
+                    failure,
+                )
+            }
         if (::applicationContext.isInitialized) {
-            SkillRuntime.deleteAssistantSkills(applicationContext, id)
+            // 助手已从索引移除、记忆已删除；技能目录清理失败不再让进程退出。
+            // 残留的运行快照由 .lease/.retained 存活判定在下次 createRunSkills 时回收。
+            runCatching { SkillRuntime.deleteAssistantSkills(applicationContext, id) }
+                .onFailure { failure ->
+                    io.github.mangi.eta.core.AndroidAgentLogger.error(
+                        "Assistant skill cleanup failed after delete: ${failure.javaClass.simpleName}",
+                        failure,
+                    )
+                }
             if (nextActive != id) {
-                refreshAssistantSkills(nextActive, publishVisible = true)
+                runCatching { refreshAssistantSkills(nextActive, publishVisible = true) }
+                    .onFailure { failure ->
+                        io.github.mangi.eta.core.AndroidAgentLogger.error(
+                            "Assistant skill republication failed after delete: ${failure.javaClass.simpleName}",
+                            failure,
+                        )
+                    }
             }
         }
     }
@@ -201,7 +221,15 @@ internal object AssistantRepository {
             publish(next)
             next.activeId
         }
-        refreshAssistantSkills(active, publishVisible = true)
+        // 导入已提交索引；技能视图发布失败只记日志。启动时的恢复路径（EtaApp recoverInterruptedImport）
+        // 会把这里的异常直接重抛进 Application.onCreate，绝不能让它逃逸。
+        runCatching { refreshAssistantSkills(active, publishVisible = true) }
+            .onFailure { failure ->
+                io.github.mangi.eta.core.AndroidAgentLogger.error(
+                    "Assistant skill publication failed after import: ${failure.javaClass.simpleName}",
+                    failure,
+                )
+            }
     }
 
     fun exportAvatars(): Map<String, ByteArray> {
@@ -235,16 +263,23 @@ internal object AssistantRepository {
 
     @Synchronized
     fun select(id: String) {
-        val changed = withIndexLock {
+        val shouldSelect = withIndexLock {
             ensureReady()
             require(profiles.value.any { it.id == id }) { "助手不存在" }
-            if (activeId.value == id) return@withIndexLock false
+            activeId.value != id
+        }
+        if (!shouldSelect) return
+        // Prepare the target's visible skill tree before changing activeId. If cleanup fails,
+        // the old assistant remains active and a later retry is still possible.
+        if (::applicationContext.isInitialized) refreshAssistantSkills(id, publishVisible = true)
+        withIndexLock {
+            ensureReady()
+            require(profiles.value.any { it.id == id }) { "助手不存在" }
+            if (activeId.value == id) return@withIndexLock
             val snapshot = Snapshot(id, profiles.value)
             writeIndex(snapshot)
             publish(snapshot)
-            true
         }
-        if (changed) refreshAssistantSkills(id, publishVisible = true)
     }
 
     private fun refreshAssistantSkills(assistantId: String, publishVisible: Boolean) {

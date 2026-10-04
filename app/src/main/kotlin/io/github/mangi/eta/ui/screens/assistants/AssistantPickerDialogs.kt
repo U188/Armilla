@@ -135,8 +135,17 @@ internal fun AssistantPickerDialog(
             onCopy = {
                 actionProfile = null
                 scope.launch {
-                    withContext(Dispatchers.IO) {
-                        AssistantRepository.duplicate(profile.id)
+                    try {
+                        withContext(Dispatchers.IO) {
+                            AssistantRepository.duplicate(profile.id)
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        io.github.mangi.eta.core.AndroidAgentLogger.error(
+                            "Assistant duplicate failed: ${failure.javaClass.simpleName}",
+                            failure,
+                        )
                     }
                 }
             },
@@ -162,9 +171,18 @@ internal fun AssistantPickerDialog(
                 val target = profile
                 deleteProfile = null
                 scope.launch {
-                    withContext(Dispatchers.IO) {
-                        AssistantRepository.delete(target.id)
-                        RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+                    try {
+                        withContext(Dispatchers.IO) {
+                            AssistantRepository.delete(target.id)
+                            RuntimeConfigRepository.syncToRemotePreferences(EtaApp.serviceInstance)
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        io.github.mangi.eta.core.AndroidAgentLogger.error(
+                            "Assistant delete failed: ${failure.javaClass.simpleName}",
+                            failure,
+                        )
                     }
                 }
             },
